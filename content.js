@@ -89,6 +89,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  if (request.action === 'checkContentType') {
+    // Check the content type of the current page
+    const contentType = document.contentType || '';
+    console.log('Content type check:', contentType);
+    sendResponse({ contentType: contentType });
+    return true;
+  }
+  
+  if (request.action === 'checkPDFElements') {
+    // Check for PDF-related elements in the page
+    const hasPDFElements = !!(
+      document.querySelector('embed[type="application/pdf"]') ||
+      document.querySelector('object[type="application/pdf"]') ||
+      document.querySelector('iframe[src*="pdf"]') ||
+      document.querySelector('canvas[data-pdf-url]') ||
+      document.querySelector('[data-pdf-viewer]') ||
+      document.querySelector('.pdf-viewer') ||
+      document.querySelector('#pdf-viewer')
+    );
+    console.log('PDF elements check:', hasPDFElements);
+    sendResponse({ hasPDFElements: hasPDFElements });
+    return true;
+  }
+  
   if (request.action === 'getPaperContent') {
     try {
       // Check if we already have the content

@@ -4,6 +4,8 @@ importScripts('config.js');
 // Keep track of active tabs and their states
 let activeTabs = new Map();
 let analysisInProgress = new Set(); // Track which tabs are being analyzed
+let analysisQueue = []; // Queue for pending analyses
+let isProcessingQueue = false; // Flag to prevent multiple queue processing
 
 // Log configuration on startup
 console.log('Background script: Smart backend detection enabled');
@@ -21,31 +23,7 @@ backendManager.detectBestBackend().then(backend => {
   console.error('Background script: Error during initial backend detection:', error);
 });
 
-// Listen for messages from content scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background script received message:', request);
-  
-  if (request.action === 'checkAnalysisStatus') {
-    handleCheckAnalysisStatus(request, sendResponse);
-    return true;
-  }
-});
 
-// Function to handle analysis status checks
-function handleCheckAnalysisStatus(request, sendResponse) {
-  const tabId = request.tabId;
-  const tabState = activeTabs.get(tabId);
-  
-  if (tabState) {
-    sendResponse({
-      inProgress: tabState.analysisInProgress || false,
-      hasAnalysis: !!tabState.lastAnalysis,
-      analysisInProgress: tabState.analysisInProgress || false
-    });
-  } else {
-    sendResponse({ inProgress: false, hasAnalysis: false, analysisInProgress: false });
-  }
-}
 
 // Listen for tab updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -57,10 +35,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       tab.url.startsWith('file:///')
     )) {
       // Mark the tab as active
+      const currentState = activeTabs.get(tabId) || {};
       activeTabs.set(tabId, {
+        ...currentState,
         url: tab.url,
         lastUpdated: Date.now()
       });
+      
+      console.log('Background: Tab updated and marked as active:', tabId, tab.url);
+      console.log('Background: activeTabs size:', activeTabs.size);
       
       // Remove automatic analysis trigger for PDFs
       // if (tab.url.toLowerCase().endsWith('.pdf') || tab.url.startsWith('file:///')) {
@@ -73,6 +56,106 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+// Function to add analysis to queue
+function addToAnalysisQueue(tabId, url, priority = 0) {
+  console.log(`Background: Adding tab ${tabId} to analysis queue`);
+  
+  // Check if already in queue
+  const existingIndex = analysisQueue.findIndex(item => item.tabId === tabId);
+  if (existingIndex !== -1) {
+    console.log(`Background: Tab ${tabId} already in queue, updating priority`);
+    analysisQueue[existingIndex].priority = priority;
+    analysisQueue[existingIndex].timestamp = Date.now();
+    return;
+  }
+  
+  // Add to queue
+  analysisQueue.push({
+    tabId: tabId,
+    url: url,
+    priority: priority,
+    timestamp: Date.now()
+  });
+  
+  // Sort queue by priority (higher priority first) and then by timestamp
+  analysisQueue.sort((a, b) => {
+    if (a.priority !== b.priority) {
+      return b.priority - a.priority; // Higher priority first
+    }
+    return a.timestamp - b.timestamp; // Earlier timestamp first
+  });
+  
+  console.log(`Background: Queue updated. Current queue:`, analysisQueue.map(item => ({ tabId: item.tabId, priority: item.priority })));
+  
+  // Start processing queue if not already processing
+  if (!isProcessingQueue) {
+    processAnalysisQueue();
+  }
+}
+
+// Function to process the analysis queue
+async function processAnalysisQueue() {
+  if (isProcessingQueue) {
+    console.log('Background: Queue processing already in progress, skipping');
+    return;
+  }
+  
+  if (analysisQueue.length === 0) {
+    console.log('Background: Queue is empty, nothing to process');
+    return;
+  }
+  
+  // Check if any analysis is currently in progress
+  if (analysisInProgress.size > 0) {
+    console.log(`Background: Analysis already in progress (${analysisInProgress.size} active), waiting...`);
+    return;
+  }
+  
+  isProcessingQueue = true;
+  console.log('Background: Starting queue processing');
+  
+  try {
+    while (analysisQueue.length > 0 && analysisInProgress.size === 0) {
+      const nextAnalysis = analysisQueue.shift();
+      console.log(`Background: Processing next analysis from queue: tab ${nextAnalysis.tabId}`);
+      
+      // Check if tab still exists
+      try {
+        const tab = await chrome.tabs.get(nextAnalysis.tabId);
+        if (!tab) {
+          console.log(`Background: Tab ${nextAnalysis.tabId} no longer exists, skipping`);
+          continue;
+        }
+        
+        // Start the analysis
+        await triggerPDFAnalysis(nextAnalysis.tabId);
+        
+        // Wait for this analysis to complete before processing next
+        while (analysisInProgress.has(nextAnalysis.tabId)) {
+          console.log(`Background: Waiting for analysis ${nextAnalysis.tabId} to complete...`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        }
+        
+      } catch (error) {
+        console.error(`Background: Error processing analysis for tab ${nextAnalysis.tabId}:`, error);
+        // Remove from in-progress set if it was added
+        analysisInProgress.delete(nextAnalysis.tabId);
+      }
+    }
+  } catch (error) {
+    console.error('Background: Error in queue processing:', error);
+  } finally {
+    isProcessingQueue = false;
+    console.log('Background: Queue processing completed');
+    
+    // If there are still items in queue and no analysis in progress, process again
+    if (analysisQueue.length > 0 && analysisInProgress.size === 0) {
+      console.log('Background: Items still in queue, processing again...');
+      setTimeout(() => processAnalysisQueue(), 1000);
+    }
+  }
+}
+
 // Function to automatically trigger PDF analysis
 async function triggerPDFAnalysis(tabId) {
   try {
@@ -82,15 +165,41 @@ async function triggerPDFAnalysis(tabId) {
       return;
     }
     
-    console.log(`Triggering automatic analysis for tab ${tabId}`);
+    console.log(`Starting analysis for tab ${tabId} (from queue)`);
     analysisInProgress.add(tabId);
     
-    // Update tab state to show analysis is in progress
-    activeTabs.set(tabId, {
-      ...activeTabs.get(tabId),
+    // Update tab state to show analysis is now in progress
+    const currentTabState = activeTabs.get(tabId) || {};
+    const newTabState = {
+      ...currentTabState,
       analysisInProgress: true,
-      analysisStartTime: Date.now()
-    });
+      analysisQueued: false,
+      analysisStartTime: Date.now(),
+      lastUpdated: Date.now()
+    };
+    activeTabs.set(tabId, newTabState);
+    console.log(`Background: Updated tab state for analysis start:`, newTabState);
+    
+    // Set analysis status to in progress
+    try {
+      const STATUS_KEY = 'analysisStatus';
+      const now = new Date().toISOString();
+      const storage = await chrome.storage.local.get([STATUS_KEY]);
+      const allStatus = storage[STATUS_KEY] || {};
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.url) {
+        allStatus[tab.url] = {
+          status: 'in_progress',
+          updatedAt: now,
+          startedAt: now
+        };
+        await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+      }
+    } catch (statusError) {
+      console.error('Error setting analysis status:', statusError);
+    }
+    
+
 
     // Show badge indicator that analysis is in progress
     chrome.action.setBadgeText({ text: '...' });
@@ -227,19 +336,44 @@ async function triggerPDFAnalysis(tabId) {
 
     console.log('Analysis completed successfully:', data.summary?.substring(0, 100) + '...');
 
-    // Store the analysis results
-    await chrome.storage.local.set({
-      lastAnalysis: {
-        timestamp: new Date().toISOString(),
-        url: response.content.paperUrl || response.content.paperId,
-        title: response.content.title || 'PDF Document',
-        content: response.content,
-        summary: data.summary,
-        autoAnalyzed: true
-      }
-    });
+    // Store the analysis results (per tab URL)
+    const analysisResult = {
+      timestamp: new Date().toISOString(),
+      url: response.content.paperUrl || response.content.paperId,
+      title: response.content.title || 'PDF Document',
+      content: response.content,
+      summary: data.summary,
+      autoAnalyzed: true
+    };
+
+    // Get existing analysis results and add the new one
+    const existingResults = await chrome.storage.local.get(['analysisResults']);
+    const allResults = existingResults.analysisResults || {};
+    allResults[response.content.paperUrl || response.content.paperId] = analysisResult;
+
+    // Store the updated results
+    await chrome.storage.local.set({ analysisResults: allResults });
+    
+    // Also store as lastAnalysis for backward compatibility
+    await chrome.storage.local.set({ lastAnalysis: analysisResult });
 
     console.log('PDF analysis completed and stored');
+    
+    // Set analysis status to complete
+    try {
+      const STATUS_KEY = 'analysisStatus';
+      const now = new Date().toISOString();
+      const storage = await chrome.storage.local.get([STATUS_KEY]);
+      const allStatus = storage[STATUS_KEY] || {};
+      allStatus[response.content.paperUrl || response.content.paperId] = {
+        status: 'complete',
+        updatedAt: now,
+        finishedAt: now
+      };
+      await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+    } catch (statusError) {
+      console.error('Error setting analysis status:', statusError);
+    }
     
     // Update tab state with analysis results
     activeTabs.set(tabId, {
@@ -279,28 +413,214 @@ async function triggerPDFAnalysis(tabId) {
       chrome.action.setBadgeText({ text: '' });
     }, 5000);
 
-  } catch (error) {
-    console.error('Error in automatic PDF analysis:', error);
-    // Clear badge on error
-    chrome.action.setBadgeText({ text: '' });
-  } finally {
-    // Always remove from in-progress set
-    analysisInProgress.delete(tabId);
-  }
+      } catch (error) {
+      console.error('Error in automatic PDF analysis:', error);
+      
+      // Set analysis status to error
+      try {
+        const STATUS_KEY = 'analysisStatus';
+        const now = new Date().toISOString();
+        const storage = await chrome.storage.local.get([STATUS_KEY]);
+        const allStatus = storage[STATUS_KEY] || {};
+        const tab = await chrome.tabs.get(tabId);
+        if (tab && tab.url) {
+          allStatus[tab.url] = {
+            status: 'error',
+            errorMessage: error.message,
+            updatedAt: now,
+            finishedAt: now
+          };
+          await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+        }
+      } catch (statusError) {
+        console.error('Error setting analysis status:', statusError);
+      }
+      
+      // Clear badge on error
+      chrome.action.setBadgeText({ text: '' });
+    } finally {
+      // Always remove from in-progress set
+      analysisInProgress.delete(tabId);
+    }
 }
 
-// Listen for tab removal
-chrome.tabs.onRemoved.addListener((tabId) => {
-  activeTabs.delete(tabId);
-  analysisInProgress.delete(tabId);
+// Listen for tab activation
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    if (tab.url && (
+      tab.url.toLowerCase().endsWith('.pdf') ||
+      tab.url.includes('ssrn.com') ||
+      tab.url.startsWith('file:///')
+    )) {
+      // Ensure the tab is in activeTabs
+      const currentState = activeTabs.get(activeInfo.tabId) || {};
+      activeTabs.set(activeInfo.tabId, {
+        ...currentState,
+        url: tab.url,
+        lastUpdated: Date.now()
+      });
+      
+      console.log('Background: Tab activated and marked as active:', activeInfo.tabId, tab.url);
+      console.log('Background: activeTabs size:', activeTabs.size);
+    }
+  } catch (error) {
+    console.error('Error handling tab activation:', error);
+  }
 });
 
-// Listen for messages from content scripts
+// Listen for tab removal
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  // Get the tab URL before removing it from activeTabs
+  const tabState = activeTabs.get(tabId);
+  const tabUrl = tabState?.url;
+  
+  activeTabs.delete(tabId);
+  analysisInProgress.delete(tabId);
+  
+  // Remove from analysis queue
+  const queueIndex = analysisQueue.findIndex(item => item.tabId === tabId);
+  if (queueIndex !== -1) {
+    analysisQueue.splice(queueIndex, 1);
+    console.log(`Background: Removed tab ${tabId} from analysis queue`);
+  }
+  
+  console.log('Background: Tab removed:', tabId, 'URL:', tabUrl);
+  console.log('Background: activeTabs size after removal:', activeTabs.size);
+  console.log('Background: analysisInProgress size after removal:', analysisInProgress.size);
+  console.log('Background: analysisQueue size after removal:', analysisQueue.length);
+  
+  // Clean up analysis results for this tab if it was closed
+  if (tabUrl) {
+    try {
+      // Remove analysis results for this URL
+      const existingResults = await chrome.storage.local.get(['analysisResults']);
+      const allResults = existingResults.analysisResults || {};
+      
+      if (allResults[tabUrl]) {
+        delete allResults[tabUrl];
+        await chrome.storage.local.set({ analysisResults: allResults });
+        console.log('Background: Removed analysis results for closed tab URL:', tabUrl);
+      }
+      
+      // Also clean up author analysis results
+      const existingAuthorResults = await chrome.storage.local.get(['authorAnalysisResults']);
+      const allAuthorResults = existingAuthorResults.authorAnalysisResults || {};
+      
+      if (allAuthorResults[tabUrl]) {
+        delete allAuthorResults[tabUrl];
+        await chrome.storage.local.set({ authorAnalysisResults: allAuthorResults });
+        console.log('Background: Removed author analysis results for closed tab URL:', tabUrl);
+      }
+    } catch (error) {
+      console.error('Background: Error cleaning up analysis results for closed tab:', error);
+    }
+  }
+});
+
+// Listen for messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Background: Received message:', request.action, 'from sender:', sender);
+  
   try {
     // Handle messages that don't require a tab context
     if (request.action === 'getConfig' || request.action === 'ping') {
       sendResponse({ success: true, config: { version: '1.0' } });
+      return true;
+    }
+    
+    // Handle checkAnalysisStatus from popup (which includes tabId in the request)
+    if (request.action === 'checkAnalysisStatus' && request.tabId) {
+      console.log('Background: Handling checkAnalysisStatus for tabId:', request.tabId);
+      const tabId = request.tabId;
+      const tabState = activeTabs.get(tabId);
+      
+      console.log('Background: Current tabState:', tabState);
+      console.log('Background: analysisInProgress.has(tabId):', analysisInProgress.has(tabId));
+      console.log('Background: activeTabs size:', activeTabs.size);
+      console.log('Background: analysisInProgress size:', analysisInProgress.size);
+      console.log('Background: All activeTabs keys:', Array.from(activeTabs.keys()));
+      console.log('Background: All analysisInProgress values:', Array.from(analysisInProgress));
+      
+      const response = { 
+        inProgress: analysisInProgress.has(tabId),
+        hasAnalysis: tabState?.hasAnalysis || false,
+        analysisInProgress: tabState?.analysisInProgress || false,
+        queued: tabState?.analysisQueued || false,
+        queuePosition: analysisQueue.findIndex(item => item.tabId === tabId) + 1
+      };
+      console.log('Background: Sending response:', response);
+      sendResponse(response);
+      return true;
+    }
+    
+    // Handle analysis status messages from popup (these don't have sender.tab)
+    if (request.action === 'analysisStarted' && request.tabId) {
+      // Handle analysis started notification from popup
+      console.log('Background: Analysis requested for tabId:', request.tabId, 'URL:', request.url);
+      console.log('Background: Current queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
+      
+      // Update tab state to show analysis is queued
+      const currentTabState = activeTabs.get(request.tabId) || {};
+      const newTabState = {
+        ...currentTabState,
+        url: request.url,
+        analysisQueued: true,
+        analysisRequestTime: Date.now(),
+        lastUpdated: Date.now()
+      };
+      activeTabs.set(request.tabId, newTabState);
+      
+      // Add to analysis queue instead of starting immediately
+      addToAnalysisQueue(request.tabId, request.url);
+      
+      console.log('Background: Updated tab state for analysis request:', newTabState);
+      console.log('Background: After queue update - queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
+      
+      sendResponse({ success: true, queued: true });
+      return true;
+    } else if (request.action === 'analysisComplete' && request.tabId) {
+      // Handle analysis completed notification from popup
+      console.log('Background: Analysis completed for tabId:', request.tabId);
+      
+      // Update tab state to show analysis is complete
+      const currentTabState = activeTabs.get(request.tabId) || {};
+      const newTabState = {
+        ...currentTabState,
+        url: request.url,
+        hasAnalysis: request.hasResults || true,
+        analysisInProgress: false,
+        analysisTimestamp: Date.now(),
+        lastUpdated: Date.now()
+      };
+      activeTabs.set(request.tabId, newTabState);
+      analysisInProgress.delete(request.tabId);
+      
+      console.log('Background: Updated tab state for analysis completion:', newTabState);
+      console.log('Background: analysisInProgress size after delete:', analysisInProgress.size);
+      
+      sendResponse({ success: true });
+      return true;
+    } else if (request.action === 'analysisError' && request.tabId) {
+      // Handle analysis error notification from popup
+      console.log('Background: Analysis error for tabId:', request.tabId, 'Error:', request.error);
+      
+      // Update tab state to show analysis failed
+      const currentTabState = activeTabs.get(request.tabId) || {};
+      const newTabState = {
+        ...currentTabState,
+        url: request.url,
+        analysisInProgress: false,
+        lastError: request.error,
+        lastUpdated: Date.now()
+      };
+      activeTabs.set(request.tabId, newTabState);
+      analysisInProgress.delete(request.tabId);
+      
+      console.log('Background: Updated tab state for analysis error:', newTabState);
+      console.log('Background: analysisInProgress size after error:', analysisInProgress.size);
+      
+      sendResponse({ success: true });
       return true;
     }
     
@@ -342,14 +662,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error('Error starting manual analysis:', error);
         sendResponse({ error: error.message });
       }
-    } else if (request.action === 'checkAnalysisStatus') {
-      // Check if analysis is in progress for a tab
-      const tabState = activeTabs.get(tabId);
-      sendResponse({ 
-        inProgress: analysisInProgress.has(tabId),
-        hasAnalysis: tabState?.hasAnalysis || false,
-        analysisInProgress: tabState?.analysisInProgress || false
-      });
     } else {
       console.log('Unknown message action:', request.action);
       sendResponse({ error: 'Unknown action' });

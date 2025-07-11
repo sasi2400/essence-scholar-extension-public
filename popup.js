@@ -1,7 +1,187 @@
 document.addEventListener('DOMContentLoaded', function() {
+  // Persistent analysis status utility functions
+  const STATUS_KEY = 'analysisStatus';
+  
+  async function setAnalysisStatus(url, status, errorMessage = null) {
+    console.log('Setting analysis status:', { url, status, errorMessage });
+    const now = new Date().toISOString();
+    const update = {
+      status,
+      updatedAt: now,
+    };
+    if (status === 'in_progress') {
+      update.startedAt = now;
+    } else if (status === 'complete' || status === 'error') {
+      update.finishedAt = now;
+    }
+    if (errorMessage) {
+      update.errorMessage = errorMessage;
+    }
+    const storage = await chrome.storage.local.get([STATUS_KEY]);
+    const allStatus = storage[STATUS_KEY] || {};
+    allStatus[url] = update;
+    await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+    console.log('Analysis status set successfully:', update);
+  }
+  
+  async function getAnalysisStatus(url) {
+    const storage = await chrome.storage.local.get([STATUS_KEY]);
+    const allStatus = storage[STATUS_KEY] || {};
+    
+    // Try exact match first
+    let status = allStatus[url] || null;
+    
+    // If no exact match, try to find a similar URL (handle trailing slashes, etc.)
+    if (!status) {
+      const normalizedUrl = url.replace(/\/$/, ''); // Remove trailing slash
+      for (const [storedUrl, storedStatus] of Object.entries(allStatus)) {
+        const normalizedStoredUrl = storedUrl.replace(/\/$/, '');
+        if (normalizedUrl === normalizedStoredUrl) {
+          status = storedStatus;
+          console.log('Found status with normalized URL match:', storedUrl);
+          break;
+        }
+      }
+    }
+    
+    console.log('Getting analysis status for URL:', url, 'Result:', status);
+    return status;
+  }
+  
+  // Function to check and monitor analysis status using local storage
+  async function checkAndMonitorAnalysisStatus() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) {
+        console.log('No tab or URL found for status monitoring');
+        return;
+      }
+      
+      console.log('Checking analysis status for URL:', tab.url);
+      const status = await getAnalysisStatus(tab.url);
+      console.log('Current analysis status:', status);
+      
+      if (!status) {
+        console.log('No analysis status found for this URL');
+        return;
+      }
+      
+      if (status.status === 'in_progress') {
+        console.log('Analysis in progress, starting monitoring...');
+        showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
+        
+        // Start monitoring for status changes
+        const monitorInterval = setInterval(async () => {
+          try {
+            console.log('Checking for status update...');
+            const currentStatus = await getAnalysisStatus(tab.url);
+            console.log('Current status check result:', currentStatus);
+            
+            if (currentStatus && currentStatus.status !== 'in_progress') {
+              console.log('Status changed from in_progress to:', currentStatus.status);
+              // Status changed, update UI
+              clearInterval(monitorInterval);
+              
+              if (currentStatus.status === 'complete') {
+                console.log('Analysis completed, updating UI...');
+                showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+                setButtonState('View Analysis', false, false);
+                analyzeBtn.style.backgroundColor = '#4CAF50';
+                analyzeBtn.onclick = () => {
+                  chrome.tabs.create({
+                    url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+                  });
+                };
+              } else if (currentStatus.status === 'error') {
+                console.log('Analysis failed, updating UI...');
+                showStatus('Analysis failed: ' + (currentStatus.errorMessage || 'Unknown error'), 'error');
+                setButtonState('Analyze Current Paper', false, false);
+                analyzeBtn.style.backgroundColor = '#2196F3';
+              }
+            }
+          } catch (error) {
+            console.error('Error monitoring analysis status:', error);
+            clearInterval(monitorInterval);
+          }
+        }, 2000); // Check every 2 seconds
+        
+        // Stop monitoring after 10 minutes to prevent infinite polling
+        setTimeout(() => {
+          console.log('Stopping status monitoring after timeout');
+          clearInterval(monitorInterval);
+        }, 10 * 60 * 1000);
+        
+      } else if (status.status === 'complete') {
+        console.log('Analysis already complete, showing results...');
+        showStatus('Analysis complete for this paper. Click "View Analysis" to see results.', 'success');
+        setButtonState('View Analysis', false, false);
+        analyzeBtn.style.backgroundColor = '#4CAF50';
+        analyzeBtn.onclick = () => {
+          chrome.tabs.create({
+            url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+          });
+        };
+      } else if (status.status === 'error') {
+        console.log('Analysis failed, showing error...');
+        showStatus('Analysis failed: ' + (status.errorMessage || 'Unknown error'), 'error');
+      }
+    } catch (error) {
+      console.error('Error checking analysis status:', error);
+    }
+  }
+  
+  // Function to restore analysis state if in progress (reconnected to background script)
+  async function restoreAnalysisState() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) return;
+
+      // First check local storage status
+      const localStatus = await getAnalysisStatus(tab.url);
+      if (localStatus && localStatus.status === 'in_progress') {
+        console.log('Local storage shows analysis in progress, starting monitoring...');
+        // Start monitoring for completion
+        checkAndMonitorAnalysisStatus();
+        return;
+      }
+
+      // If no local status, check background script status
+      const status = await checkAnalysisStatus(tab.id);
+      
+      if (status.inProgress || status.analysisInProgress) {
+        console.log('Background script shows analysis in progress, setting local status...');
+        
+        // Set local status to in progress and start monitoring
+        await setAnalysisStatus(tab.url, 'in_progress');
+        checkAndMonitorAnalysisStatus();
+      } else if (status.hasAnalysis) {
+        // Background script indicates analysis exists for this tab
+        console.log('Background script indicates analysis exists for this tab');
+        
+        // Check for recent completed analysis in storage
+        const hasExistingAnalysis = await checkForExistingAnalysis();
+        if (hasExistingAnalysis) {
+          console.log('Analysis results found in storage, UI should be updated by checkForExistingAnalysis');
+        } else {
+          // If storage doesn't have it, still show the View Analysis button
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = () => {
+            chrome.tabs.create({
+              url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+            });
+          };
+          showStatus('Analysis complete for this paper! Click "View Analysis" to see results.', 'success');
+        }
+      }
+    } catch (error) {
+      console.error('Error restoring analysis state:', error);
+    }
+  }
   // Get DOM elements using new IDs
   const analyzeBtn = document.getElementById('analyze-btn');
-  const openFullBtn = document.getElementById('open-full-btn');
+  const homeBtn = document.getElementById('home-btn');
+  const settingsBtn = document.getElementById('settings-btn');
   const analyzeAuthorsBtn = document.getElementById('analyze-authors-btn');
   const statusContainer = document.getElementById('status-container');
   const backendStatus = document.getElementById('backend-status');
@@ -123,13 +303,24 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to check for existing analysis (only called when user explicitly requests analysis)
   async function checkForExistingAnalysis() {
     try {
-      const result = await chrome.storage.local.get(['lastAnalysis']);
-      if (result.lastAnalysis) {
-        const analysis = result.lastAnalysis;
-        console.log('Found existing analysis:', analysis);
+      // Get the current active tab to check for tab-specific analysis
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) {
+        console.log('No active tab found for analysis check');
+        return false;
+      }
+
+      // Check for tab-specific analysis results
+      const result = await chrome.storage.local.get(['analysisResults']);
+      const allResults = result.analysisResults || {};
+      
+      // Look for analysis results for this specific tab URL
+      const tabAnalysis = allResults[tab.url];
+      if (tabAnalysis) {
+        console.log('Found existing analysis for this tab:', tabAnalysis);
         
         // Check if this analysis is recent (within last 5 minutes)
-        const analysisTime = new Date(analysis.timestamp);
+        const analysisTime = new Date(tabAnalysis.timestamp);
         const now = new Date();
         const timeDiff = now - analysisTime;
         const isRecent = timeDiff < 5 * 60 * 1000; // 5 minutes
@@ -140,22 +331,62 @@ document.addEventListener('DOMContentLoaded', function() {
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = () => {
             chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html')
+              url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
             });
           };
           
-          showStatus('DONE: Analysis already exists! Click "View Analysis" to see results.', 'success');
+          showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
           return true; // Indicate that analysis exists
+        } else {
+          console.log('Analysis exists but is too old, removing from storage');
+          // Remove old analysis from storage
+          delete allResults[tab.url];
+          await chrome.storage.local.set({ analysisResults: allResults });
         }
       }
-      return false; // No recent analysis found
+      
+      // Also check legacy global lastAnalysis for backward compatibility
+      const legacyResult = await chrome.storage.local.get(['lastAnalysis']);
+      if (legacyResult.lastAnalysis) {
+        const analysis = legacyResult.lastAnalysis;
+        console.log('Found legacy analysis:', analysis);
+        
+        // Check if this analysis is for the current tab
+        if (analysis.url === tab.url) {
+          const analysisTime = new Date(analysis.timestamp);
+          const now = new Date();
+          const timeDiff = now - analysisTime;
+          const isRecent = timeDiff < 5 * 60 * 1000; // 5 minutes
+          
+          if (isRecent) {
+            // Migrate to new storage format
+            const newResults = allResults || {};
+            newResults[tab.url] = analysis;
+            await chrome.storage.local.set({ analysisResults: newResults });
+            
+            // Show that analysis exists and offer to view it
+            setButtonState('View Analysis', false, false);
+            analyzeBtn.style.backgroundColor = '#4CAF50';
+            analyzeBtn.onclick = () => {
+              chrome.tabs.create({
+                url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+              });
+            };
+            
+            showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
+            return true;
+          }
+        }
+      }
+      
+      return false; // No recent analysis found for this tab
     } catch (error) {
       console.error('Error checking for existing analysis:', error);
       return false;
     }
   }
 
-  // Function to check analysis status from background script
+  // Function to check analysis status from background script (legacy - not used for status monitoring)
   async function checkAnalysisStatus(tabId) {
     try {
       const response = await chrome.runtime.sendMessage({ 
@@ -185,7 +416,23 @@ document.addEventListener('DOMContentLoaded', function() {
         showProgress(2, 'Analysis in progress. Please wait...');
         
         // Set up monitoring to check for completion
-        monitorAnalysisProgress(tab.id);
+        monitorAnalysisProgress(tab.id).catch(error => {
+          console.error('Error in analysis monitoring:', error);
+        });
+      } else if (status.queued) {
+        console.log('Analysis queued detected, restoring UI state');
+        
+        // Show that analysis is queued
+        setButtonState('Queued...', true, true);
+        const queueMsg = status.queuePosition > 0 
+          ? `Analysis queued. Position: ${status.queuePosition}. Please wait...`
+          : 'Analysis queued. Please wait...';
+        showProgress(1, queueMsg);
+        
+        // Set up monitoring to check for completion
+        monitorAnalysisProgress(tab.id).catch(error => {
+          console.error('Error in analysis monitoring:', error);
+        });
       } else if (status.hasAnalysis) {
         // Check for recent completed analysis
         const hasExistingAnalysis = await checkForExistingAnalysis();
@@ -200,7 +447,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Function to monitor analysis progress and update UI when complete
-  function monitorAnalysisProgress(tabId) {
+  async function monitorAnalysisProgress(tabId) {
     let lastStatus = null;
     
     const checkInterval = setInterval(async () => {
@@ -211,10 +458,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (JSON.stringify(status) !== JSON.stringify(lastStatus)) {
           lastStatus = status;
           
-          if (status.inProgress || status.analysisInProgress) {
-            // Still in progress - update progress indicator
-            showProgress(2, 'Analysis in progress. Please wait...');
-          } else {
+                if (status.inProgress || status.analysisInProgress) {
+        // Still in progress - update progress indicator
+        showProgress(2, 'Analysis in progress. Please wait...');
+      } else if (status.queued) {
+        // Analysis is queued - show queue position
+        const queueMsg = status.queuePosition > 0 
+          ? `Analysis queued. Position: ${status.queuePosition}. Please wait...`
+          : 'Analysis queued. Please wait...';
+        showProgress(1, queueMsg);
+      } else {
             // Analysis completed
             clearInterval(checkInterval);
             console.log('Analysis completed, updating UI');
@@ -233,14 +486,13 @@ document.addEventListener('DOMContentLoaded', function() {
                   setButtonState('View Analysis', false, false);
                   analyzeBtn.style.backgroundColor = '#4CAF50';
                 } else {
-                  // Analysis may have failed
-                  setButtonState('Analyze Current Paper', false, false);
-                  showStatus('Analysis completed. Click to start a new analysis.', 'info');
+                  // Analysis may have failed - re-check page type to set correct button state
+                  await checkPageType();
                 }
               } catch (error) {
                 console.log('Could not read badge text:', error);
-                setButtonState('Analyze Current Paper', false, false);
-                showStatus('Analysis completed. Click to start a new analysis.', 'info');
+                // Re-check page type to set correct button state
+                await checkPageType();
               }
             }
           }
@@ -249,7 +501,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Error monitoring analysis progress:', error);
         clearInterval(checkInterval);
         hideProgress();
-        setButtonState('Analyze Current Paper', false, false);
+        // Re-check page type to set correct button state
+        await checkPageType();
         showStatus('Error monitoring analysis. Click to try again.', 'error');
       }
     }, 2000); // Check every 2 seconds
@@ -283,11 +536,10 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
 
-      // Check if we're on a valid page
-      if (!tab.url.includes('ssrn.com') && 
-          !tab.url.toLowerCase().endsWith('.pdf') && 
-          !tab.url.startsWith('file:///')) {
-        throw new Error('Please navigate to an SSRN paper page or open a PDF file first, then click Analyze');
+      // Only allow paper analysis on PDF pages (since SSRN pages only show author analysis)
+      const isPDF = await checkIfPDFPage(tab);
+      if (!isPDF) {
+        throw new Error('Paper analysis is only available for PDF files. For SSRN pages, use "Analyze Authors" instead.');
       }
 
       // Check for existing analysis first (only when user clicks analyze)
@@ -298,12 +550,20 @@ document.addEventListener('DOMContentLoaded', function() {
         return; // Stop here if existing analysis was found and user chose to view it
       }
 
-      // Check if analysis is already in progress
+      // Check if analysis is already in progress or queued
       console.log('Popup: Checking analysis status...');
       const status = await checkAnalysisStatus(tab.id);
-      if (status && (status.inProgress || status.analysisInProgress)) {
-        console.log('Analysis already in progress, not starting new one');
-        showStatus('Analysis is already in progress. Please wait...', 'progress');
+      if (status && (status.inProgress || status.analysisInProgress || status.queued)) {
+        if (status.queued) {
+          const queueMsg = status.queuePosition > 0 
+            ? `Analysis is queued (position ${status.queuePosition}). Please wait...`
+            : 'Analysis is queued. Please wait...';
+          console.log('Analysis already queued, not starting new one');
+          showStatus(queueMsg, 'progress');
+        } else {
+          console.log('Analysis already in progress, not starting new one');
+          showStatus('Analysis is already in progress. Please wait...', 'progress');
+        }
         return;
       }
 
@@ -311,6 +571,24 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Popup: Starting analysis process...');
       setButtonState('Analyzing...', true, true);
       showProgress(1, 'Extracting content from the page...');
+      
+      // Set analysis status to in progress
+      console.log('About to set analysis status to in_progress for URL:', tab.url);
+      await setAnalysisStatus(tab.url, 'in_progress');
+      console.log('Analysis status set to in_progress');
+      
+      // Notify background script that analysis is starting
+      try {
+        console.log('Popup: Sending analysisStarted message to background script for tabId:', tab.id);
+        const response = await chrome.runtime.sendMessage({ 
+          action: 'analysisStarted', 
+          tabId: tab.id,
+          url: tab.url
+        });
+        console.log('Popup: Background script response to analysisStarted:', response);
+      } catch (error) {
+        console.error('Popup: Could not notify background script:', error);
+      }
 
       // Ensure content script is injected
       console.log('Popup: Ensuring content script is injected...');
@@ -370,34 +648,101 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update progress
         showProgress(3, 'Analysis complete! Storing results...');
 
-        // Store the content and analysis for the full page view
-        await chrome.storage.local.set({
-          lastAnalysis: {
+        // Store the content and analysis for the full page view (per tab URL)
+        const analysisResult = {
+          timestamp: new Date().toISOString(),
+          url: tab.url,
+          title: response.content.title || 'Document',
+          content: response.content,
+          summary: data.summary,
+          autoAnalyzed: false
+        };
+
+        // Get existing analysis results and add the new one
+        const existingResults = await chrome.storage.local.get(['analysisResults']);
+        const allResults = existingResults.analysisResults || {};
+        allResults[tab.url] = analysisResult;
+
+        // Store the updated results
+        await chrome.storage.local.set({ analysisResults: allResults });
+        
+        // Also store as lastAnalysis for backward compatibility with fullpage.html
+        await chrome.storage.local.set({ lastAnalysis: analysisResult });
+
+        // If author data is available from the full analysis, store it for the author view
+        if (data.author_data) {
+          console.log('Popup: Author data received from full analysis, storing for author view');
+          const authorResult = {
             timestamp: new Date().toISOString(),
             url: tab.url,
-            title: response.content.title || 'Document',
-            content: response.content,
-            summary: data.summary,
-            autoAnalyzed: false
-          }
-        });
+            data: data.author_data
+          };
+          
+          // Store author analysis per tab URL
+          const existingAuthorResults = await chrome.storage.local.get(['authorAnalysisResults']);
+          const allAuthorResults = existingAuthorResults.authorAnalysisResults || {};
+          allAuthorResults[tab.url] = authorResult;
+          
+          await chrome.storage.local.set({ 
+            authorAnalysisResults: allAuthorResults,
+            lastAuthorAnalysis: authorResult // For backward compatibility
+          });
+        }
+        
+        // Set analysis status to complete
+        await setAnalysisStatus(tab.url, 'complete');
+
+        // Notify background script that analysis is complete
+        try {
+          console.log('Popup: Sending analysisComplete message to background script for tabId:', tab.id);
+          const response = await chrome.runtime.sendMessage({ 
+            action: 'analysisComplete', 
+            tabId: tab.id,
+            url: tab.url,
+            hasResults: true
+          });
+          console.log('Popup: Background script response to analysisComplete:', response);
+        } catch (error) {
+          console.error('Popup: Could not notify background script of completion:', error);
+        }
 
         // Show completion status
         hideProgress();
         clearStatus();
-        showStatus('DONE: Analysis complete! Click "Go to Full Page" to view the detailed summary.', 'success');
+        let statusMessage = 'DONE: Analysis complete! Click "Go to Full Page" to view the detailed summary.';
+        if (data.author_data) {
+          statusMessage += ` Author profiles also fetched: ${data.author_data.summary.total_authors} authors with ${data.author_data.summary.total_citations.toLocaleString()} total citations.`;
+        }
+        showStatus(statusMessage, 'success');
         
         // Update button state
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = () => {
           chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html')
+            url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
           });
         };
 
       } catch (error) {
         console.error('Error analyzing paper:', error);
+        
+        // Set analysis status to error
+        await setAnalysisStatus(tab.url, 'error', error.message);
+        
+        // Notify background script that analysis failed
+        try {
+          console.log('Popup: Sending analysisError message to background script for tabId:', tab.id, 'Error:', error.message);
+          const response = await chrome.runtime.sendMessage({ 
+            action: 'analysisError', 
+            tabId: tab.id,
+            url: tab.url,
+            error: error.message
+          });
+          console.log('Popup: Background script response to analysisError:', response);
+        } catch (bgError) {
+          console.error('Popup: Could not notify background script of error:', bgError);
+        }
         
         // Handle specific error types
         if (error.name === 'AbortError') {
@@ -417,6 +762,30 @@ document.addEventListener('DOMContentLoaded', function() {
       clearStatus();
       showStatus(`Error: ${error.message}`, 'error');
       setButtonState('Analyze Current Paper', false, false);
+      
+      // Set analysis status to error if we have a tab URL
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.url) {
+          await setAnalysisStatus(tab.url, 'error', error.message);
+          
+          // Notify background script that analysis failed
+          try {
+            console.log('Popup: Sending analysisError message to background script in catch block for tabId:', tab.id, 'Error:', error.message);
+            const response = await chrome.runtime.sendMessage({ 
+              action: 'analysisError', 
+              tabId: tab.id,
+              url: tab.url,
+              error: error.message
+            });
+            console.log('Popup: Background script response to analysisError in catch block:', response);
+          } catch (bgError) {
+            console.error('Popup: Could not notify background script of error in catch block:', bgError);
+          }
+        }
+      } catch (statusError) {
+        console.error('Error setting analysis status:', statusError);
+      }
     }
   }
 
@@ -477,32 +846,63 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // Debug function to show current storage state
+  async function debugStorageState() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      console.log('=== STORAGE DEBUG ===');
+      console.log('Current tab URL:', tab?.url);
+      
+      const storage = await chrome.storage.local.get(['analysisResults', 'authorAnalysisResults', 'lastAnalysis', 'lastAuthorAnalysis']);
+      console.log('All analysis results:', storage.analysisResults);
+      console.log('All author analysis results:', storage.authorAnalysisResults);
+      console.log('Legacy lastAnalysis:', storage.lastAnalysis);
+      console.log('Legacy lastAuthorAnalysis:', storage.lastAuthorAnalysis);
+      
+      if (tab?.url && storage.analysisResults) {
+        console.log('Analysis for current tab:', storage.analysisResults[tab.url]);
+      }
+      console.log('=== END STORAGE DEBUG ===');
+    } catch (error) {
+      console.error('Error debugging storage:', error);
+    }
+  }
+
   // Function to check if current tab is a PDF and set up the UI accordingly
   async function checkPageType() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      if (tab.url && (tab.url.toLowerCase().endsWith('.pdf') || tab.url.startsWith('file:///'))) {
-        // PDF detected - show ready state and wait for user to click analyze
+      console.log('checkPageType: Current tab URL:', tab.url);
+      
+      // Check if it's a PDF page using multiple criteria
+      const isPDF = await checkIfPDFPage(tab);
+      console.log('checkPageType: Is PDF page?', isPDF);
+      
+      if (isPDF) {
+        // PDF detected - only show paper analysis option
+        console.log('checkPageType: PDF detected - enabling paper analysis, hiding author analysis');
         showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
         setButtonState('Analyze Current Paper', false, false);
         analyzeBtn.style.backgroundColor = '#2196F3'; // Blue for ready state
         showAuthorsButton(false); // Hide authors button for PDFs
         
       } else if (tab.url && tab.url.includes('ssrn.com')) {
-        // SSRN page detected
-        showStatus('SSRN page detected. Click "Analyze Current Paper" to start analysis.', 'info');
-        setButtonState('Analyze Current Paper', false, false);
-        analyzeBtn.style.backgroundColor = '#2196F3';
+        // SSRN page detected - only show author analysis option
+        console.log('checkPageType: SSRN detected - disabling paper analysis, showing author analysis');
+        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+        setButtonState('Analyze Current Paper', true, false); // Disable paper analysis button
+        analyzeBtn.style.backgroundColor = '#ccc'; // Gray out the button
         
-        // Show authors button for SSRN pages
+        // Show only authors button for SSRN pages
         showAuthorsButton(true);
         setAuthorsButtonState('Analyze Authors', false, false);
         analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
         
       } else {
         // Not a supported page
-        showStatus('Navigate to an SSRN paper or open a PDF file to analyze.', 'info');
+        console.log('checkPageType: Unsupported page - disabling both buttons');
+        showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
         setButtonState('Analyze Current Paper', true, false); // Disable button
         analyzeBtn.style.backgroundColor = '#ccc';
         showAuthorsButton(false); // Hide authors button for unsupported pages
@@ -511,6 +911,59 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Error checking page type:', error);
       showStatus('Error checking page status. Please try again.', 'error');
       showAuthorsButton(false);
+    }
+  }
+
+  // Function to check if a tab contains a PDF using multiple detection methods
+  async function checkIfPDFPage(tab) {
+    try {
+      // Method 1: Check URL patterns
+      const urlPatterns = [
+        tab.url.toLowerCase().endsWith('.pdf'),
+        tab.url.startsWith('file:///'),
+        tab.url.includes('pdf') && (tab.url.includes('viewer') || tab.url.includes('download')),
+        tab.url.includes('application/pdf'),
+        tab.url.includes('content-type=application/pdf')
+      ];
+      
+      if (urlPatterns.some(pattern => pattern)) {
+        console.log('checkIfPDFPage: PDF detected via URL pattern');
+        return true;
+      }
+      
+      // Method 2: Check content type via content script
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkContentType' });
+        if (response && response.contentType === 'application/pdf') {
+          console.log('checkIfPDFPage: PDF detected via content type');
+          return true;
+        }
+      } catch (error) {
+        console.log('checkIfPDFPage: Could not check content type via content script:', error.message);
+      }
+      
+      // Method 3: Check for PDF elements in the page
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFElements' });
+        if (response && response.hasPDFElements) {
+          console.log('checkIfPDFPage: PDF detected via page elements');
+          return true;
+        }
+      } catch (error) {
+        console.log('checkIfPDFPage: Could not check PDF elements:', error.message);
+      }
+      
+      // Method 4: Check if the page title suggests it's a PDF
+      const title = tab.title || '';
+      if (title.toLowerCase().includes('pdf') || title.toLowerCase().includes('document')) {
+        console.log('checkIfPDFPage: PDF suggested by title:', title);
+        // This is a weaker indicator, so we'll log it but not return true immediately
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking if page is PDF:', error);
+      return false;
     }
   }
 
@@ -525,11 +978,18 @@ document.addEventListener('DOMContentLoaded', function() {
     analyzeAuthorsBtn.addEventListener('click', analyzeAuthors);
   }
   
-  if (openFullBtn) {
-    openFullBtn.addEventListener('click', function() {
+  if (homeBtn) {
+    homeBtn.addEventListener('click', function() {
       chrome.tabs.create({
         url: chrome.runtime.getURL('fullpage.html')
       });
+    });
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', function() {
+      // For now, just show a placeholder message
+      showStatus('Settings feature coming soon!', 'info');
     });
   }
 
@@ -543,14 +1003,22 @@ document.addEventListener('DOMContentLoaded', function() {
       // Show loading
       displayBackendStatus();
       
+      // Debug storage state
+      await debugStorageState();
+      
       // Detect and display current backend
       await updateBackendStatusDisplay();
       
-      // Check page type
-      await checkPageType();
-      
-      // Restore analysis state if in progress
+      // Restore analysis state if in progress (reconnected)
       await restoreAnalysisState();
+      
+      // Check page type and set appropriate button states
+      await checkPageType();
+
+      // Check and monitor analysis status
+      console.log('Calling checkAndMonitorAnalysisStatus...');
+      await checkAndMonitorAnalysisStatus();
+      console.log('checkAndMonitorAnalysisStatus completed');
       
       console.log('Popup: Initialization complete');
     } catch (error) {
@@ -561,6 +1029,31 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Run initialization
   initializePopup();
+  
+  // Debug function to manually check status (for testing)
+  window.debugCheckStatus = async function() {
+    console.log('=== DEBUG: Manual status check ===');
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    console.log('Current tab:', tab);
+    
+    if (tab && tab.url) {
+      const status = await getAnalysisStatus(tab.url);
+      console.log('Status for current URL:', status);
+      
+      // Also show all stored statuses
+      const storage = await chrome.storage.local.get([STATUS_KEY]);
+      console.log('All stored statuses:', storage[STATUS_KEY]);
+    }
+  };
+  
+  // Also check page type when popup is focused (in case user switches tabs)
+  window.addEventListener('focus', async () => {
+    try {
+      await checkPageType();
+    } catch (error) {
+      console.error('Error checking page type on focus:', error);
+    }
+  });
 
   // Listen for runtime messages (e.g., from background script)
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -586,9 +1079,14 @@ document.addEventListener('DOMContentLoaded', function() {
     } else if (message.action === 'analysisStarted') {
       console.log('Analysis started notification received');
       
-      // Update UI to show analysis in progress
+      // Update UI to show analysis in progress and start monitoring
       setButtonState('Analyzing...', true, true);
       showProgress(1, 'Analysis started...');
+      
+      // Start monitoring for status changes
+      setTimeout(() => {
+        checkAndMonitorAnalysisStatus();
+      }, 1000);
       
       sendResponse({ received: true });
     }
@@ -611,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', function() {
         throw new Error('No active tab found');
       }
 
-      // Only allow author analysis on SSRN pages
+      // Only allow author analysis on SSRN pages (since this is the only option for SSRN)
       if (!tab.url.includes('ssrn.com')) {
         throw new Error('Author analysis is only available on SSRN pages');
       }

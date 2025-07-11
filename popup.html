@@ -12,6 +12,56 @@
       box-sizing: border-box;
     }
 
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-right {
+      display: flex;
+      gap: 4px;
+    }
+
+    .small-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .home-btn {
+      background-color: #4CAF50;
+      color: white;
+    }
+
+    .home-btn:hover {
+      background-color: #45a049;
+      transform: translateY(-1px);
+    }
+
+    .settings-btn {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .settings-btn:hover {
+      background-color: #5a6268;
+      transform: translateY(-1px);
+    }
 
     .progress-indicator {
       display: inline-block;
@@ -77,8 +127,14 @@
 <body>
   <div class="container">
     <div class="header">
-      <img src="icons/icon48.png" alt="Icon" class="icon">
-      <h1>SSRN Paper Summarizer</h1>
+      <div class="header-left">
+        <img src="icons/icon48.png" alt="Icon" class="icon">
+        <h1>SSRN Paper Summarizer</h1>
+      </div>
+      <div class="header-right">
+        <button id="home-btn" class="small-btn home-btn" title="Home">🏠</button>
+        <button id="settings-btn" class="small-btn settings-btn" title="Settings">⚙️</button>
+      </div>
     </div>
     
     <!-- Backend Status Display -->
@@ -114,8 +170,6 @@
         <span class="button-icon" style="display: none;">⏳</span>
         <span class="button-text">Analyze Authors</span>
       </button>
-      
-      <button id="open-full-btn" class="secondary-btn">Go to Full Page</button>
     </div>
   </div>
 
