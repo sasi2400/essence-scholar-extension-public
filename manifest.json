@@ -1,0 +1,66 @@
+{
+  "manifest_version": 3,
+  "name": "SSRN Paper Summarizer",
+  "version": "1.0",
+  "description": "Analyzes SSRN papers using AI to provide structured summaries",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://localhost:5000/*",
+    "http://localhost:5001/*",
+    "https://ssrn-summarizer-backend-pisqy7uvxq-uc.a.run.app/*",
+    "https://*.ssrn.com/*",
+    "file:///*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.ssrn.com/*",
+        "file:///*.pdf",
+        "http://*/*.pdf",
+        "https://*/*.pdf"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "pdf.min.js",
+        "pdf.worker.min.js",
+        "pdf-init.js",
+        "fullpage.html",
+        "fullpage.js",
+        "marked.min.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
