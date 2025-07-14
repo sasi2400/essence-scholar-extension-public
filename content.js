@@ -260,36 +260,108 @@ async function extractSSRNContent() {
                   document.querySelector('#abstract')?.textContent?.trim();
   console.log('Abstract length:', abstract?.length);
 
-  // Extract authors - try multiple selectors
+  // Extract authors - try multiple selectors with improved logic
   let authors = [];
   let affiliations = [];
 
-  // Try different author selectors
-  const authorElements = document.querySelectorAll('.authors a[href*="author"], .authors-list a[href*="author"], .author-name a[href*="author"], [data-test-id="author-name"]');
+  console.log('Starting author extraction...');
+
+  // Debug: Log page structure for author elements
+  console.log('=== AUTHOR EXTRACTION DEBUG ===');
+  console.log('Page URL:', window.location.href);
+  console.log('Page title:', document.title);
   
-  if (authorElements.length > 0) {
-    console.log('Found author elements:', authorElements.length);
-    authors = Array.from(authorElements).map(el => el.textContent.trim());
-  } else {
-    // Try alternative selectors
-    const authorSection = document.querySelector('.authors, .authors-list, .author-names');
-    if (authorSection) {
-      const authorText = authorSection.textContent.trim();
-      // Split by common separators and clean up
-      authors = authorText.split(/[,;]/)
-        .map(name => name.trim())
-        .filter(name => name && !name.toLowerCase().includes('abstract') && !name.toLowerCase().includes('download'));
+  // Debug: Check what elements exist that might contain authors
+  const potentialAuthorElements = document.querySelectorAll('[class*="author"], [data-test*="author"], [id*="author"]');
+  console.log(`Found ${potentialAuthorElements.length} potential author elements:`);
+  potentialAuthorElements.forEach((el, i) => {
+    if (i < 10) { // Log first 10 to avoid spam
+      console.log(`  ${i+1}. ${el.tagName}.${el.className} - "${el.textContent.slice(0, 100)}"`);
+    }
+  });
+
+  // Try modern SSRN selectors first
+  const modernAuthorSelectors = [
+    'a[href*="/author/"]',  // Author profile links
+    '.author-name a',
+    '[data-testid="author-name"] a',
+    '.authors a[href*="author"]',
+    '.author-list a[href*="author"]'
+  ];
+
+  // Try each modern selector
+  for (const selector of modernAuthorSelectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`Found ${elements.length} authors using selector: ${selector}`);
+      authors = Array.from(elements).map(el => el.textContent.trim()).filter(name => name);
+      break;
     }
   }
 
-  // Try to get affiliations
-  const affiliationElements = document.querySelectorAll('.author-info .affiliation, .author-affiliations, [data-test-id="author-affiliation"]');
-  if (affiliationElements.length > 0) {
-    affiliations = Array.from(affiliationElements).map(el => el.textContent.trim());
+  // If no authors found with link selectors, try text-based extraction
+  if (authors.length === 0) {
+    console.log('No authors found with link selectors, trying text-based extraction...');
+    
+    const textBasedSelectors = [
+      '.authors',
+      '.author-list', 
+      '.authors-list',
+      '.author-names',
+      '[data-testid="authors"]',
+      '.paper-authors',
+      '#authors'
+    ];
+
+    for (const selector of textBasedSelectors) {
+      const authorSection = document.querySelector(selector);
+      if (authorSection) {
+        console.log(`Found author section with selector: ${selector}`);
+        const authorText = authorSection.textContent.trim();
+        console.log('Author section text:', authorText);
+        
+        // Split by common separators and clean up
+        authors = authorText
+          .split(/[,;]|and\s+/)  // Split by comma, semicolon, or "and"
+          .map(name => name.trim())
+          .filter(name => 
+            name && 
+            name.length > 2 && 
+            !name.toLowerCase().includes('abstract') && 
+            !name.toLowerCase().includes('download') &&
+            !name.toLowerCase().includes('view') &&
+            !name.toLowerCase().includes('pdf') &&
+            !/^\d+$/.test(name)  // Exclude pure numbers
+          );
+        
+        if (authors.length > 0) {
+          console.log(`Extracted ${authors.length} authors from text`);
+          break;
+        }
+      }
+    }
   }
 
-  console.log('Extracted authors:', authors);
-  console.log('Extracted affiliations:', affiliations);
+  // Try to get affiliations with improved selectors
+  const affiliationSelectors = [
+    '.author-affiliation',
+    '.affiliation',
+    '[data-testid="author-affiliation"]',
+    '.author-info .affiliation',
+    '.author-affiliations'
+  ];
+
+  for (const selector of affiliationSelectors) {
+    const affiliationElements = document.querySelectorAll(selector);
+    if (affiliationElements.length > 0) {
+      affiliations = Array.from(affiliationElements).map(el => el.textContent.trim()).filter(aff => aff);
+      console.log(`Found ${affiliations.length} affiliations`);
+      break;
+    }
+  }
+
+  console.log('Final extracted authors:', authors);
+  console.log('Final extracted affiliations:', affiliations);
   
   // Look for PDF download link first
   const pdfLink = document.querySelector('a[href*=".pdf"]') || 
