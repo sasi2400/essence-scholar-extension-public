@@ -699,18 +699,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Add paper ID to content
         response.content.paperId = paperId;
         
-        // Use consistent model mapping - null for Gemini to use backend default
-        const modelToSend = llmSettings.model === 'openai' ? 'openai-4o' : null;
-        const apiKeyToSend = llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined;
-        
-        console.log('Popup: Sending to backend with model:', modelToSend, 'hasApiKey:', !!apiKeyToSend);
-
         const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
           method: 'POST',
           body: JSON.stringify({
             content: response.content,
-            model: modelToSend,
-            openai_api_key: apiKeyToSend
+            model: llmSettings.model === 'openai' ? 'openai-4o' : 'gemini',
+            openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined
           })
         });
 

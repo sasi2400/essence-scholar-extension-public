@@ -335,29 +335,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     try {
-      // Get LLM settings - use same model mapping as analyze function
+      // Get LLM settings
       const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '' };
-      console.log('Chat: Using LLM settings:', llmSettings);
-      
-      // Use the same model mapping as analyze endpoint for consistency
-      // Send null for Gemini to use backend's default model, or exact model name
-      const modelToSend = llmSettings.model === 'openai' ? 'openai-4o' : null;
-      const apiKeyToSend = llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined;
-      
-      console.log('Chat: Sending to backend:', {
-        model: modelToSend,
-        hasApiKey: !!apiKeyToSend,
-        contentTitle: currentPdfContent?.title,
-        contentPaperId: currentPdfContent?.paperId
-      });
-
       const response = await makeApiRequest(CONFIG.CHAT_ENDPOINT, {
         method: 'POST',
         body: JSON.stringify({
           message: message,
           content: currentPdfContent,
-          model: modelToSend,
-          openai_api_key: apiKeyToSend
+          model: llmSettings.model === 'openai' ? 'openai-4o' : 'gemini',
+          openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined
         })
       });
 
@@ -365,9 +351,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const data = await response.json();
         addMessage(data.response, false);
       } else {
-        const errorText = await response.text();
-        console.error('Chat backend error:', response.status, errorText);
-        addMessage(`Error: Could not get response from server (${response.status})`, false);
+        addMessage('Error: Could not get response from server', false);
       }
     } catch (error) {
       console.error('Chat error:', error);
@@ -733,74 +717,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Initialize the page based on URL parameters
   (async () => {
-    console.log('Initializing fullpage with viewMode:', viewMode, 'paperId:', paperId);
-    
-    // Handle authors view mode specifically
-    if (viewMode === 'authors') {
-      console.log('Authors view mode detected, loading author analysis data...');
-      
-      // Look for author analysis results
-      let authorAnalysis = null;
-      
-      // First check for author analysis results by paperID
-      const authorStorage = await chrome.storage.local.get(['authorAnalysisResults', 'lastAuthorAnalysis']);
-      console.log('Author storage check:', authorStorage);
-      
-      // Check authorAnalysisResults for this paperID
-      if (authorStorage.authorAnalysisResults) {
-        // Find author analysis result that matches this paperID
-        for (const [url, result] of Object.entries(authorStorage.authorAnalysisResults)) {
-          if (result.paperId === paperId) {
-            authorAnalysis = result;
-            console.log('Found author analysis by paperID match:', result);
-            break;
-          }
-        }
-      }
-      
-      // Fallback to lastAuthorAnalysis if paperID matches
-      if (!authorAnalysis && authorStorage.lastAuthorAnalysis && authorStorage.lastAuthorAnalysis.paperId === paperId) {
-        authorAnalysis = authorStorage.lastAuthorAnalysis;
-        console.log('Found author analysis in lastAuthorAnalysis:', authorAnalysis);
-      }
-      
-      if (authorAnalysis && authorAnalysis.data) {
-        console.log('Displaying author analysis for paperID:', paperId);
-        displayAuthorAnalysis(authorAnalysis.data);
-        updateStatus(`Author analysis loaded for paper ID: ${paperId} from ${new Date(authorAnalysis.timestamp).toLocaleString()}`);
-        
-        // Set currentPdfContent for chat functionality - look for corresponding paper analysis
-        const paperStorageKey = `analysis_${paperId}`;
-        const paperCache = await chrome.storage.local.get([paperStorageKey]);
-        if (paperCache[paperStorageKey] && paperCache[paperStorageKey].content) {
-          currentPdfContent = paperCache[paperStorageKey].content;
-          console.log('Found corresponding paper content for chat functionality');
-          if (chatSection) chatSection.style.display = 'block';
-          updateStatus(`Author analysis loaded. Chat is available for questions about the paper.`);
-        } else {
-          console.log('No corresponding paper content found, chat will be limited');
-          // Create minimal content for chat
-          currentPdfContent = {
-            title: 'Author Analysis Paper',
-            paperId: paperId,
-            paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
-            abstract: 'Author analysis view - full paper content not available.',
-            paperContent: 'This is an author analysis view. For full paper content, please analyze the PDF first.'
-          };
-          if (chatSection) chatSection.style.display = 'block';
-          updateStatus(`Author analysis loaded. Limited chat available (analyze the PDF for full content).`);
-        }
-        
-        // Hide upload section for author analysis
-        if (uploadSection) uploadSection.style.display = 'none';
-        return;
-      } else {
-        updateStatus(`No author analysis found for paper ID: ${paperId}. Please analyze the authors first from the extension popup.`, true);
-        return;
-      }
-    }
-    
-    // Handle regular paper analysis view
     let analysis = null;
     if (paperId) {
       analysis = await fetchAnalysisFromBackend(paperId);
@@ -819,29 +735,11 @@ document.addEventListener('DOMContentLoaded', function() {
       // Display the summary
       const html = markdownToHtml(analysis.summary);
       summaryDiv.innerHTML = html;
-      
-      // Ensure currentPdfContent is properly set for chat functionality
-      if (analysis.content) {
-        currentPdfContent = analysis.content;
-        console.log('Set currentPdfContent from cached analysis:', typeof currentPdfContent);
-      } else {
-        // Create content object with available information for chat
-        currentPdfContent = {
-          title: analysis.title || 'Unknown Paper',
-          paperId: paperId,
-          paperUrl: analysis.paperUrl || `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
-          abstract: analysis.abstract || 'Abstract not available',
-          summary: analysis.summary,
-          paperContent: analysis.summary // Use summary as fallback content
-        };
-        console.log('Created currentPdfContent from analysis metadata for chat');
-      }
-      
+      currentPdfContent = analysis.content;
       if (analysis.data && analysis.data.author_data) {
         displayAuthorAnalysis(analysis.data.author_data);
       }
       chatSection.style.display = 'block';
-      updateStatus(`Analysis loaded for paper ID: ${paperId}. Chat is available for questions about the paper.`);
     } else {
       updateStatus('No analysis found for this paper. Please analyze the paper first.', true);
     }
@@ -862,31 +760,17 @@ document.addEventListener('DOMContentLoaded', function() {
           // Show appropriate status message
           if (analysis.autoAnalyzed) {
             updateStatus(`DONE: PDF automatically analyzed at ${new Date(analysis.timestamp).toLocaleString()}`);
+            updateStatus('Analysis completed automatically when PDF was loaded');
           } else {
             updateStatus(`Loaded analysis for paper ID: ${paperId} from ${new Date(analysis.timestamp).toLocaleString()}`);
           }
           
-          // Ensure currentPdfContent is properly set for chat functionality
-          if (analysis.content) {
-            currentPdfContent = analysis.content;
-            console.log('Set currentPdfContent from stored analysis:', typeof currentPdfContent);
-          } else {
-            // Create content object with available information for chat
-            currentPdfContent = {
-              title: analysis.title || 'Unknown Paper',
-              paperId: paperId,
-              paperUrl: analysis.paperUrl || `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
-              abstract: analysis.abstract || 'Abstract not available',
-              summary: analysis.summary,
-              paperContent: analysis.summary // Use summary as fallback content
-            };
-            console.log('Created currentPdfContent from stored analysis metadata for chat');
-          }
+          // Store the content for chat functionality
+          currentPdfContent = analysis.content;
           
-          // Enable chat section with content available
+          // Enable chat section if we have content
           if (currentPdfContent) {
             chatSection.style.display = 'block';
-            updateStatus(`Analysis loaded. Chat is available for questions about the paper.`);
           }
           
           // Check if author data is available and show/hide the view authors button
@@ -894,7 +778,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (analysis.data && analysis.data.author_data) {
               viewAuthorsBtn.style.display = 'inline-block';
               viewAuthorsBtn.style.backgroundColor = '#4CAF50';
-              updateStatus(`Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations. Chat available for paper questions.`);
+              updateStatus(`Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations. Click "View Author Analysis" to see details.`);
             } else {
               viewAuthorsBtn.style.display = 'none';
             }

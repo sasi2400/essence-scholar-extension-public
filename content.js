@@ -280,60 +280,22 @@ async function extractSSRNContent() {
     }
   });
 
-  // Try specific SSRN "authors authors-full-width" structure first
-  const authorsFullWidthDiv = document.querySelector('.authors.authors-full-width');
-  if (authorsFullWidthDiv) {
-    console.log('Found authors full-width div, extracting structured author information...');
-    
-    // Extract authors from h2 > a elements and affiliations from following p elements
-    const authorElements = authorsFullWidthDiv.querySelectorAll('h2 > a[href*="AbsByAuth.cfm"]');
-    if (authorElements.length > 0) {
-      console.log(`Found ${authorElements.length} authors in full-width structure`);
-      
-      authors = Array.from(authorElements).map(el => el.textContent.trim()).filter(name => name);
-      
-      // Extract affiliations from p elements that follow each h2 element
-      affiliations = [];
-      
-      // Get all h2 elements (author names) and find the p element that follows each
-      const authorH2Elements = authorsFullWidthDiv.querySelectorAll('h2');
-      authorH2Elements.forEach(h2 => {
-        // Find the next p element after this h2
-        let nextElement = h2.nextElementSibling;
-        while (nextElement) {
-          if (nextElement.tagName === 'P' && nextElement.textContent.trim()) {
-            affiliations.push(nextElement.textContent.trim());
-            break;
-          }
-          nextElement = nextElement.nextElementSibling;
-        }
-      });
-      console.log(`Extracted ${authors.length} authors and ${affiliations.length} affiliations from full-width structure`);
-      console.log('Authors:', authors);
-      console.log('Affiliations:', affiliations);
-    }
-  }
+  // Try modern SSRN selectors first
+  const modernAuthorSelectors = [
+    'a[href*="/author/"]',  // Author profile links
+    '.author-name a',
+    '[data-testid="author-name"] a',
+    '.authors a[href*="author"]',
+    '.author-list a[href*="author"]'
+  ];
 
-  // If no authors found in full-width structure, try modern SSRN selectors
-  if (authors.length === 0) {
-    console.log('No authors found in full-width structure, trying modern selectors...');
-    
-    const modernAuthorSelectors = [
-      'a[href*="/author/"]',  // Author profile links
-      '.author-name a',
-      '[data-testid="author-name"] a',
-      '.authors a[href*="author"]',
-      '.author-list a[href*="author"]'
-    ];
-
-    // Try each modern selector
-    for (const selector of modernAuthorSelectors) {
-      const elements = document.querySelectorAll(selector);
-      if (elements.length > 0) {
-        console.log(`Found ${elements.length} authors using selector: ${selector}`);
-        authors = Array.from(elements).map(el => el.textContent.trim()).filter(name => name);
-        break;
-      }
+  // Try each modern selector
+  for (const selector of modernAuthorSelectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`Found ${elements.length} authors using selector: ${selector}`);
+      authors = Array.from(elements).map(el => el.textContent.trim()).filter(name => name);
+      break;
     }
   }
 
