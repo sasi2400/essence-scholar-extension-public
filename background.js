@@ -339,7 +339,7 @@ async function triggerPDFAnalysis(tabId) {
     // Store the analysis results (per tab URL)
     const analysisResult = {
       timestamp: new Date().toISOString(),
-      url: response.content.paperUrl || response.content.paperId,
+      url: response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl),
       title: response.content.title || 'PDF Document',
       content: response.content,
       summary: data.summary,
@@ -349,10 +349,15 @@ async function triggerPDFAnalysis(tabId) {
     // Get existing analysis results and add the new one
     const existingResults = await chrome.storage.local.get(['analysisResults']);
     const allResults = existingResults.analysisResults || {};
-    allResults[response.content.paperUrl || response.content.paperId] = analysisResult;
+    const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
+    allResults[paperId] = analysisResult;
 
     // Store the updated results
     await chrome.storage.local.set({ analysisResults: allResults });
+    
+    // Also store as flat key for fullpage/popup compatibility
+    const storageKey = `analysis_${paperId}`;
+    await chrome.storage.local.set({ [storageKey]: analysisResult });
     
     // Also store as lastAnalysis for backward compatibility
     await chrome.storage.local.set({ lastAnalysis: analysisResult });
@@ -365,7 +370,8 @@ async function triggerPDFAnalysis(tabId) {
       const now = new Date().toISOString();
       const storage = await chrome.storage.local.get([STATUS_KEY]);
       const allStatus = storage[STATUS_KEY] || {};
-      allStatus[response.content.paperUrl || response.content.paperId] = {
+      const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
+      allStatus[paperId] = {
         status: 'complete',
         updatedAt: now,
         finishedAt: now
@@ -424,7 +430,8 @@ async function triggerPDFAnalysis(tabId) {
         const allStatus = storage[STATUS_KEY] || {};
         const tab = await chrome.tabs.get(tabId);
         if (tab && tab.url) {
-          allStatus[tab.url] = {
+          const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
+          allStatus[paperId] = {
             status: 'error',
             errorMessage: error.message,
             updatedAt: now,

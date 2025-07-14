@@ -170,6 +170,32 @@
         <span class="button-icon" style="display: none;">⏳</span>
         <span class="button-text">Analyze Authors</span>
       </button>
+      
+      <button id="fullpage-btn" class="fullpage-btn" style="display: none;">
+        <span class="button-icon">📄</span>
+        <span class="button-text">Open Full Page Interface</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.3); z-index:1000; align-items:center; justify-content:center;">
+    <div class="modal-content" style="background:white; padding:24px; border-radius:10px; min-width:300px; max-width:90vw; margin:auto; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+      <h2 style="margin-top:0;">Settings</h2>
+      <div style="margin-bottom:18px;">
+        <label for="model-select" style="font-weight:500;">LLM Model:</label>
+        <select id="model-select" style="margin-left:10px; padding:4px 8px; border-radius:4px;">
+          <option value="gemini">Gemini (Google)</option>
+          <option value="openai">OpenAI (GPT-3.5/4)</option>
+        </select>
+      </div>
+      <div id="openai-key-section" style="display:none; margin-bottom:18px;">
+        <label for="openai-key-input" style="font-weight:500;">OpenAI API Key:</label>
+        <input type="password" id="openai-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-...">
+      </div>
+      <div style="text-align:right;">
+        <button id="settings-cancel-btn" style="margin-right:10px; padding:6px 16px; border-radius:4px; border:none; background:#ccc; color:#333;">Cancel</button>
+        <button id="settings-save-btn" style="padding:6px 16px; border-radius:4px; border:none; background:#4CAF50; color:white;">Save</button>
+      </div>
     </div>
   </div>
 

@@ -112,6 +112,11 @@ document.addEventListener('DOMContentLoaded', function() {
     updateStatus('Using smart backend detection for analysis...');
     
     try {
+      // Add paperID to content if not present
+      if (!content.paperId && content.paperUrl) {
+        content.paperId = extractSsrnIdOrUrl(content.paperUrl);
+      }
+
       const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
         method: 'POST',
         body: JSON.stringify({ content })
@@ -214,17 +219,38 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStatus('No content provided for analysis', true);
         return;
       }
-
+      // Extract paper ID
+      const paperId = extractSsrnIdOrUrl(content.paperUrl) || content.paperId;
+      const storageKey = `analysis_${paperId}`;
+      
+      // Check cache before sending request
+      const cached = await chrome.storage.local.get([storageKey]);
+      if (cached[storageKey] && cached[storageKey].summary) {
+        updateStatus('Loaded analysis from cache.');
+        const html = markdownToHtml(cached[storageKey].summary);
+        summaryDiv.innerHTML = html;
+        currentPdfContent = cached[storageKey].content;
+        
+        // If there's author data, display it
+        if (cached[storageKey].data && cached[storageKey].data.author_data) {
+          displayAuthorAnalysis(cached[storageKey].data.author_data);
+        }
+        
+        chatSection.style.display = 'block';
+        return;
+      }
+      
       updateStatus('Starting analysis...');
       
       // Hide upload section during analysis
       uploadSection.style.display = 'none';
       
       // Set analysis status to in progress
-      await setAnalysisStatus(content.paperUrl || tab.url, 'in_progress');
+      await setAnalysisStatus(paperId, 'in_progress');
+      
       // Use smart backend detection to connect to the server
       const serverResponse = await analyzeWithSmartBackend(content);
-
+      
       updateStatus('Server response received, processing...');
       let data;
       try {
@@ -251,34 +277,30 @@ document.addEventListener('DOMContentLoaded', function() {
       // Show chat section
       chatSection.style.display = 'block';
       
-      // Save the content to storage
-      const storageData = {
-        lastAnalysis: {
-          timestamp: new Date().toISOString(),
-          url: content.paperUrl,
-          title: content.title,
-          summary: data.summary,
-          content: content
-        }
+      // Store the content for chat functionality
+      currentPdfContent = content;
+      
+      // When storing analysis results:
+      const analysisResult = {
+        timestamp: new Date().toISOString(),
+        paperId: paperId,
+        content: content,
+        summary: data.summary,
+        data: data.author_data || data,
+        autoAnalyzed: false
       };
       
-      // If author data is available from the full analysis, store it for the author view
-      if (data.author_data) {
-        console.log('Author data received from full analysis, storing for author view');
-        storageData.lastAuthorAnalysis = {
-          timestamp: new Date().toISOString(),
-          url: content.paperUrl,
-          data: data.author_data
-        };
-        updateStatus(`Author profiles fetched: ${data.author_data.summary.total_authors} authors with ${data.author_data.summary.total_citations.toLocaleString()} total citations`);
-      }
-      
-      chrome.storage.local.set(storageData);
+      // Store in local storage
+      const storageData = {};
+      storageData[storageKey] = analysisResult;
+      await chrome.storage.local.set(storageData);
       
       // Show View Author Analysis button if author data is available
       if (data.author_data && viewAuthorsBtn) {
         viewAuthorsBtn.style.display = 'inline-block';
         viewAuthorsBtn.style.backgroundColor = '#4CAF50';
+        // Display author analysis if available
+        displayAuthorAnalysis(data.author_data);
       }
       
     } catch (error) {
@@ -313,11 +335,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     try {
+      // Get LLM settings
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '' };
       const response = await makeApiRequest(CONFIG.CHAT_ENDPOINT, {
         method: 'POST',
         body: JSON.stringify({
           message: message,
-          content: currentPdfContent
+          content: currentPdfContent,
+          model: llmSettings.model === 'openai' ? 'openai-4o' : 'gemini',
+          openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined
         })
       });
 
@@ -617,88 +643,117 @@ document.addEventListener('DOMContentLoaded', function() {
     summaryDiv.innerHTML = html;
   }
 
+  // Add robust SSRN ID extraction function (copied from popup.js)
+  function extractSsrnIdOrUrl(url) {
+    if (!url) return null;
+    // Prefer query string: abstract_id or abstractId
+    let match = url.match(/[?&]abstract_id=(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/[?&]abstractId=(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/[?&]abstract=(\d+)/i);
+    if (match) return match[1];
+    // Fallback: look for ssrn_id1234567 or abstract1234567 in the path/filename
+    match = url.match(/ssrn_id(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/abstract(\d+)/i);
+    if (match) return match[1];
+    // Fallback: use the full URL as ID
+    return url;
+  }
+
+  // Add this async function to fetch analysis from backend by paperID
+  async function fetchAnalysisFromBackend(paperId) {
+    try {
+      const backendUrl = (window.CONFIG && window.CONFIG.ANALYZE_ENDPOINT)
+        ? window.CONFIG.ANALYZE_ENDPOINT.replace(/\/analyze.*/, '')
+        : 'http://localhost:8080';
+      const url = `${backendUrl}/analysis/${paperId}`;
+      console.log('Trying to fetch analysis from backend:', url);
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.log('Backend returned non-OK for analysis:', response.status);
+        return null;
+      }
+      const data = await response.json();
+      if (data && data.summary) {
+        console.log('Fetched analysis from backend for paperID:', paperId);
+        // Store in local storage for future use
+        const storageKey = `analysis_${paperId}`;
+        const analysisResult = {
+          timestamp: new Date().toISOString(),
+          paperId: paperId,
+          summary: data.summary,
+          data: data.author_data,
+          autoAnalyzed: true
+        };
+        const storageData = {};
+        storageData[storageKey] = analysisResult;
+        await chrome.storage.local.set(storageData);
+        return analysisResult;
+      }
+      return null;
+    } catch (err) {
+      console.error('Error fetching analysis from backend:', err);
+      return null;
+    }
+  }
+
   // Check URL parameters to determine view mode
   const urlParams = new URLSearchParams(window.location.search);
   const viewMode = urlParams.get('view');
   const paperUrl = urlParams.get('paperUrl');
+  const paperId = extractSsrnIdOrUrl(paperUrl) || urlParams.get('paperID');
+
+  // Only show error if no paper ID is found
+  if (!paperId) {
+    updateStatus('No paper ID provided. Please open the analysis from the extension popup.', true);
+    return;
+  }
+
+  // Use paperID for storage key
+  const storageKey = `analysis_${paperId}`;
+  console.log('Looking up analysis for paperID:', paperId, 'with key:', storageKey);
 
   // Initialize the page based on URL parameters
-  if (viewMode === 'authors') {
-    // Load author analysis data (tab-specific)
-    (async () => {
-      try {
-        // Use paperUrl from query string
-        if (!paperUrl) {
-          updateStatus('No paper URL provided. Please open the analysis from the extension popup.', true);
-          return;
-        }
-        // Load tab-specific author analysis results
-        const result = await chrome.storage.local.get(['authorAnalysisResults', 'analysisResults', 'lastAuthorAnalysis', 'lastAnalysis']);
-        
-        // First try to find author analysis for the current tab URL
-        let authorAnalysis = null;
-        let paperAnalysis = null;
-        
-        if (result.authorAnalysisResults && result.authorAnalysisResults[paperUrl]) {
-          authorAnalysis = result.authorAnalysisResults[paperUrl];
-          console.log('Found tab-specific author analysis:', authorAnalysis);
-        } else if (result.lastAuthorAnalysis) {
-          // Fallback to legacy storage for backward compatibility
-          authorAnalysis = result.lastAuthorAnalysis;
-          console.log('Using legacy author analysis storage:', authorAnalysis);
-        }
-        
-        if (result.analysisResults && result.analysisResults[paperUrl]) {
-          paperAnalysis = result.analysisResults[paperUrl];
-        } else if (result.lastAnalysis) {
-          paperAnalysis = result.lastAnalysis;
-        }
-        
-        if (authorAnalysis) {
-          displayAuthorAnalysis(authorAnalysis.data);
-          updateStatus(`Author analysis loaded for ${paperUrl}`);
-          
-          // Show back button to return to paper analysis
-          if (backBtn) {
-            backBtn.style.display = 'inline-block';
-            backBtn.onclick = () => {
-              window.location.href = '/fullpage.html?paperUrl=' + encodeURIComponent(paperUrl);
-            };
-          }
-        } else {
-          updateStatus('No author analysis found for this paper.', true);
-          summaryDiv.innerHTML = '<p>No author analysis available for this paper.</p>';
-        }
-      } catch (error) {
-        console.error('Error loading author analysis:', error);
-        updateStatus('Error loading author analysis: ' + error.message, true);
+  (async () => {
+    let analysis = null;
+    if (paperId) {
+      analysis = await fetchAnalysisFromBackend(paperId);
+    }
+    if (!analysis) {
+      // Fallback to local storage
+      const cached = await chrome.storage.local.get([storageKey]);
+      analysis = cached[storageKey];
+      if (analysis) {
+        console.log('Loaded analysis from local storage for paperID:', paperId);
+      } else {
+        console.log('No analysis found in backend or local storage for paperID:', paperId);
       }
-    })();
-  } else if (paperUrl) {
-    // Load specific paper analysis if paperUrl is provided
-    (async () => {
-      try {
-        const result = await chrome.storage.local.get(['analysisResults', 'authorAnalysisResults', 'lastAnalysis', 'lastAuthorAnalysis']);
-        
-        let analysis = null;
-        let authorAnalysis = null;
-        
-        // Try to find analysis for the specific paper URL
-        if (result.analysisResults && result.analysisResults[paperUrl]) {
-          analysis = result.analysisResults[paperUrl];
-          console.log('Found tab-specific analysis:', analysis);
-        } else if (result.lastAnalysis && result.lastAnalysis.url === paperUrl) {
-          analysis = result.lastAnalysis;
-          console.log('Using legacy analysis storage:', analysis);
-        }
-        
-        if (result.authorAnalysisResults && result.authorAnalysisResults[paperUrl]) {
-          authorAnalysis = result.authorAnalysisResults[paperUrl];
-        } else if (result.lastAuthorAnalysis && result.lastAuthorAnalysis.url === paperUrl) {
-          authorAnalysis = result.lastAuthorAnalysis;
-        }
-        
-        if (analysis) {
+    }
+    if (analysis && analysis.summary) {
+      // Display the summary
+      const html = markdownToHtml(analysis.summary);
+      summaryDiv.innerHTML = html;
+      currentPdfContent = analysis.content;
+      if (analysis.data && analysis.data.author_data) {
+        displayAuthorAnalysis(analysis.data.author_data);
+      }
+      chatSection.style.display = 'block';
+    } else {
+      updateStatus('No analysis found for this paper. Please analyze the paper first.', true);
+    }
+  })();
+
+  // Load specific paper analysis
+  (async () => {
+    try {
+      const result = await chrome.storage.local.get([storageKey]);
+      const analysis = result[storageKey];
+      
+      if (analysis) {
+        // Make sure we have a summary to display
+        if (analysis.summary) {
           const html = markdownToHtml(analysis.summary);
           summaryDiv.innerHTML = html;
           
@@ -707,40 +762,38 @@ document.addEventListener('DOMContentLoaded', function() {
             updateStatus(`DONE: PDF automatically analyzed at ${new Date(analysis.timestamp).toLocaleString()}`);
             updateStatus('Analysis completed automatically when PDF was loaded');
           } else {
-            updateStatus(`Loaded analysis for this paper from ${new Date(analysis.timestamp).toLocaleString()}`);
+            updateStatus(`Loaded analysis for paper ID: ${paperId} from ${new Date(analysis.timestamp).toLocaleString()}`);
+          }
+          
+          // Store the content for chat functionality
+          currentPdfContent = analysis.content;
+          
+          // Enable chat section if we have content
+          if (currentPdfContent) {
+            chatSection.style.display = 'block';
           }
           
           // Check if author data is available and show/hide the view authors button
           if (viewAuthorsBtn) {
-            if (authorAnalysis) {
+            if (analysis.data && analysis.data.author_data) {
               viewAuthorsBtn.style.display = 'inline-block';
-              viewAuthorsBtn.style.backgroundColor = '#4CAF50'; // Green to indicate available
-              updateStatus(`Author profiles available: ${authorAnalysis.data.summary.total_authors} authors with ${authorAnalysis.data.summary.total_citations.toLocaleString()} total citations. Click "View Author Analysis" to see details.`);
+              viewAuthorsBtn.style.backgroundColor = '#4CAF50';
+              updateStatus(`Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations. Click "View Author Analysis" to see details.`);
             } else {
-              viewAuthorsBtn.style.display = 'none'; // Hide if no author data
+              viewAuthorsBtn.style.display = 'none';
             }
           }
-          
-          chatSection.style.display = 'block';
-          
-          // Store the content for chat functionality
-          currentPdfContent = analysis.content;
         } else {
-          updateStatus('No analysis found for this paper. Please analyze the paper first.', true);
-          summaryDiv.innerHTML = '<p>No analysis results found for this paper. Please go back and analyze the paper first.</p>';
+          updateStatus('Analysis found but no summary available. Please try analyzing the paper again.', true);
         }
-      } catch (error) {
-        console.error('Error loading analysis results:', error);
-        updateStatus('Error loading analysis results: ' + error.message, true);
+      } else {
+        updateStatus('No analysis found for this paper. Please analyze the paper first.', true);
       }
-    })();
-  } else {
-    // Default: Show empty page ready for uploads
-    updateStatus('Ready for PDF upload. Drag and drop a PDF file or click "Upload PDF" to get started.');
-    uploadSection.style.display = 'block';
-    summaryDiv.innerHTML = '';
-    chatSection.style.display = 'none';
-  }
+    } catch (error) {
+      console.error('Error loading paper analysis:', error);
+      updateStatus('Error loading analysis: ' + error.message, true);
+    }
+  })();
 
   // Event listeners
   if (analyzeBtn) {
@@ -753,11 +806,17 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   if (backBtn) {
-    backBtn.addEventListener('click', function() {
-      console.log('Back button clicked');
-      if (window.history.length > 1) {
-        window.history.back();
-      } else {
+    // Set up context-aware back button behavior
+    if (viewMode === 'authors') {
+      // In authors view: back means return to full page
+      backBtn.addEventListener('click', function() {
+        console.log('Back button clicked (authors view)');
+        window.location.href = '/fullpage.html?paperID=' + encodeURIComponent(paperId);
+      });
+    } else {
+      // In full page view: back means close tab and return to PDF
+      backBtn.addEventListener('click', function() {
+        console.log('Back button clicked (full page view)');
         // Try to close the tab if possible
         if (chrome && chrome.tabs) {
           chrome.tabs.getCurrent(function(tab) {
@@ -770,8 +829,8 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
           window.close();
         }
-      }
-    });
+      });
+    }
   } else {
     console.warn('backBtn not found');
   }
@@ -785,13 +844,16 @@ document.addEventListener('DOMContentLoaded', function() {
     console.warn('clearBtn not found');
   }
 
+  // Update view authors button navigation
   if (viewAuthorsBtn) {
     viewAuthorsBtn.addEventListener('click', function() {
-      console.log('View Author Analysis button clicked');
-      window.location.href = '/fullpage.html?view=authors';
+      // Use the current paperID for navigation
+      let url = '/fullpage.html?view=authors';
+      if (paperId) {
+        url += '&paperID=' + encodeURIComponent(paperId);
+      }
+      window.location.href = url;
     });
-  } else {
-    console.warn('viewAuthorsBtn not found');
   }
 
   if (uploadBtn && pdfUpload) {
@@ -830,23 +892,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
   if (chatInput && sendBtn) {
     sendBtn.addEventListener('click', function() {
-      const message = chatInput.value.trim();
-      if (message) {
+    const message = chatInput.value.trim();
+    if (message) {
         addMessage(message, true);
         chatInput.value = '';
-        handleChat(message);
-      }
-    });
+      handleChat(message);
+    }
+  });
 
     chatInput.addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
-        const message = chatInput.value.trim();
-        if (message) {
+    if (e.key === 'Enter') {
+      const message = chatInput.value.trim();
+      if (message) {
           addMessage(message, true);
           chatInput.value = '';
-          handleChat(message);
-        }
+        handleChat(message);
       }
-    });
+    }
+  });
   }
 }); 

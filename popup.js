@@ -61,6 +61,11 @@ document.addEventListener('DOMContentLoaded', function() {
       const status = await getAnalysisStatus(tab.url);
       console.log('Current analysis status:', status);
       
+      // Always hide/disable View Analysis button unless status is complete
+      setButtonState('Analyze Current Paper', false, false);
+      analyzeBtn.style.backgroundColor = '#2196F3';
+      analyzeBtn.onclick = analyzePaper;
+
       if (!status) {
         console.log('No analysis status found for this URL');
         return;
@@ -69,61 +74,85 @@ document.addEventListener('DOMContentLoaded', function() {
       if (status.status === 'in_progress') {
         console.log('Analysis in progress, starting monitoring...');
         showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
-        
+        setButtonState('Analyzing...', true, true); // Disable button
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        // Hide View Analysis button if present
         // Start monitoring for status changes
         const monitorInterval = setInterval(async () => {
           try {
-            console.log('Checking for status update...');
             const currentStatus = await getAnalysisStatus(tab.url);
             console.log('Current status check result:', currentStatus);
-            
             if (currentStatus && currentStatus.status !== 'in_progress') {
               console.log('Status changed from in_progress to:', currentStatus.status);
-              // Status changed, update UI
               clearInterval(monitorInterval);
-              
               if (currentStatus.status === 'complete') {
-                console.log('Analysis completed, updating UI...');
-                showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-                setButtonState('View Analysis', false, false);
-                analyzeBtn.style.backgroundColor = '#4CAF50';
-                analyzeBtn.onclick = () => {
-                  chrome.tabs.create({
-                    url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
-                  });
-                };
+                // Only now show View Analysis if result is available
+                const hasResult = await checkForExistingAnalysis();
+                if (hasResult) {
+                  showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+                  setButtonState('View Analysis', false, false);
+                  analyzeBtn.style.backgroundColor = '#4CAF50';
+                  analyzeBtn.onclick = async () => {
+                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                    if (!tab || !tab.url) return;
+                    const paperId = extractSsrnIdOrUrl(tab.url);
+                    chrome.tabs.create({
+                      url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+                    });
+                  };
+                } else {
+                  // No result, show error or reset
+                  setButtonState('Analyze Current Paper', false, false);
+                  analyzeBtn.style.backgroundColor = '#2196F3';
+                  analyzeBtn.onclick = analyzePaper;
+                  showStatus('Analysis complete, but no results found. Please try again.', 'error');
+                }
               } else if (currentStatus.status === 'error') {
-                console.log('Analysis failed, updating UI...');
                 showStatus('Analysis failed: ' + (currentStatus.errorMessage || 'Unknown error'), 'error');
                 setButtonState('Analyze Current Paper', false, false);
                 analyzeBtn.style.backgroundColor = '#2196F3';
+                analyzeBtn.onclick = analyzePaper;
               }
             }
           } catch (error) {
             console.error('Error monitoring analysis status:', error);
             clearInterval(monitorInterval);
           }
-        }, 2000); // Check every 2 seconds
-        
-        // Stop monitoring after 10 minutes to prevent infinite polling
+        }, 2000);
         setTimeout(() => {
           console.log('Stopping status monitoring after timeout');
           clearInterval(monitorInterval);
         }, 10 * 60 * 1000);
-        
+      } else if (status.status === 'queued') {
+        setButtonState('Queued...', true, true);
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        showStatus('Analysis is queued. Please wait...', 'progress');
       } else if (status.status === 'complete') {
-        console.log('Analysis already complete, showing results...');
-        showStatus('Analysis complete for this paper. Click "View Analysis" to see results.', 'success');
-        setButtonState('View Analysis', false, false);
-        analyzeBtn.style.backgroundColor = '#4CAF50';
-        analyzeBtn.onclick = () => {
-          chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
-          });
-        };
+        // Only show View Analysis if result is available
+        const hasResult = await checkForExistingAnalysis();
+        if (hasResult) {
+          showStatus('Analysis complete for this paper. Click "View Analysis" to see results.', 'success');
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab || !tab.url) return;
+            const paperId = extractSsrnIdOrUrl(tab.url);
+            chrome.tabs.create({
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+            });
+          };
+        } else {
+          setButtonState('Analyze Current Paper', false, false);
+          analyzeBtn.style.backgroundColor = '#2196F3';
+          analyzeBtn.onclick = analyzePaper;
+          showStatus('Analysis complete, but no results found. Please try again.', 'error');
+        }
       } else if (status.status === 'error') {
-        console.log('Analysis failed, showing error...');
         showStatus('Analysis failed: ' + (status.errorMessage || 'Unknown error'), 'error');
+        setButtonState('Analyze Current Paper', false, false);
+        analyzeBtn.style.backgroundColor = '#2196F3';
+        analyzeBtn.onclick = analyzePaper;
       }
     } catch (error) {
       console.error('Error checking analysis status:', error);
@@ -166,9 +195,12 @@ document.addEventListener('DOMContentLoaded', function() {
           // If storage doesn't have it, still show the View Analysis button
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
-          analyzeBtn.onclick = () => {
+          analyzeBtn.onclick = async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab || !tab.url) return;
+            const paperId = extractSsrnIdOrUrl(tab.url);
             chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
             });
           };
           showStatus('Analysis complete for this paper! Click "View Analysis" to see results.', 'success');
@@ -258,6 +290,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  function showFullpageButton(show = true) {
+    const fullpageBtn = document.getElementById('fullpage-btn');
+    console.log('showFullpageButton: show =', show, 'fullpageBtn =', fullpageBtn);
+    if (fullpageBtn) {
+      fullpageBtn.style.display = show ? 'block' : 'none';
+      console.log('showFullpageButton: Set display to', fullpageBtn.style.display);
+    } else {
+      console.error('showFullpageButton: fullpage-btn element not found!');
+    }
+  }
+
   // Function to show status messages
   function showStatus(message, type = 'info') {
     if (statusContainer) {
@@ -329,9 +372,12 @@ document.addEventListener('DOMContentLoaded', function() {
           // Show that analysis exists and offer to view it
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
-          analyzeBtn.onclick = () => {
+          analyzeBtn.onclick = async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab || !tab.url) return;
+            const paperId = extractSsrnIdOrUrl(tab.url);
             chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
             });
           };
           
@@ -367,9 +413,12 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show that analysis exists and offer to view it
             setButtonState('View Analysis', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
-            analyzeBtn.onclick = () => {
+            analyzeBtn.onclick = async () => {
+              const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+              if (!tab || !tab.url) return;
+              const paperId = extractSsrnIdOrUrl(tab.url);
               chrome.tabs.create({
-                url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
               });
             };
             
@@ -520,6 +569,12 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('=== POPUP ANALYSIS START ===');
       console.log('Popup: analyzePaper function called');
       
+      // Check if button is disabled (for local files)
+      if (analyzeBtn && analyzeBtn.disabled) {
+        console.log('Popup: Analyze button is disabled, ignoring click');
+        return;
+      }
+      
       // Get the current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
@@ -626,10 +681,31 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Popup: Starting backend analysis with smart detection...');
         console.log('Popup: Content to send:', typeof response.content, response.content ? 'Content available' : 'No content');
         
-        // Use the new smart API request system
+        // Get LLM settings
+        const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '' };
+        
+        // Extract paper ID
+        const paperId = extractSsrnIdOrUrl(tab.url);
+        const storageKey = `analysis_${paperId}`;
+        
+        // Check cache
+        let cached = await chrome.storage.local.get([storageKey]);
+        if (cached[storageKey]) {
+          showStatus('Loaded analysis from cache.', 'success');
+          displayAnalysis(cached[storageKey], tab.url);
+          return;
+        }
+
+        // Add paper ID to content
+        response.content.paperId = paperId;
+        
         const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
           method: 'POST',
-          body: JSON.stringify({ content: response.content })
+          body: JSON.stringify({
+            content: response.content,
+            model: llmSettings.model === 'openai' ? 'openai-4o' : 'gemini',
+            openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined
+          })
         });
 
         console.log('Popup: Backend response received');
@@ -640,31 +716,46 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const data = await serverResponse.json();
+        console.log('Popup: Backend response data:', data);
 
         if (data.error) {
           throw new Error(data.error);
         }
 
+        // Handle local file response - show guidance instead of redirecting
+        if (data.action === 'open_fullpage' && data.localFile) {
+          console.log('Popup: Local file detected, showing guidance');
+          const fileName = data.fileName || 'PDF file';
+          
+          showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
+          showStatus('Click "Open Full Page Interface" to upload and analyze this file.', 'info');
+          
+          // Hide the main analyze button and show fullpage button instead
+          setButtonState('Analyze Current Paper', true, false); // Disable main button
+          analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
+          
+          // Show the full page interface button
+          showFullpageButton(true);
+          
+          return;
+        }
+
         // Update progress
         showProgress(3, 'Analysis complete! Storing results...');
 
-        // Store the content and analysis for the full page view (per tab URL)
+        // When storing analysis results:
         const analysisResult = {
           timestamp: new Date().toISOString(),
-          url: tab.url,
+          paperId: paperId,
           title: response.content.title || 'Document',
           content: response.content,
           summary: data.summary,
           autoAnalyzed: false
         };
-
-        // Get existing analysis results and add the new one
-        const existingResults = await chrome.storage.local.get(['analysisResults']);
-        const allResults = existingResults.analysisResults || {};
-        allResults[tab.url] = analysisResult;
-
-        // Store the updated results
-        await chrome.storage.local.set({ analysisResults: allResults });
+        cached = await chrome.storage.local.get([storageKey]); // Declare only once
+        if (!cached[storageKey]) {
+          await chrome.storage.local.set({ [storageKey]: analysisResult });
+        }
         
         // Also store as lastAnalysis for backward compatibility with fullpage.html
         await chrome.storage.local.set({ lastAnalysis: analysisResult });
@@ -674,7 +765,7 @@ document.addEventListener('DOMContentLoaded', function() {
           console.log('Popup: Author data received from full analysis, storing for author view');
           const authorResult = {
             timestamp: new Date().toISOString(),
-            url: tab.url,
+            paperId: paperId,
             data: data.author_data
           };
           
@@ -718,9 +809,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update button state
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
-        analyzeBtn.onclick = () => {
+        analyzeBtn.onclick = async () => {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tab || !tab.url) return;
+          const paperId = extractSsrnIdOrUrl(tab.url);
           chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html') + '?paperUrl=' + encodeURIComponent(tab.url)
+            url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
           });
         };
 
@@ -880,12 +974,36 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('checkPageType: Is PDF page?', isPDF);
       
       if (isPDF) {
-        // PDF detected - only show paper analysis option
-        console.log('checkPageType: PDF detected - enabling paper analysis, hiding author analysis');
-        showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
-        setButtonState('Analyze Current Paper', false, false);
-        analyzeBtn.style.backgroundColor = '#2196F3'; // Blue for ready state
-        showAuthorsButton(false); // Hide authors button for PDFs
+        // PDF detected - check if it's a local file
+        const isLocalFile = tab.url.startsWith('file:///');
+        
+        if (isLocalFile) {
+          // Local PDF detected - show guidance to user
+          console.log('checkPageType: Local PDF detected - showing guidance');
+          console.log('checkPageType: Tab URL:', tab.url);
+          const fileName = tab.url.split('/').pop() || 'PDF file';
+          
+          showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
+          
+          // Hide the main analyze button and show fullpage button instead
+          setButtonState('Analyze Current Paper', true, false); // Disable main button
+          analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
+          analyzeBtn.style.cursor = 'not-allowed'; // Show disabled cursor
+          showAuthorsButton(false); // Hide authors button for local PDFs
+          
+          // Show the full page interface button prominently
+          showFullpageButton(true);
+          
+          console.log('checkPageType: Main analyze button disabled, fullpage button shown');
+        } else {
+          // Web-hosted PDF detected - show paper analysis option
+          console.log('checkPageType: Web-hosted PDF detected - enabling paper analysis, hiding author analysis');
+          showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
+          setButtonState('Analyze Current Paper', false, false);
+          analyzeBtn.style.backgroundColor = '#2196F3'; // Blue for ready state
+          showAuthorsButton(false); // Hide authors button for PDFs
+          showFullpageButton(false); // Hide fullpage button
+        }
         
       } else if (tab.url && tab.url.includes('ssrn.com')) {
         // SSRN page detected - only show author analysis option
@@ -898,6 +1016,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showAuthorsButton(true);
         setAuthorsButtonState('Analyze Authors', false, false);
         analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
+        showFullpageButton(false); // Hide fullpage button
         
       } else {
         // Not a supported page
@@ -906,6 +1025,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setButtonState('Analyze Current Paper', true, false); // Disable button
         analyzeBtn.style.backgroundColor = '#ccc';
         showAuthorsButton(false); // Hide authors button for unsupported pages
+        showFullpageButton(false); // Hide fullpage button
       }
     } catch (error) {
       console.error('Error checking page type:', error);
@@ -967,7 +1087,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-
+  // Replace the old extractSsrnIdOrUrl with a robust version
+  function extractSsrnIdOrUrl(url) {
+    if (!url) return null;
+    // Prefer query string: abstract_id or abstractId
+    let match = url.match(/[?&]abstract_id=(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/[?&]abstractId=(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/[?&]abstract=(\d+)/i);
+    if (match) return match[1];
+    // Fallback: look for ssrn_id1234567 or abstract1234567 in the path/filename
+    match = url.match(/ssrn_id(\d+)/i);
+    if (match) return match[1];
+    match = url.match(/abstract(\d+)/i);
+    if (match) return match[1];
+    // Fallback: use the full URL as ID
+    return url;
+  }
 
   // Event listeners
   if (analyzeBtn) {
@@ -978,6 +1115,19 @@ document.addEventListener('DOMContentLoaded', function() {
     analyzeAuthorsBtn.addEventListener('click', analyzeAuthors);
   }
   
+  const fullpageBtn = document.getElementById('fullpage-btn');
+  if (fullpageBtn) {
+    fullpageBtn.addEventListener('click', async function() {
+      // Get current tab to pass local file info if available
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const url = tab && tab.url && tab.url.startsWith('file:///') 
+        ? chrome.runtime.getURL('fullpage.html') + '?localFile=' + encodeURIComponent(tab.url)
+        : chrome.runtime.getURL('fullpage.html');
+      
+      chrome.tabs.create({ url });
+    });
+  }
+  
   if (homeBtn) {
     homeBtn.addEventListener('click', function() {
       chrome.tabs.create({
@@ -986,10 +1136,50 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Settings modal logic
+  const settingsModal = document.getElementById('settings-modal');
+  const modelSelect = document.getElementById('model-select');
+  const openaiKeySection = document.getElementById('openai-key-section');
+  const openaiKeyInput = document.getElementById('openai-key-input');
+  const settingsSaveBtn = document.getElementById('settings-save-btn');
+  const settingsCancelBtn = document.getElementById('settings-cancel-btn');
+
+  // Open settings modal
   if (settingsBtn) {
-    settingsBtn.addEventListener('click', function() {
-      // For now, just show a placeholder message
-      showStatus('Settings feature coming soon!', 'info');
+    settingsBtn.addEventListener('click', () => {
+      // Load settings from storage
+      chrome.storage.local.get(['llmSettings'], (result) => {
+        const settings = result.llmSettings || { model: 'gemini', openaiKey: '' };
+        modelSelect.value = settings.model || 'gemini';
+        openaiKeyInput.value = settings.openaiKey || '';
+        openaiKeySection.style.display = (settings.model === 'openai') ? 'block' : 'none';
+        settingsModal.style.display = 'flex';
+      });
+    });
+  }
+
+  // Close modal on cancel
+  if (settingsCancelBtn) {
+    settingsCancelBtn.addEventListener('click', () => {
+      settingsModal.style.display = 'none';
+    });
+  }
+
+  // Show/hide OpenAI key input based on model selection
+  if (modelSelect) {
+    modelSelect.addEventListener('change', () => {
+      openaiKeySection.style.display = (modelSelect.value === 'openai') ? 'block' : 'none';
+    });
+  }
+
+  // Save settings
+  if (settingsSaveBtn) {
+    settingsSaveBtn.addEventListener('click', () => {
+      const model = modelSelect.value;
+      const openaiKey = openaiKeyInput.value.trim();
+      chrome.storage.local.set({ llmSettings: { model, openaiKey } }, () => {
+        settingsModal.style.display = 'none';
+      });
     });
   }
 
@@ -997,6 +1187,40 @@ document.addEventListener('DOMContentLoaded', function() {
   console.log('Popup: Initializing with smart backend detection...');
   console.log('Popup: Available backends:', Object.keys(CONFIG.BACKENDS));
   
+  // Function to check for existing analysis by paper ID on popup load
+  async function checkForExistingAnalysisByPaperId() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) return;
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (!paperId) return;
+      const storageKey = `analysis_${paperId}`;
+      const cached = await chrome.storage.local.get([storageKey]);
+      if (cached[storageKey] && cached[storageKey].summary) {
+        // Analysis exists, show View Analysis button
+        setButtonState('View Analysis', false, false);
+        analyzeBtn.style.backgroundColor = '#4CAF50';
+        analyzeBtn.onclick = async () => {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (!tab || !tab.url) return;
+          const paperId = extractSsrnIdOrUrl(tab.url);
+          chrome.tabs.create({
+            url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+          });
+        };
+        showStatus('Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
+      } else {
+        // No analysis, show Analyze button
+        setButtonState('Analyze Current Paper', false, false);
+        analyzeBtn.style.backgroundColor = '#2196F3';
+        analyzeBtn.onclick = analyzePaper;
+        showStatus('No analysis found for this paper. Click "Analyze Current Paper" to start.', 'info');
+      }
+    } catch (error) {
+      console.error('Error checking for existing analysis by paper ID:', error);
+    }
+  }
+
   // Display backend status and initialize
   async function initializePopup() {
     try {
@@ -1014,6 +1238,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Check page type and set appropriate button states
       await checkPageType();
+      await checkForExistingAnalysisByPaperId();
 
       // Check and monitor analysis status
       console.log('Calling checkAndMonitorAnalysisStatus...');
@@ -1069,9 +1294,12 @@ document.addEventListener('DOMContentLoaded', function() {
       showStatus('Analysis completed successfully! Click "View Analysis" to see results.', 'success');
       
       // Update button onclick to view results
-      analyzeBtn.onclick = () => {
+      analyzeBtn.onclick = async () => {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab || !tab.url) return;
+        const paperId = extractSsrnIdOrUrl(tab.url);
         chrome.tabs.create({
-          url: chrome.runtime.getURL('fullpage.html')
+          url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
         });
       };
       
@@ -1228,13 +1456,16 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           chrome.storage.local.set({
             lastAuthorAnalysis: {
               timestamp: new Date().toISOString(),
-              url: tab.url,
+              paperId: extractSsrnIdOrUrl(tab.url),
               data: data
             }
           });
-          chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html') + '?view=authors'
-          });
+          const unifiedId = extractSsrnIdOrUrl(tab.url);
+          let fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
+          if (unifiedId) {
+            fullpageUrl += `&paperID=${encodeURIComponent(unifiedId)}`;
+          }
+          chrome.tabs.create({ url: fullpageUrl });
         };
 
       } catch (error) {
@@ -1291,5 +1522,32 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     `;
 
     statusContainer.innerHTML = resultHtml;
+  }
+
+  // Function to display analysis results
+  function displayAnalysis(analysis, tabUrl) {
+    if (!analysis) {
+      showStatus('No analysis data available', 'error');
+      return;
+    }
+
+    // Update button state
+    setButtonState('View Analysis', false, false);
+    analyzeBtn.style.backgroundColor = '#4CAF50';
+    analyzeBtn.onclick = async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) return;
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      chrome.tabs.create({
+        url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+      });
+    };
+
+    // Show success message
+    let statusMessage = 'Analysis loaded from cache. Click "View Analysis" to see the detailed summary.';
+    if (analysis.data && analysis.data.author_data) {
+      statusMessage += ` Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations.`;
+    }
+    showStatus(statusMessage, 'success');
   }
 });
