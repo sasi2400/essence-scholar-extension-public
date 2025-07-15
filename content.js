@@ -86,7 +86,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'ping') {
     // Simple ping response to check if content script is injected
-    sendResponse({ success: true, message: 'Content script is active' });
+    sendResponse({ status: 'ok', success: true, message: 'Content script is active' });
     return true;
   }
   

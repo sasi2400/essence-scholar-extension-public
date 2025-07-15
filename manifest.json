@@ -50,7 +50,8 @@
         "pdf-init.js",
         "fullpage.html",
         "fullpage.js",
-        "marked.min.js"
+        "marked.min.js",
+        "marked-init.js"
       ],
       "matches": ["<all_urls>"]
     }

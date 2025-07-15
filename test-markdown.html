@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Markdown Viewer Access</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        .example {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .url {
+            font-family: monospace;
+            background: #e9ecef;
+            padding: 0.5rem;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 0.5rem 0;
+        }
+        .button:hover {
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <h1>📝 Markdown Viewer Access Guide</h1>
+    
+    <h2>🎯 How to Access Markdown Content</h2>
+    
+    <div class="example">
+        <h3>1. Get Your Extension ID</h3>
+        <p>Go to <code>chrome://extensions/</code> and find your extension ID (something like <code>abcdefghijklmnopqrstuvwxyz123456</code>)</p>
+    </div>
+    
+    <div class="example">
+        <h3>2. URL Format</h3>
+        <div class="url">
+            chrome-extension://[YOUR-EXTENSION-ID]/markdown-viewer.html?paperID=[PAPER-ID]
+        </div>
+    </div>
+    
+    <div class="example">
+        <h3>3. Example URLs</h3>
+        
+        <h4>For SSRN Paper (ID: 4123456):</h4>
+        <div class="url" id="ssrnExample">
+            chrome-extension://YOUR-EXTENSION-ID/markdown-viewer.html?paperID=4123456
+        </div>
+        
+        <h4>For PDF File:</h4>
+        <div class="url" id="pdfExample">
+            chrome-extension://YOUR-EXTENSION-ID/markdown-viewer.html?paperID=research-paper.pdf
+        </div>
+    </div>
+    
+    <div class="example">
+        <h3>4. Test Functions</h3>
+        <button class="button" onclick="getCurrentExtensionId()">Get Current Extension ID</button>
+        <button class="button" onclick="testMarkdownViewer()">Test Markdown Viewer</button>
+        <button class="button" onclick="openWithSampleId()">Open with Sample Paper ID</button>
+        
+        <div id="result" style="margin-top: 1rem; padding: 1rem; background: #e9ecef; border-radius: 4px; display: none;"></div>
+    </div>
+    
+    <h2>🔧 Backend API</h2>
+    <div class="example">
+        <h3>Direct API Access</h3>
+        <p>You can also test the backend directly:</p>
+        <div class="url">
+            GET http://localhost:5000/markdown/[PAPER-ID]
+        </div>
+        
+        <h4>Example Response:</h4>
+        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto;">
+{
+  "success": true,
+  "paper_id": "4123456",
+  "markdown_content": "# Paper Title\n\n## Abstract\n...",
+  "processor_used": "docling",
+  "title": "Sample Paper",
+  "total_pages": 25,
+  "sections_count": 8,
+  "tables_count": 3,
+  "figures_count": 5
+}
+        </pre>
+    </div>
+    
+    <script>
+        async function getCurrentExtensionId() {
+            const result = document.getElementById('result');
+            try {
+                const extensionId = chrome.runtime.id;
+                result.style.display = 'block';
+                result.innerHTML = `
+                    <strong>Your Extension ID:</strong> ${extensionId}<br>
+                    <strong>Markdown Viewer URL:</strong><br>
+                    <code>chrome-extension://${extensionId}/markdown-viewer.html?paperID=[PAPER-ID]</code>
+                `;
+                
+                // Update examples
+                document.getElementById('ssrnExample').textContent = 
+                    `chrome-extension://${extensionId}/markdown-viewer.html?paperID=4123456`;
+                document.getElementById('pdfExample').textContent = 
+                    `chrome-extension://${extensionId}/markdown-viewer.html?paperID=research-paper.pdf`;
+                    
+            } catch (error) {
+                result.style.display = 'block';
+                result.innerHTML = `<strong>Error:</strong> ${error.message}. This needs to run as part of the extension.`;
+            }
+        }
+        
+        async function testMarkdownViewer() {
+            const result = document.getElementById('result');
+            try {
+                const extensionId = chrome.runtime.id;
+                const testUrl = `chrome-extension://${extensionId}/markdown-viewer.html?paperID=test-paper-123`;
+                
+                result.style.display = 'block';
+                result.innerHTML = `
+                    <strong>Test URL Generated:</strong><br>
+                    <code>${testUrl}</code><br>
+                    <a href="${testUrl}" target="_blank" class="button">Open Test Markdown Viewer</a>
+                `;
+            } catch (error) {
+                result.style.display = 'block';
+                result.innerHTML = `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+        
+        async function openWithSampleId() {
+            try {
+                const samplePaperId = prompt('Enter a Paper ID (e.g., SSRN ID like 4123456 or filename):');
+                if (samplePaperId) {
+                    const extensionId = chrome.runtime.id;
+                    const url = `chrome-extension://${extensionId}/markdown-viewer.html?paperID=${encodeURIComponent(samplePaperId)}`;
+                    chrome.tabs.create({ url: url });
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        
+        // Auto-detect extension ID on load
+        window.addEventListener('load', function() {
+            if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+                getCurrentExtensionId();
+            }
+        });
+    </script>
+</body>
+</html> 

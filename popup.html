@@ -184,13 +184,36 @@
       <div style="margin-bottom:18px;">
         <label for="model-select" style="font-weight:500;">LLM Model:</label>
         <select id="model-select" style="margin-left:10px; padding:4px 8px; border-radius:4px;">
-          <option value="gemini">Gemini (Google)</option>
-          <option value="openai">OpenAI (GPT-3.5/4)</option>
+          <optgroup label="Gemini">
+            <option value="gemini-2.5-flash" title="Optimized for speed with good accuracy. Best for quick analysis.">Gemini 2.5 Flash (Fastest)</option>
+            <option value="gemini-2.5-pro" title="Best balance of speed and accuracy. Recommended for most use cases.">Gemini 2.5 Pro (Most Reliable)</option>
+            <option value="gemini-1.5-pro" title="Previous generation model. Good for compatibility.">Gemini 1.5 Pro (Legacy)</option>
+            <option value="gemini-pro" title="Original Gemini model. Most basic functionality.">Gemini Pro (Legacy)</option>
+          </optgroup>
+          <optgroup label="OpenAI">
+            <option value="gpt-4-turbo" title="Latest GPT-4 model. Fast with up-to-date knowledge.">GPT-4 Turbo (Latest)</option>
+            <option value="gpt-4" title="Most thoroughly tested GPT-4 model. Very reliable.">GPT-4 (Most Reliable)</option>
+            <option value="gpt-3.5-turbo" title="Fast and cost-effective. Good for simple tasks.">GPT-3.5 Turbo (Fastest)</option>
+          </optgroup>
+          <optgroup label="Claude">
+            <option value="claude-3-opus" title="Most powerful Claude model. Best for complex analysis.">Claude 3 Opus (Most Capable)</option>
+            <option value="claude-3-sonnet" title="Great balance of performance and speed.">Claude 3 Sonnet (Balanced)</option>
+            <option value="claude-3-haiku" title="Fastest Claude model. Good for quick responses.">Claude 3 Haiku (Fastest)</option>
+            <option value="claude-2.1" title="Previous generation Claude. Good for compatibility.">Claude 2.1 (Legacy)</option>
+          </optgroup>
         </select>
       </div>
-      <div id="openai-key-section" style="display:none; margin-bottom:18px;">
-        <label for="openai-key-input" style="font-weight:500;">OpenAI API Key:</label>
-        <input type="password" id="openai-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-...">
+      <div id="api-key-section" style="margin-bottom:18px;">
+        <div id="openai-key-section" style="display:none; margin-bottom:10px;">
+          <label for="openai-key-input" style="font-weight:500;">OpenAI API Key:</label>
+          <input type="password" id="openai-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-...">
+          <div style="font-size:0.8em; color:#666; margin-top:4px; margin-left:120px;">Required for GPT-4 and GPT-3.5 models</div>
+        </div>
+        <div id="claude-key-section" style="display:none; margin-bottom:10px;">
+          <label for="claude-key-input" style="font-weight:500;">Claude API Key:</label>
+          <input type="password" id="claude-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-ant-...">
+          <div style="font-size:0.8em; color:#666; margin-top:4px; margin-left:120px;">Required for all Claude models</div>
+        </div>
       </div>
       <div style="text-align:right;">
         <button id="settings-cancel-btn" style="margin-right:10px; padding:6px 16px; border-radius:4px; border:none; background:#ccc; color:#333;">Cancel</button>

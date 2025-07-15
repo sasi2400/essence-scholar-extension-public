@@ -156,6 +156,68 @@ async function processAnalysisQueue() {
   }
 }
 
+// Function to extract SSRN ID from URL
+function extractSsrnIdFromUrl(url) {
+  if (!url) return null;
+  
+  // Extract from abstractId parameter
+  const abstractIdMatch = url.match(/abstractId=(\d+)/);
+  if (abstractIdMatch) return abstractIdMatch[1];
+  
+  // Extract from ssrn_id pattern in URL
+  const ssrnIdMatch = url.match(/ssrn_id(\d+)/);
+  if (ssrnIdMatch) return ssrnIdMatch[1];
+  
+  // Extract from papers.ssrn.com/sol3/papers.cfm?abstract_id=
+  const paperUrlMatch = url.match(/abstract_id=(\d+)/);
+  if (paperUrlMatch) return paperUrlMatch[1];
+  
+  return null;
+}
+
+// Function to ensure content script is injected
+async function ensureContentScriptInjected(tabId) {
+  try {
+    // First check if content script is already active by sending a ping
+    const pingResponse = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+    if (pingResponse && pingResponse.status === 'ok') {
+      console.log(`Background: Content script already active in tab ${tabId}`);
+      return true;
+    }
+  } catch (error) {
+    // Content script not active, need to inject
+    console.log(`Background: Content script not active in tab ${tabId}, injecting...`);
+  }
+  
+  try {
+    // Get tab info to check URL
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.url) {
+      throw new Error('Could not get tab information');
+    }
+    
+    // Only inject on supported URLs
+    if (tab.url.includes('ssrn.com') || 
+        tab.url.toLowerCase().endsWith('.pdf') || 
+        tab.url.startsWith('file:///')) {
+      
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      });
+      
+      console.log(`Background: Content script injected into tab ${tabId}`);
+      return true;
+    } else {
+      console.log(`Background: Tab ${tabId} URL not supported for content script injection: ${tab.url}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`Background: Failed to inject content script into tab ${tabId}:`, error);
+    return false;
+  }
+}
+
 // Function to automatically trigger PDF analysis
 async function triggerPDFAnalysis(tabId) {
   try {
@@ -180,275 +242,232 @@ async function triggerPDFAnalysis(tabId) {
     activeTabs.set(tabId, newTabState);
     console.log(`Background: Updated tab state for analysis start:`, newTabState);
     
-    // Set analysis status to in progress
     try {
-      const STATUS_KEY = 'analysisStatus';
-      const now = new Date().toISOString();
-      const storage = await chrome.storage.local.get([STATUS_KEY]);
-      const allStatus = storage[STATUS_KEY] || {};
+      // Get tab info
       const tab = await chrome.tabs.get(tabId);
-      if (tab && tab.url) {
-        allStatus[tab.url] = {
-          status: 'in_progress',
-          updatedAt: now,
-          startedAt: now
-        };
-        await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+      if (!tab || !tab.url) {
+        throw new Error('Could not get tab URL');
       }
-    } catch (statusError) {
-      console.error('Error setting analysis status:', statusError);
-    }
-    
 
+      // For PDF files, use the tab URL directly
+      const isPDF = tab.url.toLowerCase().endsWith('.pdf');
+      let paperContent;
+      let paperUrl = tab.url;
 
-    // Show badge indicator that analysis is in progress
-    chrome.action.setBadgeText({ text: '...' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
-
-    // Notify popup if it's open
-    try {
-      chrome.runtime.sendMessage({ 
-        action: 'analysisStarted', 
-        tabId: tabId 
-      }).catch(() => {
-        // Popup might not be open, ignore error
-        console.log('Popup not available for analysis started notification');
-      });
-    } catch (error) {
-      // Ignore if popup is not open
-    }
-    
-    // Ensure content script is injected
-    console.log('Injecting content script...');
-    try {
-      // First check if content script is already injected
-      try {
-        await chrome.tabs.sendMessage(tabId, { action: 'ping' });
-        console.log('Content script already injected, skipping injection');
-      } catch (error) {
-        // Content script not injected, proceed with injection
-        console.log('Content script not found, injecting...');
-        await chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          files: ['content.js']
-        });
-        console.log('Content script injected successfully');
-      }
-    } catch (error) {
-      console.error('Error injecting content script:', error);
-      analysisInProgress.delete(tabId);
-      return;
-    }
-    
-    // Wait for content script to initialize
-    console.log('Waiting for content script to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Request content from the content script
-    console.log('Requesting content from content script...');
-    let response;
-    try {
-      response = await chrome.tabs.sendMessage(tabId, { action: 'getPaperContent' });
-      console.log('Response from content script:', response);
-    } catch (error) {
-      console.error('Error sending message to content script:', error);
-      analysisInProgress.delete(tabId);
-      return;
-    }
-    
-    if (response.error) {
-      console.error('Error getting PDF content:', response.error);
-      analysisInProgress.delete(tabId);
-      return;
-    }
-
-    if (!response.content) {
-      console.error('No content received from PDF');
-      analysisInProgress.delete(tabId);
-      return;
-    }
-
-    console.log('PDF content extracted:', response.content);
-    console.log('Sending to backend for analysis using smart detection...');
-
-    // Use smart backend detection for API request
-    let data = null;
-    try {
-      const requestBody = JSON.stringify({ content: response.content });
-      console.log('Request body size:', requestBody.length);
-      console.log('Request body preview:', requestBody.substring(0, 200) + '...');
-      
-      // Use the smart API request function from config.js
-      const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
-        method: 'POST',
-        body: requestBody
-      });
-      
-      console.log('Server response status:', serverResponse.status);
-      console.log('Server response headers:', Object.fromEntries(serverResponse.headers.entries()));
-      
-      if (serverResponse.ok) {
-        const currentBackend = await backendManager.getCurrentBackend();
-        console.log(`Successfully connected to ${currentBackend.name}`);
-        
-        const responseText = await serverResponse.text();
-        console.log('Response text length:', responseText.length);
-        console.log('Response text preview:', responseText.substring(0, 200) + '...');
-        
+      if (!isPDF) {
+        // For non-PDF files, get content from content script
         try {
-          data = JSON.parse(responseText);
-          console.log('Successfully parsed JSON response');
-        } catch (parseError) {
-          console.error('Failed to parse JSON response:', parseError);
-          console.log('Raw response:', responseText);
-          throw new Error('Invalid JSON response from server');
+          // First, try to ensure content script is injected
+          await ensureContentScriptInjected(tabId);
+          
+          // Wait a bit for content script to initialize
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const response = await chrome.tabs.sendMessage(tabId, { action: 'getPaperContent' });
+          if (!response || response.error) {
+            throw new Error(response?.error || 'Failed to get paper content');
+          }
+          paperContent = response.content;
+          paperUrl = response.content.paperUrl;
+        } catch (connectionError) {
+          console.error(`Background: Connection error for tab ${tabId}:`, connectionError);
+          
+          // If we can't connect to content script, try to extract basic info from tab
+          if (tab.url.includes('ssrn.com')) {
+            const paperId = extractSsrnIdFromUrl(tab.url);
+            if (paperId) {
+              paperContent = {
+                paperUrl: tab.url,
+                paperId: paperId,
+                title: 'SSRN Paper',
+                abstract: 'Content extracted from URL',
+                paperContent: 'Paper content not available - analyzed from URL only'
+              };
+              paperUrl = tab.url;
+              console.log(`Background: Using fallback content for SSRN paper ${paperId}`);
+            } else {
+              throw new Error('Could not extract paper information and content script connection failed');
+            }
+          } else {
+            throw new Error(`Content script connection failed: ${connectionError.message}`);
+          }
         }
-      } else {
-        console.log('Server returned error status:', serverResponse.status);
-        const errorText = await serverResponse.text();
-        console.log('Error response:', errorText);
-        throw new Error(`Server error: ${serverResponse.status} - ${errorText}`);
       }
-    } catch (error) {
-      console.error('Smart backend request failed:', error);
       
-      // Clear the analysis state
-      analysisInProgress.delete(tabId);
+      // Extract paper ID
+      const paperId = extractSsrnIdFromUrl(paperUrl);
+      if (!paperId) {
+        throw new Error('Could not extract paper ID from URL');
+      }
       
-      // Update tab state
-      activeTabs.set(tabId, {
-        ...activeTabs.get(tabId),
-        analysisInProgress: false,
-        lastError: 'Failed to connect to backend server: ' + error.message
-      });
-      
-      // Clear the badge
-      chrome.action.setBadgeText({ text: '' });
-      
-      return;
-    }
-    
-    if (data.error) {
-      console.error('Backend analysis error:', data.error);
-      analysisInProgress.delete(tabId);
-      return;
-    }
-
-    console.log('Analysis completed successfully:', data.summary?.substring(0, 100) + '...');
-
-    // Store the analysis results (per tab URL)
-    const analysisResult = {
-      timestamp: new Date().toISOString(),
-      url: response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl),
-      title: response.content.title || 'PDF Document',
-      content: response.content,
-      summary: data.summary,
-      autoAnalyzed: true
-    };
-
-    // Get existing analysis results and add the new one
-    const existingResults = await chrome.storage.local.get(['analysisResults']);
-    const allResults = existingResults.analysisResults || {};
-    const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
-    allResults[paperId] = analysisResult;
-
-    // Store the updated results
-    await chrome.storage.local.set({ analysisResults: allResults });
-    
-    // Also store as flat key for fullpage/popup compatibility
-    const storageKey = `analysis_${paperId}`;
-    await chrome.storage.local.set({ [storageKey]: analysisResult });
-    
-    // Also store as lastAnalysis for backward compatibility
-    await chrome.storage.local.set({ lastAnalysis: analysisResult });
-
-    console.log('PDF analysis completed and stored');
-    
-    // Set analysis status to complete
-    try {
-      const STATUS_KEY = 'analysisStatus';
-      const now = new Date().toISOString();
-      const storage = await chrome.storage.local.get([STATUS_KEY]);
-      const allStatus = storage[STATUS_KEY] || {};
-      const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
-      allStatus[paperId] = {
-        status: 'complete',
-        updatedAt: now,
-        finishedAt: now
-      };
-      await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
-    } catch (statusError) {
-      console.error('Error setting analysis status:', statusError);
-    }
-    
-    // Update tab state with analysis results
-    activeTabs.set(tabId, {
-      ...activeTabs.get(tabId),
-      hasAnalysis: true,
-      analysisInProgress: false,
-      analysisTimestamp: Date.now()
-    });
-
-    // Show notification to user
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: 'PDF Analysis Complete',
-      message: 'Your PDF has been analyzed. Click the extension icon to view the detailed summary.'
-    });
-
-    // Update the extension badge to show completion
-    chrome.action.setBadgeText({ text: 'OK' });
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-    
-    // Notify popup if it's open
-    try {
-      chrome.runtime.sendMessage({ 
-        action: 'analysisComplete', 
-        tabId: tabId 
-      }).catch(() => {
-        // Popup might not be open, ignore error
-        console.log('Popup not available for analysis completion notification');
-      });
-    } catch (error) {
-      // Ignore if popup is not open
-    }
-    
-    // Clear badge after 5 seconds
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
-    }, 5000);
-
-      } catch (error) {
-      console.error('Error in automatic PDF analysis:', error);
-      
-      // Set analysis status to error
+      // Set analysis status to in progress
       try {
         const STATUS_KEY = 'analysisStatus';
         const now = new Date().toISOString();
         const storage = await chrome.storage.local.get([STATUS_KEY]);
         const allStatus = storage[STATUS_KEY] || {};
-        const tab = await chrome.tabs.get(tabId);
-        if (tab && tab.url) {
-          const paperId = response.content.paperId || extractSsrnIdFromUrl(response.content.paperUrl);
-          allStatus[paperId] = {
-            status: 'error',
-            errorMessage: error.message,
-            updatedAt: now,
-            finishedAt: now
-          };
-          await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
-        }
+        allStatus[paperId] = {
+          status: 'in_progress',
+          updatedAt: now,
+          startedAt: now,
+          paperId: paperId
+        };
+        await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
       } catch (statusError) {
         console.error('Error setting analysis status:', statusError);
       }
+
+      // Show badge indicator that analysis is in progress
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+
+      // Get LLM settings
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
       
-      // Clear badge on error
-      chrome.action.setBadgeText({ text: '' });
+      // Make API request to backend
+      const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
+        method: 'POST',
+        body: JSON.stringify({
+          content: paperContent || { paperUrl },
+          model: llmSettings.model,
+          openai_api_key: llmSettings.openaiKey || undefined,
+          claude_api_key: llmSettings.claudeKey || undefined
+        })
+      });
+
+      if (!serverResponse.ok) {
+        const errorData = await serverResponse.json();
+        throw new Error(errorData.error || `Backend error: ${serverResponse.status}`);
+      }
+
+      const data = await serverResponse.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      console.log('Background: Analysis completed successfully, storing results for paper:', paperId);
+
+      // Store the full analysis result in the same format that fullpage expects
+      const storageKey = `analysis_${paperId}`;
+      const analysisResult = {
+        timestamp: new Date().toISOString(),
+        paperId: paperId,
+        content: paperContent || { 
+          paperUrl: paperUrl,
+          paperId: paperId,
+          title: 'Paper from Backend Analysis',
+          abstract: 'Analyzed via background process',
+          paperContent: 'Content processed by backend'
+        },
+        summary: data.summary || '',
+        data: data, // Store the entire response data
+        autoAnalyzed: true // Mark as auto-analyzed
+      };
+
+      // Store the analysis result
+      const analysisStorageData = {};
+      analysisStorageData[storageKey] = analysisResult;
+      await chrome.storage.local.set(analysisStorageData);
+      console.log('Background: Stored analysis result with key:', storageKey);
+
+      // Set analysis status to complete
+      try {
+        const STATUS_KEY = 'analysisStatus';
+        const now = new Date().toISOString();
+        const storage = await chrome.storage.local.get([STATUS_KEY]);
+        const allStatus = storage[STATUS_KEY] || {};
+        allStatus[paperId] = {
+          status: 'complete',
+          updatedAt: now,
+          finishedAt: now,
+          paperId: paperId
+        };
+        await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+      } catch (statusError) {
+        console.error('Error setting analysis status:', statusError);
+      }
+
+      // Update badge to show completion
+      chrome.action.setBadgeText({ text: '✓' });
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+
+      // Notify popup if it's open
+      try {
+        chrome.runtime.sendMessage({
+          action: 'analysisComplete',
+          paperId: paperId,
+          data: data
+        }).catch(() => {
+          // Popup might not be open, ignore error
+          console.log('Popup not available for completion notification');
+        });
+      } catch (error) {
+        // Ignore if popup is not open
+      }
+
     } finally {
-      // Always remove from in-progress set
+      // Always clean up the analysis state
       analysisInProgress.delete(tabId);
+      
+      // Update tab state
+      const finalState = activeTabs.get(tabId) || {};
+      finalState.analysisInProgress = false;
+      finalState.analysisQueued = false;
+      finalState.lastUpdated = Date.now();
+      activeTabs.set(tabId, finalState);
+      
+      // Process next item in queue if any
+      if (analysisQueue.length > 0) {
+        setTimeout(processAnalysisQueue, 1000);
+      }
     }
+    
+  } catch (error) {
+    console.error(`Background: Error in analysis for tab ${tabId}:`, error);
+    
+    // Set analysis status to error
+    try {
+      const STATUS_KEY = 'analysisStatus';
+      const now = new Date().toISOString();
+      const storage = await chrome.storage.local.get([STATUS_KEY]);
+      const allStatus = storage[STATUS_KEY] || {};
+      if (paperUrl) {
+        const paperId = extractSsrnIdFromUrl(paperUrl);
+        if (paperId) {
+          allStatus[paperId] = {
+            status: 'error',
+            updatedAt: now,
+            finishedAt: now,
+            paperId: paperId,
+            errorMessage: error.message
+          };
+          await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+        }
+      }
+    } catch (statusError) {
+      console.error('Error setting error status:', statusError);
+    }
+    
+    // Show error in badge
+    chrome.action.setBadgeText({ text: '!' });
+    chrome.action.setBadgeBackgroundColor({ color: '#F44336' });
+    
+    // Clean up analysis state
+    analysisInProgress.delete(tabId);
+    
+    // Update tab state to show error
+    const errorState = activeTabs.get(tabId) || {};
+    errorState.analysisInProgress = false;
+    errorState.analysisQueued = false;
+    errorState.analysisError = error.message;
+    errorState.lastUpdated = Date.now();
+    activeTabs.set(tabId, errorState);
+    
+    // Process next item in queue if any
+    if (analysisQueue.length > 0) {
+      setTimeout(processAnalysisQueue, 1000);
+    }
+  }
 }
 
 // Listen for tab activation
@@ -525,157 +544,90 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
 });
 
-// Listen for messages from content scripts and popup
+// Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background: Received message:', request.action, 'from sender:', sender);
-  
-  try {
-    // Handle messages that don't require a tab context
-    if (request.action === 'getConfig' || request.action === 'ping') {
-      sendResponse({ success: true, config: { version: '1.0' } });
-      return true;
-    }
-    
-    // Handle checkAnalysisStatus from popup (which includes tabId in the request)
-    if (request.action === 'checkAnalysisStatus' && request.tabId) {
-      console.log('Background: Handling checkAnalysisStatus for tabId:', request.tabId);
-      const tabId = request.tabId;
-      const tabState = activeTabs.get(tabId);
-      
-      console.log('Background: Current tabState:', tabState);
-      console.log('Background: analysisInProgress.has(tabId):', analysisInProgress.has(tabId));
-      console.log('Background: activeTabs size:', activeTabs.size);
-      console.log('Background: analysisInProgress size:', analysisInProgress.size);
-      console.log('Background: All activeTabs keys:', Array.from(activeTabs.keys()));
-      console.log('Background: All analysisInProgress values:', Array.from(analysisInProgress));
-      
-      const response = { 
-        inProgress: analysisInProgress.has(tabId),
-        hasAnalysis: tabState?.hasAnalysis || false,
-        analysisInProgress: tabState?.analysisInProgress || false,
-        queued: tabState?.analysisQueued || false,
-        queuePosition: analysisQueue.findIndex(item => item.tabId === tabId) + 1
-      };
-      console.log('Background: Sending response:', response);
-      sendResponse(response);
-      return true;
-    }
-    
-    // Handle analysis status messages from popup (these don't have sender.tab)
-    if (request.action === 'analysisStarted' && request.tabId) {
-      // Handle analysis started notification from popup
-      console.log('Background: Analysis requested for tabId:', request.tabId, 'URL:', request.url);
-      console.log('Background: Current queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
-      
-      // Update tab state to show analysis is queued
-      const currentTabState = activeTabs.get(request.tabId) || {};
-      const newTabState = {
-        ...currentTabState,
-        url: request.url,
-        analysisQueued: true,
-        analysisRequestTime: Date.now(),
-        lastUpdated: Date.now()
-      };
-      activeTabs.set(request.tabId, newTabState);
-      
-      // Add to analysis queue instead of starting immediately
-      addToAnalysisQueue(request.tabId, request.url);
-      
-      console.log('Background: Updated tab state for analysis request:', newTabState);
-      console.log('Background: After queue update - queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
-      
-      sendResponse({ success: true, queued: true });
-      return true;
-    } else if (request.action === 'analysisComplete' && request.tabId) {
-      // Handle analysis completed notification from popup
-      console.log('Background: Analysis completed for tabId:', request.tabId);
-      
-      // Update tab state to show analysis is complete
-      const currentTabState = activeTabs.get(request.tabId) || {};
-      const newTabState = {
-        ...currentTabState,
-        url: request.url,
-        hasAnalysis: request.hasResults || true,
-        analysisInProgress: false,
-        analysisTimestamp: Date.now(),
-        lastUpdated: Date.now()
-      };
-      activeTabs.set(request.tabId, newTabState);
-      analysisInProgress.delete(request.tabId);
-      
-      console.log('Background: Updated tab state for analysis completion:', newTabState);
-      console.log('Background: analysisInProgress size after delete:', analysisInProgress.size);
-      
-      sendResponse({ success: true });
-      return true;
-    } else if (request.action === 'analysisError' && request.tabId) {
-      // Handle analysis error notification from popup
-      console.log('Background: Analysis error for tabId:', request.tabId, 'Error:', request.error);
-      
-      // Update tab state to show analysis failed
-      const currentTabState = activeTabs.get(request.tabId) || {};
-      const newTabState = {
-        ...currentTabState,
-        url: request.url,
-        analysisInProgress: false,
-        lastError: request.error,
-        lastUpdated: Date.now()
-      };
-      activeTabs.set(request.tabId, newTabState);
-      analysisInProgress.delete(request.tabId);
-      
-      console.log('Background: Updated tab state for analysis error:', newTabState);
-      console.log('Background: analysisInProgress size after error:', analysisInProgress.size);
-      
-      sendResponse({ success: true });
-      return true;
-    }
-    
-    // Check if sender and sender.tab exist for tab-specific actions
-    if (!sender) {
-      console.warn('Message received without sender:', request);
-      sendResponse({ error: 'No sender information' });
-      return true;
-    }
-    
-    if (!sender.tab) {
-      console.warn('Message received without tab context:', request);
-      sendResponse({ error: 'No tab context available' });
-      return true;
-    }
+  console.log('Background: Received message:', request);
 
-    const tabId = sender.tab.id;
+  // Handle analysis status messages from popup (these don't have sender.tab)
+  if (request.action === 'analysisStarted' && request.tabId) {
+    // Handle analysis started notification from popup
+    console.log('Background: Analysis requested for tabId:', request.tabId, 'URL:', request.url);
+    console.log('Background: Current queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
     
-    if (request.action === 'updateTabState') {
-      activeTabs.set(tabId, {
-        ...activeTabs.get(tabId),
-        ...request.state,
-        lastUpdated: Date.now()
-      });
-      sendResponse({ success: true });
-    } else if (request.action === 'getTabState') {
-      sendResponse({ state: activeTabs.get(tabId) });
-    } else if (request.action === 'manualAnalyze') {
-      // Handle manual analysis request
-      try {
-        // Show badge indicator for manual analysis
-        chrome.action.setBadgeText({ text: '...' });
-        chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
-        
-        // Start the analysis
-        triggerPDFAnalysis(tabId);
-        sendResponse({ success: true });
-      } catch (error) {
-        console.error('Error starting manual analysis:', error);
-        sendResponse({ error: error.message });
-      }
-    } else {
-      console.log('Unknown message action:', request.action);
-      sendResponse({ error: 'Unknown action' });
+    // Check if analysis is already in progress for this tab
+    if (analysisInProgress.has(request.tabId)) {
+      console.log(`Analysis already in progress for tab ${request.tabId}`);
+      sendResponse({ success: true, queued: false, inProgress: true });
+      return true;
     }
-  } catch (error) {
-    console.error('Error handling message:', error);
-    sendResponse({ error: error.message });
+    
+    // Update tab state to show analysis is queued
+    const currentTabState = activeTabs.get(request.tabId) || {};
+    const newTabState = {
+      ...currentTabState,
+      url: request.url,
+      analysisQueued: true,
+      analysisRequestTime: Date.now(),
+      lastUpdated: Date.now()
+    };
+    activeTabs.set(request.tabId, newTabState);
+    
+    // Add to analysis queue instead of starting immediately
+    addToAnalysisQueue(request.tabId, request.url);
+    
+    // Start queue processing if not already running
+    if (!isProcessingQueue) {
+      processAnalysisQueue();
+    }
+    
+    console.log('Background: Updated tab state for analysis request:', newTabState);
+    console.log('Background: After queue update - queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
+    
+    sendResponse({ success: true, queued: true });
+    return true;
+  }
+
+  if (!sender.tab) {
+    console.warn('Message received without tab context:', request);
+    sendResponse({ error: 'No tab context available' });
+    return true;
+  }
+
+  const tabId = sender.tab.id;
+  
+  if (request.action === 'updateTabState') {
+    activeTabs.set(tabId, {
+      ...activeTabs.get(tabId),
+      ...request.state,
+      lastUpdated: Date.now()
+    });
+    sendResponse({ success: true });
+  } else if (request.action === 'getTabState') {
+    sendResponse({ state: activeTabs.get(tabId) });
+  } else if (request.action === 'manualAnalyze') {
+    // Handle manual analysis request
+    try {
+      // Check if analysis is already in progress
+      if (analysisInProgress.has(tabId)) {
+        console.log(`Analysis already in progress for tab ${tabId}`);
+        sendResponse({ success: true, inProgress: true });
+        return true;
+      }
+      
+      // Show badge indicator for manual analysis
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+      
+      // Start the analysis
+      addToAnalysisQueue(tabId, sender.tab.url);
+      sendResponse({ success: true, queued: true });
+    } catch (error) {
+      console.error('Error starting manual analysis:', error);
+      sendResponse({ error: error.message });
+    }
+  } else {
+    console.log('Unknown message action:', request.action);
+    sendResponse({ error: 'Unknown action' });
   }
   return true;
 });

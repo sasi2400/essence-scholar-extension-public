@@ -2,12 +2,13 @@ document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
   
-  async function setAnalysisStatus(url, status, errorMessage = null) {
-    console.log('Setting analysis status:', { url, status, errorMessage });
+  async function setAnalysisStatus(paperId, status, errorMessage = null) {
+    console.log('Setting analysis status:', { paperId, status, errorMessage });
     const now = new Date().toISOString();
     const update = {
       status,
       updatedAt: now,
+      paperId: paperId
     };
     if (status === 'in_progress') {
       update.startedAt = now;
@@ -19,33 +20,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     const storage = await chrome.storage.local.get([STATUS_KEY]);
     const allStatus = storage[STATUS_KEY] || {};
-    allStatus[url] = update;
+    allStatus[paperId] = update;
     await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
     console.log('Analysis status set successfully:', update);
   }
   
-  async function getAnalysisStatus(url) {
+  async function getAnalysisStatus(paperId) {
     const storage = await chrome.storage.local.get([STATUS_KEY]);
     const allStatus = storage[STATUS_KEY] || {};
-    
-    // Try exact match first
-    let status = allStatus[url] || null;
-    
-    // If no exact match, try to find a similar URL (handle trailing slashes, etc.)
-    if (!status) {
-      const normalizedUrl = url.replace(/\/$/, ''); // Remove trailing slash
-      for (const [storedUrl, storedStatus] of Object.entries(allStatus)) {
-        const normalizedStoredUrl = storedUrl.replace(/\/$/, '');
-        if (normalizedUrl === normalizedStoredUrl) {
-          status = storedStatus;
-          console.log('Found status with normalized URL match:', storedUrl);
-          break;
-        }
-      }
-    }
-    
-    console.log('Getting analysis status for URL:', url, 'Result:', status);
-    return status;
+    return allStatus[paperId] || null;
   }
   
   // Function to check and monitor analysis status using local storage
@@ -57,8 +40,14 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       
-      console.log('Checking analysis status for URL:', tab.url);
-      const status = await getAnalysisStatus(tab.url);
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (!paperId) {
+        console.log('No paper ID found for status monitoring');
+        return;
+      }
+      
+      console.log('Checking analysis status for paper ID:', paperId);
+      const status = await getAnalysisStatus(paperId);
       console.log('Current analysis status:', status);
       
       // Always hide/disable View Analysis button unless status is complete
@@ -67,77 +56,31 @@ document.addEventListener('DOMContentLoaded', function() {
       analyzeBtn.onclick = analyzePaper;
 
       if (!status) {
-        console.log('No analysis status found for this URL');
+        console.log('No analysis status found for this paper ID');
         return;
       }
       
-      if (status.status === 'in_progress') {
-        console.log('Analysis in progress, starting monitoring...');
-        showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
-        setButtonState('Analyzing...', true, true); // Disable button
-        analyzeBtn.style.backgroundColor = '#FF9800';
-        // Hide View Analysis button if present
-        // Start monitoring for status changes
-        const monitorInterval = setInterval(async () => {
-          try {
-            const currentStatus = await getAnalysisStatus(tab.url);
-            console.log('Current status check result:', currentStatus);
-            if (currentStatus && currentStatus.status !== 'in_progress') {
-              console.log('Status changed from in_progress to:', currentStatus.status);
-              clearInterval(monitorInterval);
-              if (currentStatus.status === 'complete') {
-                // Only now show View Analysis if result is available
-                const hasResult = await checkForExistingAnalysis();
-                if (hasResult) {
-                  showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-                  setButtonState('View Analysis', false, false);
-                  analyzeBtn.style.backgroundColor = '#4CAF50';
-                  analyzeBtn.onclick = async () => {
-                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                    if (!tab || !tab.url) return;
-                    const paperId = extractSsrnIdOrUrl(tab.url);
-                    chrome.tabs.create({
-                      url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-                    });
-                  };
-                } else {
-                  // No result, show error or reset
-                  setButtonState('Analyze Current Paper', false, false);
-                  analyzeBtn.style.backgroundColor = '#2196F3';
-                  analyzeBtn.onclick = analyzePaper;
-                  showStatus('Analysis complete, but no results found. Please try again.', 'error');
-                }
-              } else if (currentStatus.status === 'error') {
-                showStatus('Analysis failed: ' + (currentStatus.errorMessage || 'Unknown error'), 'error');
-                setButtonState('Analyze Current Paper', false, false);
-                analyzeBtn.style.backgroundColor = '#2196F3';
-                analyzeBtn.onclick = analyzePaper;
-              }
-            }
-          } catch (error) {
-            console.error('Error monitoring analysis status:', error);
-            clearInterval(monitorInterval);
-          }
-        }, 2000);
-        setTimeout(() => {
-          console.log('Stopping status monitoring after timeout');
-          clearInterval(monitorInterval);
-        }, 10 * 60 * 1000);
-      } else if (status.status === 'queued') {
-        setButtonState('Queued...', true, true);
-        analyzeBtn.style.backgroundColor = '#FF9800';
-        showStatus('Analysis is queued. Please wait...', 'progress');
-      } else if (status.status === 'complete') {
-        // Only show View Analysis if result is available
+      // Check if the status is stale (older than 5 minutes)
+      const now = new Date().getTime();
+      const startedAt = new Date(status.startedAt).getTime();
+      const fiveMinutes = 5 * 60 * 1000;
+      
+      if (status.status === 'in_progress' && now - startedAt > fiveMinutes) {
+        console.log('Found stale in_progress status, clearing...');
+        await clearStaleAnalysisStatus();
+        showStatus('Previous analysis timed out. Please try again.', 'error');
+        setButtonState('Analyze Current Paper', false, false);
+        return;
+      }
+      
+      if (status.status === 'complete') {
+        console.log('Analysis is complete, checking for results...');
         const hasResult = await checkForExistingAnalysis();
         if (hasResult) {
-          showStatus('Analysis complete for this paper. Click "View Analysis" to see results.', 'success');
+          showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!tab || !tab.url) return;
-            const paperId = extractSsrnIdOrUrl(tab.url);
             chrome.tabs.create({
               url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
             });
@@ -148,14 +91,108 @@ document.addEventListener('DOMContentLoaded', function() {
           analyzeBtn.onclick = analyzePaper;
           showStatus('Analysis complete, but no results found. Please try again.', 'error');
         }
-      } else if (status.status === 'error') {
-        showStatus('Analysis failed: ' + (status.errorMessage || 'Unknown error'), 'error');
-        setButtonState('Analyze Current Paper', false, false);
-        analyzeBtn.style.backgroundColor = '#2196F3';
-        analyzeBtn.onclick = analyzePaper;
+        return;
+      }
+      
+      if (status.status === 'in_progress') {
+        console.log('Analysis in progress, starting monitoring...');
+        showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
+        setButtonState('Analyzing...', true, true);
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        
+        let monitorStartTime = Date.now();
+        const monitorTimeout = 5 * 60 * 1000; // 5 minutes timeout
+        
+        // Start monitoring for status changes
+        const monitorInterval = setInterval(async () => {
+          try {
+            // Check if we've exceeded the timeout
+            if (Date.now() - monitorStartTime > monitorTimeout) {
+              console.log('Analysis monitoring timed out');
+              clearInterval(monitorInterval);
+              await clearStaleAnalysisStatus();
+              showStatus('Analysis timed out. Please try again.', 'error');
+              setButtonState('Analyze Current Paper', false, false);
+              analyzeBtn.style.backgroundColor = '#2196F3';
+              analyzeBtn.onclick = analyzePaper;
+              return;
+            }
+            
+            const currentStatus = await getAnalysisStatus(paperId);
+            console.log('Current status check result:', currentStatus);
+            
+            // First check if analysis is available on backend
+            const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+            if (backendHasAnalysis) {
+              clearInterval(monitorInterval);
+              showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+              setButtonState('View Analysis', false, false);
+              analyzeBtn.style.backgroundColor = '#4CAF50';
+              analyzeBtn.onclick = async () => {
+                chrome.tabs.create({
+                  url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+                });
+              };
+              return;
+            }
+            
+            if (!currentStatus || currentStatus.status === 'error') {
+              clearInterval(monitorInterval);
+              showStatus('Analysis failed: ' + (currentStatus?.errorMessage || 'Unknown error'), 'error');
+              setButtonState('Analyze Current Paper', false, false);
+              analyzeBtn.style.backgroundColor = '#2196F3';
+              analyzeBtn.onclick = analyzePaper;
+              return;
+            }
+            
+            if (currentStatus.status === 'complete') {
+              clearInterval(monitorInterval);
+              const hasResult = await checkForExistingAnalysis();
+              if (hasResult) {
+                showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+                setButtonState('View Analysis', false, false);
+                analyzeBtn.style.backgroundColor = '#4CAF50';
+                analyzeBtn.onclick = async () => {
+                  chrome.tabs.create({
+                    url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+                  });
+                };
+              } else {
+                // If local storage says complete but no results, check backend one more time
+                const backendRecheck = await checkAnalysisOnBackend(paperId);
+                if (backendRecheck) {
+                  showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+                  setButtonState('View Analysis', false, false);
+                  analyzeBtn.style.backgroundColor = '#4CAF50';
+                  analyzeBtn.onclick = async () => {
+                    chrome.tabs.create({
+                      url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+                    });
+                  };
+                } else {
+                  setButtonState('Analyze Current Paper', false, false);
+                  analyzeBtn.style.backgroundColor = '#2196F3';
+                  analyzeBtn.onclick = analyzePaper;
+                  showStatus('Analysis complete, but no results found. Please try again.', 'error');
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error monitoring analysis status:', error);
+            clearInterval(monitorInterval);
+            showStatus('Error monitoring analysis status. Please try again.', 'error');
+            setButtonState('Analyze Current Paper', false, false);
+            analyzeBtn.style.backgroundColor = '#2196F3';
+            analyzeBtn.onclick = analyzePaper;
+          }
+        }, 2000);
       }
     } catch (error) {
       console.error('Error checking analysis status:', error);
+      showStatus('Error checking analysis status. Please try again.', 'error');
+      setButtonState('Analyze Current Paper', false, false);
+      analyzeBtn.style.backgroundColor = '#2196F3';
+      analyzeBtn.onclick = analyzePaper;
     }
   }
   
@@ -166,12 +203,15 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!tab) return;
 
       // First check local storage status
-      const localStatus = await getAnalysisStatus(tab.url);
-      if (localStatus && localStatus.status === 'in_progress') {
-        console.log('Local storage shows analysis in progress, starting monitoring...');
-        // Start monitoring for completion
-        checkAndMonitorAnalysisStatus();
-        return;
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (paperId) {
+        const localStatus = await getAnalysisStatus(paperId);
+        if (localStatus && localStatus.status === 'in_progress') {
+          console.log('Local storage shows analysis in progress, starting monitoring...');
+          // Start monitoring for completion
+          checkAndMonitorAnalysisStatus();
+          return;
+        }
       }
 
       // If no local status, check background script status
@@ -181,8 +221,13 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Background script shows analysis in progress, setting local status...');
         
         // Set local status to in progress and start monitoring
-        await setAnalysisStatus(tab.url, 'in_progress');
-        checkAndMonitorAnalysisStatus();
+        if (tab.url) {
+          const paperId = extractSsrnIdOrUrl(tab.url);
+          if (paperId) {
+            await setAnalysisStatus(paperId, 'in_progress');
+            checkAndMonitorAnalysisStatus();
+          }
+        }
       } else if (status.hasAnalysis) {
         // Background script indicates analysis exists for this tab
         console.log('Background script indicates analysis exists for this tab');
@@ -566,320 +611,63 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to analyze paper
   async function analyzePaper() {
     try {
-      console.log('=== POPUP ANALYSIS START ===');
-      console.log('Popup: analyzePaper function called');
-      
-      // Check if button is disabled (for local files)
-      if (analyzeBtn && analyzeBtn.disabled) {
-        console.log('Popup: Analyze button is disabled, ignoring click');
-        return;
-      }
-      
-      // Get the current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      console.log('Popup: Current tab:', tab);
-      
-      if (!tab.url) {
-        throw new Error('No active tab found');
-      }
-
-      // Check if we're already in the fullpage view
-      if (tab.url.includes('fullpage.html')) {
-        // If we're in fullpage view, just focus on the current tab
-        await chrome.tabs.update(tab.id, { active: true });
+      if (!tab || !tab.url) {
+        showStatus('No active tab found', 'error');
         return;
       }
 
-      // Only allow paper analysis on PDF pages (since SSRN pages only show author analysis)
-      const isPDF = await checkIfPDFPage(tab);
-      if (!isPDF) {
-        throw new Error('Paper analysis is only available for PDF files. For SSRN pages, use "Analyze Authors" instead.');
-      }
-
-      // Check for existing analysis first (only when user clicks analyze)
-      console.log('Popup: Checking for existing analysis...');
-      const hasExistingAnalysis = await checkForExistingAnalysis();
-      if (hasExistingAnalysis) {
-        console.log('Popup: Existing analysis found, stopping here');
-        return; // Stop here if existing analysis was found and user chose to view it
-      }
-
-      // Check if analysis is already in progress or queued
-      console.log('Popup: Checking analysis status...');
-      const status = await checkAnalysisStatus(tab.id);
-      if (status && (status.inProgress || status.analysisInProgress || status.queued)) {
-        if (status.queued) {
-          const queueMsg = status.queuePosition > 0 
-            ? `Analysis is queued (position ${status.queuePosition}). Please wait...`
-            : 'Analysis is queued. Please wait...';
-          console.log('Analysis already queued, not starting new one');
-          showStatus(queueMsg, 'progress');
-        } else {
-          console.log('Analysis already in progress, not starting new one');
-          showStatus('Analysis is already in progress. Please wait...', 'progress');
-        }
+      // Set initial status
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (!paperId) {
+        showStatus('Could not extract paper ID from URL', 'error');
         return;
       }
-
-      // Start analysis process
-      console.log('Popup: Starting analysis process...');
+      
+      // Update UI to show analysis is starting
+      await setAnalysisStatus(paperId, 'in_progress');
+      showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
       setButtonState('Analyzing...', true, true);
-      showProgress(1, 'Extracting content from the page...');
-      
-      // Set analysis status to in progress
-      console.log('About to set analysis status to in_progress for URL:', tab.url);
-      await setAnalysisStatus(tab.url, 'in_progress');
-      console.log('Analysis status set to in_progress');
-      
-      // Notify background script that analysis is starting
-      try {
-        console.log('Popup: Sending analysisStarted message to background script for tabId:', tab.id);
-        const response = await chrome.runtime.sendMessage({ 
-          action: 'analysisStarted', 
-          tabId: tab.id,
-          url: tab.url
-        });
-        console.log('Popup: Background script response to analysisStarted:', response);
-      } catch (error) {
-        console.error('Popup: Could not notify background script:', error);
-      }
+      analyzeBtn.style.backgroundColor = '#FF9800';
 
-      // Ensure content script is injected
-      console.log('Popup: Ensuring content script is injected...');
-      await ensureContentScript(tab.id);
+      // Send message to background script to start analysis
+      await chrome.runtime.sendMessage({
+        action: 'analysisStarted',
+        tabId: tab.id,
+        url: tab.url
+      });
 
-      // Wait a short moment for the content script to initialize
-      console.log('Popup: Waiting for content script to initialize...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Start monitoring the analysis progress
+      checkAndMonitorAnalysisStatus();
 
-      // Update progress
-      showProgress(2, 'Requesting content from the page...');
-
-      // Request content from the content script
-      console.log('Popup: Requesting content from content script...');
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
-      
-      console.log('Popup: Content script response:', response);
-      
-      if (response.error) {
-        console.log('Popup: Content script returned error:', response.error);
-        throw new Error(response.error);
-      }
-
-      if (!response.content) {
-        console.log('Popup: No content received from content script');
-        throw new Error('No content received from the page');
-      }
-      
-      console.log('Popup: Content received successfully, content length:', response.content.length || 'N/A');
-
-      // Update progress
-      showProgress(2, 'Sending content to AI for analysis...');
-
-      try {
-        console.log('Popup: Starting backend analysis with smart detection...');
-        console.log('Popup: Content to send:', typeof response.content, response.content ? 'Content available' : 'No content');
-        
-        // Get LLM settings
-        const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '' };
-        
-        // Extract paper ID
-        const paperId = extractSsrnIdOrUrl(tab.url);
-        const storageKey = `analysis_${paperId}`;
-        
-        // Check cache
-        let cached = await chrome.storage.local.get([storageKey]);
-        if (cached[storageKey]) {
-          showStatus('Loaded analysis from cache.', 'success');
-          displayAnalysis(cached[storageKey], tab.url);
-          return;
-        }
-
-        // Add paper ID to content
-        response.content.paperId = paperId;
-        
-        const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
-          method: 'POST',
-          body: JSON.stringify({
-            content: response.content,
-            model: llmSettings.model === 'openai' ? 'openai-4o' : 'gemini',
-            openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined
-          })
-        });
-
-        console.log('Popup: Backend response received');
-
-        if (!serverResponse.ok) {
-          const errorText = await serverResponse.text();
-          throw new Error(`Backend error: ${serverResponse.status} - ${errorText}`);
-        }
-
-        const data = await serverResponse.json();
-        console.log('Popup: Backend response data:', data);
-
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
-        // Handle local file response - show guidance instead of redirecting
-        if (data.action === 'open_fullpage' && data.localFile) {
-          console.log('Popup: Local file detected, showing guidance');
-          const fileName = data.fileName || 'PDF file';
-          
-          showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
-          showStatus('Click "Open Full Page Interface" to upload and analyze this file.', 'info');
-          
-          // Hide the main analyze button and show fullpage button instead
-          setButtonState('Analyze Current Paper', true, false); // Disable main button
-          analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
-          
-          // Show the full page interface button
-          showFullpageButton(true);
-          
-          return;
-        }
-
-        // Update progress
-        showProgress(3, 'Analysis complete! Storing results...');
-
-        // When storing analysis results:
-        const analysisResult = {
-          timestamp: new Date().toISOString(),
-          paperId: paperId,
-          title: response.content.title || 'Document',
-          content: response.content,
-          summary: data.summary,
-          autoAnalyzed: false
-        };
-        cached = await chrome.storage.local.get([storageKey]); // Declare only once
-        if (!cached[storageKey]) {
-          await chrome.storage.local.set({ [storageKey]: analysisResult });
-        }
-        
-        // Also store as lastAnalysis for backward compatibility with fullpage.html
-        await chrome.storage.local.set({ lastAnalysis: analysisResult });
-
-        // If author data is available from the full analysis, store it for the author view
-        if (data.author_data) {
-          console.log('Popup: Author data received from full analysis, storing for author view');
-          const authorResult = {
-            timestamp: new Date().toISOString(),
-            paperId: paperId,
-            data: data.author_data
-          };
-          
-          // Store author analysis per tab URL
-          const existingAuthorResults = await chrome.storage.local.get(['authorAnalysisResults']);
-          const allAuthorResults = existingAuthorResults.authorAnalysisResults || {};
-          allAuthorResults[tab.url] = authorResult;
-          
-          await chrome.storage.local.set({ 
-            authorAnalysisResults: allAuthorResults,
-            lastAuthorAnalysis: authorResult // For backward compatibility
-          });
-        }
-        
-        // Set analysis status to complete
-        await setAnalysisStatus(tab.url, 'complete');
-
-        // Notify background script that analysis is complete
-        try {
-          console.log('Popup: Sending analysisComplete message to background script for tabId:', tab.id);
-          const response = await chrome.runtime.sendMessage({ 
-            action: 'analysisComplete', 
-            tabId: tab.id,
-            url: tab.url,
-            hasResults: true
-          });
-          console.log('Popup: Background script response to analysisComplete:', response);
-        } catch (error) {
-          console.error('Popup: Could not notify background script of completion:', error);
-        }
-
-        // Show completion status
-        hideProgress();
-        clearStatus();
-        let statusMessage = 'DONE: Analysis complete! Click "Go to Full Page" to view the detailed summary.';
-        if (data.author_data) {
-          statusMessage += ` Author profiles also fetched: ${data.author_data.summary.total_authors} authors with ${data.author_data.summary.total_citations.toLocaleString()} total citations.`;
-        }
-        showStatus(statusMessage, 'success');
-        
-        // Update button state
-        setButtonState('View Analysis', false, false);
-        analyzeBtn.style.backgroundColor = '#4CAF50';
-        analyzeBtn.onclick = async () => {
-          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (!tab || !tab.url) return;
-          const paperId = extractSsrnIdOrUrl(tab.url);
-          chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-          });
-        };
-
-      } catch (error) {
-        console.error('Error analyzing paper:', error);
-        
-        // Set analysis status to error
-        await setAnalysisStatus(tab.url, 'error', error.message);
-        
-        // Notify background script that analysis failed
-        try {
-          console.log('Popup: Sending analysisError message to background script for tabId:', tab.id, 'Error:', error.message);
-          const response = await chrome.runtime.sendMessage({ 
-            action: 'analysisError', 
-            tabId: tab.id,
-            url: tab.url,
-            error: error.message
-          });
-          console.log('Popup: Background script response to analysisError:', response);
-        } catch (bgError) {
-          console.error('Popup: Could not notify background script of error:', bgError);
-        }
-        
-        // Handle specific error types
-        if (error.name === 'AbortError') {
-          throw new Error('Analysis timed out. The request took too long to complete. Please try again.');
-        } else if (error.message.includes('Failed to fetch')) {
-          throw new Error('Network error. Please check your internet connection and try again.');
-        } else if (error.message.includes('signal is aborted')) {
-          throw new Error('Request was cancelled. This might be due to a timeout or network issue. Please try again.');
-        } else {
-          throw new Error(`Failed to analyze paper: ${error.message}`);
-        }
-      }
-      
     } catch (error) {
-      console.error('Error:', error);
-      hideProgress();
-      clearStatus();
-      showStatus(`Error: ${error.message}`, 'error');
-      setButtonState('Analyze Current Paper', false, false);
+      console.error('Error in analyzePaper:', error);
+      const errorMessage = error.message || 'Unknown error occurred';
       
-      // Set analysis status to error if we have a tab URL
+      // Get the current tab URL for status cleanup
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab && tab.url) {
-          await setAnalysisStatus(tab.url, 'error', error.message);
-          
-          // Notify background script that analysis failed
-          try {
-            console.log('Popup: Sending analysisError message to background script in catch block for tabId:', tab.id, 'Error:', error.message);
-            const response = await chrome.runtime.sendMessage({ 
-              action: 'analysisError', 
-              tabId: tab.id,
-              url: tab.url,
-              error: error.message
-            });
-            console.log('Popup: Background script response to analysisError in catch block:', response);
-          } catch (bgError) {
-            console.error('Popup: Could not notify background script of error in catch block:', bgError);
+          const paperId = extractSsrnIdOrUrl(tab.url);
+          if (paperId) {
+            // Set error status
+            await setAnalysisStatus(paperId, 'error', errorMessage);
+            
+            // Clear the status
+            const storage = await chrome.storage.local.get([STATUS_KEY]);
+            const allStatus = storage[STATUS_KEY] || {};
+            delete allStatus[paperId];
+            await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
           }
         }
-      } catch (statusError) {
-        console.error('Error setting analysis status:', statusError);
+      } catch (e) {
+        console.error('Error cleaning up analysis status:', e);
       }
+
+      showStatus('Analysis failed: ' + errorMessage, 'error');
+      setButtonState('Analyze Current Paper', false, false);
+      analyzeBtn.style.backgroundColor = '#2196F3';
+      analyzeBtn.onclick = analyzePaper;
     }
   }
 
@@ -1141,6 +929,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const modelSelect = document.getElementById('model-select');
   const openaiKeySection = document.getElementById('openai-key-section');
   const openaiKeyInput = document.getElementById('openai-key-input');
+  const claudeKeySection = document.getElementById('claude-key-section');
+  const claudeKeyInput = document.getElementById('claude-key-input');
   const settingsSaveBtn = document.getElementById('settings-save-btn');
   const settingsCancelBtn = document.getElementById('settings-cancel-btn');
 
@@ -1149,10 +939,12 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsBtn.addEventListener('click', () => {
       // Load settings from storage
       chrome.storage.local.get(['llmSettings'], (result) => {
-        const settings = result.llmSettings || { model: 'gemini', openaiKey: '' };
+        const settings = result.llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
         modelSelect.value = settings.model || 'gemini';
         openaiKeyInput.value = settings.openaiKey || '';
+        claudeKeyInput.value = settings.claudeKey || '';
         openaiKeySection.style.display = (settings.model === 'openai') ? 'block' : 'none';
+        claudeKeySection.style.display = (settings.model === 'claude') ? 'block' : 'none';
         settingsModal.style.display = 'flex';
       });
     });
@@ -1165,10 +957,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // Show/hide OpenAI key input based on model selection
+  // Show/hide API key inputs based on model selection
   if (modelSelect) {
     modelSelect.addEventListener('change', () => {
-      openaiKeySection.style.display = (modelSelect.value === 'openai') ? 'block' : 'none';
+      const selectedModel = modelSelect.value;
+      // Show OpenAI key section for GPT models
+      openaiKeySection.style.display = selectedModel.startsWith('gpt-') ? 'block' : 'none';
+      // Show Claude key section for Claude models
+      claudeKeySection.style.display = selectedModel.startsWith('claude-') ? 'block' : 'none';
     });
   }
 
@@ -1177,10 +973,65 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsSaveBtn.addEventListener('click', () => {
       const model = modelSelect.value;
       const openaiKey = openaiKeyInput.value.trim();
-      chrome.storage.local.set({ llmSettings: { model, openaiKey } }, () => {
+      const claudeKey = claudeKeyInput.value.trim();
+      
+      // Validate API keys if needed
+      if (model.startsWith('gpt-') && !openaiKey) {
+        alert('Please enter your OpenAI API key to use GPT models');
+        return;
+      }
+      if (model.startsWith('claude-') && !claudeKey) {
+        alert('Please enter your Claude API key to use Claude models');
+        return;
+      }
+      
+      chrome.storage.local.set({ 
+        llmSettings: { 
+          model, 
+          openaiKey, 
+          claudeKey 
+        } 
+      }, () => {
         settingsModal.style.display = 'none';
       });
     });
+  }
+
+  // Function to clear stale analysis status
+  async function clearStaleAnalysisStatus() {
+    try {
+      const storage = await chrome.storage.local.get([STATUS_KEY]);
+      const allStatus = storage[STATUS_KEY] || {};
+      let hasChanges = false;
+
+      // Get current time
+      const now = new Date().getTime();
+      
+      // Loop through all statuses and clear any stale ones
+      for (const [key, status] of Object.entries(allStatus)) {
+        // Convert status timestamps to Date objects
+        const startedAt = new Date(status.startedAt).getTime();
+        const updatedAt = new Date(status.updatedAt).getTime();
+        
+        // Clear status if:
+        // 1. It's been "in_progress" for more than 5 minutes
+        // 2. Last update was more than 5 minutes ago
+        const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+        if (status.status === 'in_progress' && 
+            (now - startedAt > fiveMinutes || now - updatedAt > fiveMinutes)) {
+          delete allStatus[key];
+          hasChanges = true;
+        }
+      }
+
+      // Save changes if any statuses were cleared
+      if (hasChanges) {
+        await chrome.storage.local.set({ [STATUS_KEY]: allStatus });
+        console.log('Cleared stale analysis status');
+      }
+    } catch (error) {
+      console.error('Error clearing stale analysis status:', error);
+    }
   }
 
   // Initialize popup with backend detection
@@ -1194,10 +1045,12 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!tab || !tab.url) return;
       const paperId = extractSsrnIdOrUrl(tab.url);
       if (!paperId) return;
+      
       const storageKey = `analysis_${paperId}`;
       const cached = await chrome.storage.local.get([storageKey]);
+      
       if (cached[storageKey] && cached[storageKey].summary) {
-        // Analysis exists, show View Analysis button
+        // Analysis exists in local storage, show View Analysis button
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
@@ -1210,11 +1063,30 @@ document.addEventListener('DOMContentLoaded', function() {
         };
         showStatus('Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
       } else {
-        // No analysis, show Analyze button
-        setButtonState('Analyze Current Paper', false, false);
-        analyzeBtn.style.backgroundColor = '#2196F3';
-        analyzeBtn.onclick = analyzePaper;
-        showStatus('No analysis found for this paper. Click "Analyze Current Paper" to start.', 'info');
+        // No local analysis, check backend
+        console.log('No local analysis found, checking backend...');
+        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        
+        if (backendHasAnalysis) {
+          // Backend has analysis, show View Analysis button
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = async () => {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab || !tab.url) return;
+            const paperId = extractSsrnIdOrUrl(tab.url);
+            chrome.tabs.create({
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+            });
+          };
+          showStatus('Analysis found on backend! Click "View Analysis" to see results.', 'success');
+        } else {
+          // No analysis anywhere, show Analyze button
+          setButtonState('Analyze Current Paper', false, false);
+          analyzeBtn.style.backgroundColor = '#2196F3';
+          analyzeBtn.onclick = analyzePaper;
+          showStatus('No analysis found for this paper. Click "Analyze Current Paper" to start.', 'info');
+        }
       }
     } catch (error) {
       console.error('Error checking for existing analysis by paper ID:', error);
@@ -1262,12 +1134,15 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Current tab:', tab);
     
     if (tab && tab.url) {
-      const status = await getAnalysisStatus(tab.url);
-      console.log('Status for current URL:', status);
-      
-      // Also show all stored statuses
-      const storage = await chrome.storage.local.get([STATUS_KEY]);
-      console.log('All stored statuses:', storage[STATUS_KEY]);
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (paperId) {
+        const status = await getAnalysisStatus(paperId);
+        console.log('Status for current URL:', status);
+        
+        // Also show all stored statuses
+        const storage = await chrome.storage.local.get([STATUS_KEY]);
+        console.log('All stored statuses:', storage[STATUS_KEY]);
+      }
     }
   };
   
@@ -1549,5 +1424,78 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       statusMessage += ` Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations.`;
     }
     showStatus(statusMessage, 'success');
+  }
+
+  // Function to check if analysis exists on backend
+  async function checkAnalysisOnBackend(paperId) {
+    try {
+      console.log('Checking backend for analysis of paper:', paperId);
+      
+      // Use smart backend detection to get the correct backend
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for checking analysis');
+        return false;
+      }
+      
+      const url = `${backend.url}/analysis/${paperId}`;
+      console.log('Checking analysis endpoint:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Backend has analysis data:', data);
+        
+        // Store the analysis data in local storage for immediate use
+        if (data && data.summary) {
+          // Check if the analysis contains an error state
+          if (data.summary === 'Error generating analysis' || !data.summary.trim()) {
+            console.log('Backend returned error analysis or empty summary:', data.summary);
+            return false;
+          }
+          
+          const storageKey = `analysis_${paperId}`;
+          const analysisResult = {
+            timestamp: new Date().toISOString(),
+            paperId: paperId,
+            content: data.content || {
+              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
+              paperId: paperId,
+              title: 'Paper Analysis',
+              abstract: 'Analysis loaded from backend',
+              paperContent: 'Content processed by backend'
+            },
+            summary: data.summary,
+            data: data,
+            autoAnalyzed: true
+          };
+          
+          const storageData = {};
+          storageData[storageKey] = analysisResult;
+          await chrome.storage.local.set(storageData);
+          console.log('Stored analysis data from backend');
+          
+          // Update status to complete
+          await setAnalysisStatus(paperId, 'complete');
+        }
+        
+        return true;
+      } else if (response.status === 404) {
+        console.log('No analysis found on backend for paper:', paperId);
+        return false;
+      } else {
+        console.log('Backend returned error for analysis check:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error checking analysis on backend:', error);
+      return false;
+    }
   }
 });
