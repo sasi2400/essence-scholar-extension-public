@@ -299,6 +299,18 @@ async function extractSSRNContent() {
     }
   }
 
+  // Fallback: SSRN classic layout - <h2> tags inside .authors.authors-full-width
+  if (authors.length === 0) {
+    const classicAuthorsDiv = document.querySelector('.authors.authors-full-width');
+    if (classicAuthorsDiv) {
+      const h2s = classicAuthorsDiv.querySelectorAll('h2');
+      if (h2s.length > 0) {
+        authors = Array.from(h2s).map(h2 => h2.textContent.trim()).filter(name => name);
+        console.log(`Found ${authors.length} authors using classic SSRN <h2> extraction.`);
+      }
+    }
+  }
+
   // If no authors found with link selectors, try text-based extraction
   if (authors.length === 0) {
     console.log('No authors found with link selectors, trying text-based extraction...');

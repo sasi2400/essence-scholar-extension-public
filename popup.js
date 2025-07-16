@@ -129,9 +129,32 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (status.status === 'in_progress') {
         console.log('Analysis in progress, starting monitoring...');
-        showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
-        setButtonState('Analyzing...', true, true);
-        analyzeBtn.style.backgroundColor = '#FF9800';
+        if (status && status.status === 'in_progress') {
+          // Only show in progress if there is a previous status or backend analysis
+          const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+          if (backendHasAnalysis) {
+            showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
+            setButtonState('View Analysis', false, false);
+            analyzeBtn.style.backgroundColor = '#4CAF50';
+            analyzeBtn.onclick = async () => {
+              chrome.tabs.create({
+                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+              });
+            };
+            return;
+          }
+          // Only show in progress if there is a previous status (i.e., not a new paper)
+          if (!status.startedAt) {
+            // No previous analysis, do not show in progress
+            setButtonState('Analyze Current Paper', true, false);
+            analyzeBtn.style.backgroundColor = '#ccc';
+            analyzeBtn.onclick = null;
+            return;
+          }
+          showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
+          setButtonState('Analyzing...', true, true);
+          analyzeBtn.style.backgroundColor = '#FF9800';
+        }
         
         let monitorStartTime = Date.now();
         const monitorTimeout = 5 * 60 * 1000; // 5 minutes timeout
@@ -794,39 +817,38 @@ document.addEventListener('DOMContentLoaded', function() {
       const isPDF = await checkIfPDFPage(tab);
       console.log('checkPageType: Is PDF page?', isPDF);
       
-      if (isPDF) {
-        // PDF detected - check if it's a local file
-        const isLocalFile = tab.url.startsWith('file:///');
+      // Check if it's an SSRN page
+      const isSSRN = tab.url && tab.url.includes('ssrn.com');
+      console.log('checkPageType: Is SSRN page?', isSSRN);
+
+      if (isPDF && isSSRN) {
+        // PDF detected on SSRN page - show guidance to user
+        console.log('checkPageType: PDF detected on SSRN page - showing guidance');
+        console.log('checkPageType: Tab URL:', tab.url);
+        const fileName = tab.url.split('/').pop() || 'PDF file';
         
-        if (isLocalFile) {
-          // Local PDF detected - show guidance to user
-          console.log('checkPageType: Local PDF detected - showing guidance');
-          console.log('checkPageType: Tab URL:', tab.url);
-          const fileName = tab.url.split('/').pop() || 'PDF file';
-          
-          showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
-          
-          // Hide the main analyze button and show fullpage button instead
-          setButtonState('Analyze Current Paper', true, false); // Disable main button
-          analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
-          analyzeBtn.style.cursor = 'not-allowed'; // Show disabled cursor
-          showAuthorsButton(false); // Hide authors button for local PDFs
-          
-          // Show the full page interface button prominently
-          showFullpageButton(true);
-          
-          console.log('checkPageType: Main analyze button disabled, fullpage button shown');
-        } else {
-          // Web-hosted PDF detected - show paper analysis option
-          console.log('checkPageType: Web-hosted PDF detected - enabling paper analysis, hiding author analysis');
-          showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
-          setButtonState('Analyze Current Paper', false, false);
-          analyzeBtn.style.backgroundColor = '#2196F3'; // Blue for ready state
-          showAuthorsButton(false); // Hide authors button for PDFs
-          showFullpageButton(false); // Hide fullpage button
-        }
+        showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
         
-      } else if (tab.url && tab.url.includes('ssrn.com')) {
+        // Hide the main analyze button and show fullpage button instead
+        setButtonState('Analyze Current Paper', true, false); // Disable main button
+        analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
+        analyzeBtn.style.cursor = 'not-allowed'; // Show disabled cursor
+        showAuthorsButton(false); // Hide authors button for local PDFs
+        
+        // Show the full page interface button prominently
+        showFullpageButton(true);
+        
+        console.log('checkPageType: Main analyze button disabled, fullpage button shown');
+      } else if (!isPDF && isSSRN) {
+        // SSRN page without PDF: disable main analyze button, enable authors button
+        setButtonState('Analyze Current Paper', true, false); // Disable main button
+        analyzeBtn.style.backgroundColor = '#ccc';
+        showAuthorsButton(true);
+        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+        return;
+      }
+      
+      if (tab.url && tab.url.includes('ssrn.com')) {
         // SSRN page detected - only show author analysis option
         console.log('checkPageType: SSRN detected - disabling paper analysis, showing author analysis');
         showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
@@ -1067,23 +1089,219 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Initialize popup with backend detection
-  console.log('Popup: Initializing with smart backend detection...');
-  console.log('Popup: Available backends:', Object.keys(CONFIG.BACKENDS));
+  // === GLOBAL STATE ===
+  let UnderAnalysis = 0;
   
-  // Function to check for existing analysis by paper ID on popup load
-  async function checkForExistingAnalysisByPaperId() {
+  // Function to analyze authors
+  async function analyzeAuthors() {
     try {
+      console.log('=== AUTHOR ANALYSIS START ===');
+      console.log('Popup: analyzeAuthors function called');
+      
+      // Get the current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.url) return;
-      const paperId = extractSsrnIdOrUrl(tab.url);
-      if (!paperId) return;
       
-      const storageKey = `analysis_${paperId}`;
-      const cached = await chrome.storage.local.get([storageKey]);
+      console.log('Popup: Current tab:', tab);
       
-      if (cached[storageKey] && cached[storageKey].summary) {
-        // Analysis exists in local storage, show View Analysis button
+      if (!tab.url) {
+        throw new Error('No active tab found');
+      }
+
+      // Only allow author analysis on SSRN pages (since this is the only option for SSRN)
+      if (!tab.url.includes('ssrn.com')) {
+        throw new Error('Author analysis is only available on SSRN pages');
+      }
+
+      // Start analysis process
+      console.log('Popup: Starting author analysis process...');
+      setAuthorsButtonState('Analyzing...', true, true);
+      showStatus('Extracting authors from the page...', 'progress');
+
+      // Ensure content script is injected
+      console.log('Popup: Ensuring content script is injected...');
+      await ensureContentScript(tab.id);
+
+      // Wait a short moment for the content script to initialize
+      console.log('Popup: Waiting for content script to initialize...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Request content from the content script to get authors
+      console.log('Popup: Requesting content from content script...');
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
+      
+      console.log('Popup: Content script response:', response);
+      
+      if (response.error) {
+        console.log('Popup: Content script returned error:', response.error);
+        throw new Error(response.error);
+      }
+
+      if (!response.content) {
+        console.log('Popup: No content received from content script');
+        throw new Error('No content received from the page');
+      }
+
+      // Extract authors and affiliations
+      const authors = response.content.authors || [];
+      const affiliations = response.content.affiliations || [];
+
+      console.log('Popup: Raw extracted content:', {
+        title: response.content.title,
+        authors: authors,
+        affiliations: affiliations,
+        hasTitle: !!response.content.title,
+        hasAbstract: !!response.content.abstract,
+        hasPdf: !!response.content.hasPdf,
+        pageUrl: tab.url
+      });
+
+      if (authors.length === 0) {
+        // Provide detailed debugging information
+        const debugInfo = `
+No authors found on this SSRN page.
+
+Page: ${tab.url}
+Title found: ${response.content.title ? 'Yes' : 'No'}
+Abstract found: ${response.content.abstract ? 'Yes' : 'No'}
+PDF available: ${response.content.hasPdf ? 'Yes' : 'No'}
+
+This could happen if:
+1. The page is still loading - try refreshing and waiting
+2. The page structure has changed - SSRN may have updated their layout
+3. This is not a paper details page - make sure you're on a paper abstract page
+4. Authors are dynamically loaded - try scrolling down or waiting a moment
+
+To troubleshoot:
+1. Refresh the page and wait for it to fully load
+2. Make sure you're on an SSRN paper abstract page (not search results)
+3. Try opening the developer console (F12) to see detailed extraction logs
+4. Check if authors are visible on the page manually
+
+If the issue persists, this may be a compatibility issue with the current SSRN page structure.`;
+
+        throw new Error(debugInfo);
+      }
+
+      console.log('Popup: Found authors:', authors);
+      console.log('Popup: Found affiliations:', affiliations);
+
+      showStatus(`Found ${authors.length} authors. Analyzing their profiles and publications...`, 'progress');
+
+      try {
+        // Call the backend to analyze authors using smart detection
+        console.log('Popup: Calling author analysis endpoint with smart backend detection...');
+        
+        const serverResponse = await makeApiRequest(CONFIG.ANALYZE_AUTHORS_ENDPOINT, {
+          method: 'POST',
+          body: JSON.stringify({ 
+            authors: authors,
+            affiliations: affiliations
+          })
+        });
+
+        console.log('Popup: Backend response received for author analysis');
+
+        if (!serverResponse.ok) {
+          const errorText = await serverResponse.text();
+          throw new Error(`Backend error: ${serverResponse.status} - ${errorText}`);
+        }
+
+        const data = await serverResponse.json();
+        
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        console.log('Popup: Author analysis results:', data);
+
+        // Display results
+        showStatus('Author analysis complete! View detailed results below.', 'success');
+        displayAuthorAnalysisResults(data);
+
+        // Update button state
+        setAuthorsButtonState('View Full Analysis', false, false);
+        analyzeAuthorsBtn.style.backgroundColor = '#4CAF50';
+        analyzeAuthorsBtn.onclick = () => {
+          // Store results and open full page
+          chrome.storage.local.set({
+            lastAuthorAnalysis: {
+              timestamp: new Date().toISOString(),
+              paperId: extractSsrnIdOrUrl(tab.url),
+              data: data
+            }
+          });
+          const unifiedId = extractSsrnIdOrUrl(tab.url);
+          let fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
+          if (unifiedId) {
+            fullpageUrl += `&paperID=${encodeURIComponent(unifiedId)}`;
+          }
+          chrome.tabs.create({ url: fullpageUrl });
+        };
+
+      } catch (error) {
+        console.error('Error calling author analysis backend:', error);
+        throw new Error(`Failed to analyze authors: ${error.message}`);
+      }
+      
+    } catch (error) {
+      console.error('Error in author analysis:', error);
+      showStatus(`Error: ${error.message}`, 'error');
+      setAuthorsButtonState('Analyze Authors', false, false);
+      analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
+    }
+  }
+
+  // Function to display author analysis results
+  function displayAuthorAnalysisResults(data) {
+    const summary = data.summary;
+    const authors = data.authors;
+
+    let resultHtml = `
+      <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 4px; text-align: left; font-size: 12px;">
+        <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #333;">Author Analysis Summary</h3>
+        <div><strong>Total Authors:</strong> ${summary.total_authors}</div>
+        <div><strong>Total FT50 Publications:</strong> ${summary.total_ft50_publications}</div>
+        <div><strong>Total Citations:</strong> ${summary.total_citations.toLocaleString()}</div>
+        <div><strong>Highest H-index:</strong> ${summary.max_h_index}</div>
+        
+        <div style="margin-top: 8px;"><strong>Top Authors:</strong></div>
+    `;
+
+    // Show top 2 authors by citations
+    const topAuthors = authors
+      .filter(author => !author.error)
+      .sort((a, b) => b.citations - a.citations)
+      .slice(0, 2);
+
+    topAuthors.forEach(author => {
+      resultHtml += `
+        <div style="margin: 4px 0; padding: 4px; background: white; border-radius: 2px;">
+          <div><strong>${author.name}</strong> (${author.affiliation || 'Unknown'})</div>
+          <div style="font-size: 11px; color: #666;">
+            ${author.citations} citations • H-index: ${author.h_index} • FT50: ${author.ft50_count}
+          </div>
+        </div>
+      `;
+    });
+
+    resultHtml += `
+        <div style="margin-top: 8px; font-size: 11px; color: #666;">
+          Click "View Full Analysis" for complete details, publications, and research areas.
+        </div>
+      </div>
+    `;
+
+    statusContainer.innerHTML = resultHtml;
+  }
+
+  // Function to display analysis results
+  function displayAnalysis(analysis, tabUrl) {
+    if (!analysis) {
+      showStatus('No analysis data available', 'error');
+      return;
+    }
+
+    // Update button state
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
@@ -1094,63 +1312,221 @@ document.addEventListener('DOMContentLoaded', function() {
             url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
           });
         };
-        showStatus('Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
-      } else {
-        // No local analysis, check backend
-        console.log('No local analysis found, checking backend...');
-        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
-        
-        if (backendHasAnalysis) {
-          // Backend has analysis, show View Analysis button
-          setButtonState('View Analysis', false, false);
-          analyzeBtn.style.backgroundColor = '#4CAF50';
-          analyzeBtn.onclick = async () => {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!tab || !tab.url) return;
-            const paperId = extractSsrnIdOrUrl(tab.url);
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
-          };
-          showStatus('Analysis found on backend! Click "View Analysis" to see results.', 'success');
-        } else {
-          // No analysis anywhere, show Analyze button
-          setButtonState('Analyze Current Paper', false, false);
-          analyzeBtn.style.backgroundColor = '#2196F3';
-          analyzeBtn.onclick = analyzePaper;
-          showStatus('No analysis found for this paper. Click "Analyze Current Paper" to start.', 'info');
+
+    // Show success message
+    let statusMessage = 'Analysis loaded from cache. Click "View Analysis" to see the detailed summary.';
+    if (analysis.data && analysis.data.author_data) {
+      statusMessage += ` Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations.`;
+    }
+    showStatus(statusMessage, 'success');
+  }
+
+  // Function to check if analysis exists on backend
+  async function checkAnalysisOnBackend(paperId) {
+    try {
+      console.log('Checking backend for analysis of paper:', paperId);
+      
+      // Use smart backend detection to get the correct backend
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for checking analysis');
+        return false;
+      }
+      
+      const url = `${backend.url}/analysis/${paperId}`;
+      console.log('Checking analysis endpoint:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Backend has analysis data:', data);
+        
+        // Store the analysis data in local storage for immediate use
+        if (data && data.summary) {
+          // Check if the analysis contains an error state
+          if (data.summary === 'Error generating analysis' || !data.summary.trim()) {
+            console.log('Backend returned error analysis or empty summary:', data.summary);
+            return false;
+          }
+          
+          const storageKey = `analysis_${paperId}`;
+          const analysisResult = {
+            timestamp: new Date().toISOString(),
+            paperId: paperId,
+            content: data.content || {
+              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
+              paperId: paperId,
+              title: 'Paper Analysis',
+              abstract: 'Analysis loaded from backend',
+              paperContent: 'Content processed by backend'
+            },
+            summary: data.summary,
+            data: data,
+            autoAnalyzed: true
+          };
+          
+          const storageData = {};
+          storageData[storageKey] = analysisResult;
+          await chrome.storage.local.set(storageData);
+          console.log('Stored analysis data from backend');
+          
+          // Update status to complete
+          await setAnalysisStatus(paperId, 'complete');
+        }
+        
+        return true;
+      } else if (response.status === 404) {
+        console.log('No analysis found on backend for paper:', paperId);
+        return false;
+      } else {
+        console.log('Backend returned error for analysis check:', response.status);
+        return false;
       }
     } catch (error) {
-      console.error('Error checking for existing analysis by paper ID:', error);
+      console.error('Error checking analysis on backend:', error);
+      return false;
     }
   }
 
-  // Display backend status and initialize
+  /**
+   * Update the popup UI according to the following logic:
+   * 1) If page is an SSRN url with paperID, and not a PDF > only show the Analyze Authors button
+   * 2) If page is an SSRN url with paperID, and not a PDF, but GET /analysis/paperID returns 200 > show View Analysis and Analyze Authors
+   * 3) If page is a PDF and /analysis/paperID is not 200 > only show the analyze-btn option
+   * 4) If page is a PDF and GET /analysis/paperID returns 200 > show View Analysis
+   * 5) If page is a PDF and /analysis/paperID is not 200 and user clicked on analyze-btn > set UnderAnalysis = 1, show (Analyzing...) to user
+   * Once /analysis/paperID is 200, UnderAnalysis is again 0 and depending on the above scenarios, users see the popup
+   */
+  async function updatePopupUI() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.url) return;
+    const url = tab.url;
+    const paperId = extractSsrnIdOrUrl(url);
+    const isSSRN = url.includes('ssrn.com') && paperId && !await checkIfPDFPage(tab);
+    const isPDF = await checkIfPDFPage(tab);
+    let backendHasAnalysis = false;
+    if (paperId) backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        
+    // Hide all buttons initially
+    showAuthorsButton(false);
+    setButtonState('Analyze Current Paper', true, false);
+    analyzeBtn.style.display = 'none';
+    if (typeof analyzeAuthorsBtn !== 'undefined') analyzeAuthorsBtn.style.display = 'none';
+
+    // SSRN page with paperID, not PDF
+    if (isSSRN) {
+      showAuthorsButton(true);
+      setAuthorsButtonState('Analyze Authors', false, false);
+      analyzeAuthorsBtn.style.display = '';
+      analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
+        if (backendHasAnalysis) {
+        // Show both View Analysis and Analyze Authors
+        analyzeBtn.style.display = '';
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = async () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) });
+          };
+        showStatus('Analysis exists for this paper! Click "View Analysis" or "Analyze Authors".', 'success');
+        } else {
+        // Only show Analyze Authors
+        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+      }
+      return;
+    }
+
+    // PDF page
+    if (isPDF && paperId) {
+      // Check persistent analyzing state
+      let analyzingKey = getAnalyzingKey(tab.id, paperId);
+      let analyzingObj = await chrome.storage.local.get([analyzingKey]);
+      let isAnalyzing = analyzingObj[analyzingKey] === true;
+      UnderAnalysis = isAnalyzing ? 1 : 0;
+      if (backendHasAnalysis) {
+        // Show View Analysis only
+        analyzeBtn.style.display = '';
+        setButtonState('View Analysis', false, false);
+        analyzeBtn.style.backgroundColor = '#4CAF50';
+        analyzeBtn.onclick = async () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) });
+        };
+        // Clear analyzing state if analysis is done
+        await chrome.storage.local.remove(analyzingKey);
+        showStatus('Analysis exists for this paper! Click "View Analysis".', 'success');
+        return;
+      } else if (isAnalyzing) {
+        // Show Analyzing... state
+        analyzeBtn.style.display = '';
+        setButtonState('Analyzing...', true, true);
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        showStatus('Analyzing... Please wait.', 'progress');
+        return;
+      } else {
+        // Only show Analyze Current Paper
+        analyzeBtn.style.display = '';
+        setButtonState('Analyze Current Paper', false, false);
+        analyzeBtn.style.backgroundColor = '#2196F3';
+        analyzeBtn.onclick = async () => {
+          // Set persistent analyzing state
+          let key = getAnalyzingKey(tab.id, paperId);
+          await chrome.storage.local.set({ [key]: true });
+          UnderAnalysis = 1;
+          updatePopupUI();
+          await analyzePaper();
+        };
+        showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
+        return;
+      }
+    }
+
+    // Not SSRN, not PDF, or no paperId
+    showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
+            setButtonState('Analyze Current Paper', true, false);
+            analyzeBtn.style.backgroundColor = '#ccc';
+    analyzeBtn.style.display = '';
+    showAuthorsButton(false);
+          }
+
+  // Patch analyzePaper to reset UnderAnalysis when analysis is done
+  const originalAnalyzePaper = analyzePaper;
+  analyzePaper = async function(...args) {
+    try {
+      await originalAnalyzePaper.apply(this, args);
+      // After analysis, check backend again
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const paperId = tab && tab.url ? extractSsrnIdOrUrl(tab.url) : null;
+      if (paperId && await checkAnalysisOnBackend(paperId)) {
+        UnderAnalysis = 0;
+      }
+    } catch (e) {
+      UnderAnalysis = 0;
+      throw e;
+    }
+    updatePopupUI();
+  };
+
+  // Patch message listener for analysisComplete to reset UnderAnalysis
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'analysisComplete') {
+      UnderAnalysis = 0;
+      updatePopupUI();
+    }
+  });
+
+  // Replace initialization to use updatePopupUI
   async function initializePopup() {
     try {
-      // Show loading
       displayBackendStatus();
-      
-      // Debug storage state
       await debugStorageState();
-      
-      // Detect and display current backend
       await updateBackendStatusDisplay();
-      
-      // Restore analysis state if in progress (reconnected)
-      await restoreAnalysisState();
-      
-      // Check page type and set appropriate button states
-      await checkPageType();
-      await checkForExistingAnalysisByPaperId();
-
-      // Check and monitor analysis status
-      console.log('Calling checkAndMonitorAnalysisStatus...');
-      await checkAndMonitorAnalysisStatus();
-      console.log('checkAndMonitorAnalysisStatus completed');
-      
-      console.log('Popup: Initialization complete');
+      // Do NOT reset UnderAnalysis or window.clickedAnalyzeThisSession here
+      await updatePopupUI();
     } catch (error) {
       console.error('Popup: Initialization error:', error);
       updateBackendStatusDisplay(null, error.message);
@@ -1531,4 +1907,33 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       return false;
     }
   }
+
+  // Listen for tab refresh and reset UnderAnalysis if the current tab is reloaded
+  chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+    if (changeInfo.status === 'loading') {
+      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+        if (tabs && tabs.length > 0 && tabs[0].id === tabId) {
+          UnderAnalysis = 0;
+          window.clickedAnalyzeThisSession = false;
+        }
+      });
+    }
+  });
+
+  // Utility to get the analyzing key for a tab and paper
+  function getAnalyzingKey(tabId, paperId) {
+    return `analyzing_${tabId}_${paperId}`;
+  }
+
+  // On tab refresh or redirect, clear persistent analyzing state
+  chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+    if (changeInfo.status === 'loading') {
+      const paperId = tab && tab.url ? extractSsrnIdOrUrl(tab.url) : null;
+      if (paperId) {
+        let key = getAnalyzingKey(tabId, paperId);
+        chrome.storage.local.remove(key);
+      }
+      UnderAnalysis = 0;
+    }
+  });
 });
