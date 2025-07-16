@@ -994,8 +994,8 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsBtn.addEventListener('click', () => {
       // Load settings from storage
       chrome.storage.local.get(['llmSettings'], (result) => {
-        const settings = result.llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
-        modelSelect.value = settings.model || 'gemini';
+        const settings = result.llmSettings || { model: 'gemini-2.5-flash', openaiKey: '', claudeKey: '' };
+        modelSelect.value = settings.model || 'gemini-2.5-flash';
         openaiKeyInput.value = settings.openaiKey || '';
         claudeKeyInput.value = settings.claudeKey || '';
         openaiKeySection.style.display = (settings.model === 'openai') ? 'block' : 'none';

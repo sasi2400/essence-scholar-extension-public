@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     try {
       // Get LLM settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', openaiKey: '', claudeKey: '' };
       
       // Format request to match backend's expected structure
       const requestBody = {
