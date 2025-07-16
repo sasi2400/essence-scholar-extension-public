@@ -846,10 +846,9 @@ document.addEventListener('DOMContentLoaded', function() {
       </style>
     `;
 
-    // Append author analysis to existing summary content
-    if (summaryDiv) {
-      const existingContent = summaryDiv.innerHTML || '';
-      summaryDiv.innerHTML = existingContent + html;
+    // Only render author analysis in authors view
+    if (summaryDiv && viewMode === 'authors') {
+      summaryDiv.innerHTML = html;
     }
   }
 
@@ -1001,9 +1000,10 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  // If we have a paperID, we're viewing an existing analysis - hide upload section immediately
-  if (paperId && uploadSection) {
-    uploadSection.style.display = 'none';
+  // If we have a paperID, we're viewing an existing analysis - hide upload section and analyze button immediately
+  if (paperId) {
+    if (uploadSection) uploadSection.style.display = 'none';
+    if (analyzeBtn) analyzeBtn.style.display = 'none';
     updateStatus(`Loading analysis for paper ID: ${paperId}...`);
   }
 
@@ -1018,6 +1018,41 @@ document.addEventListener('DOMContentLoaded', function() {
     // First try to load from local storage
     const result = await chrome.storage.local.get([storageKey]);
     analysis = result[storageKey];
+
+    if (viewMode === 'authors' && analysis && analysis.data?.author_data) {
+      displayAuthorAnalysis(analysis.data.author_data);
+      if (summaryDiv) summaryDiv.style.display = 'block'; // Ensure visible for author analysis
+      if (chatSection) chatSection.style.display = 'none';
+      // Hide status, but show header with only backBtn
+      const header = document.querySelector('.header');
+      const statusDiv = document.getElementById('status');
+      const analysisContent = document.getElementById('analysisContent');
+      const paperInfo = document.getElementById('paperInfo');
+      const backBtn = document.getElementById('backBtn');
+      const analyzeBtn = document.getElementById('analyzeBtn');
+      const clearBtn = document.getElementById('clearBtn');
+      const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
+      if (statusDiv) statusDiv.style.display = 'none';
+      if (analysisContent) analysisContent.style.display = 'block';
+      if (paperInfo) paperInfo.style.display = 'block';
+      if (header) header.style.display = 'flex';
+      if (backBtn) backBtn.style.display = 'inline-block';
+      if (analyzeBtn) analyzeBtn.style.display = 'none';
+      if (clearBtn) clearBtn.style.display = 'none';
+      if (viewAuthorsBtn) viewAuthorsBtn.style.display = 'none';
+      // Set paper title and meta if available
+      if (analysis.data.content) {
+        const paperTitle = document.getElementById('paperTitle');
+        const paperMeta = document.getElementById('paperMeta');
+        if (paperTitle) paperTitle.textContent = analysis.data.content.title || '';
+        if (paperMeta) {
+          const authors = (analysis.data.content.authors || []).join(', ');
+          const analyzed = analysis.timestamp ? new Date(analysis.timestamp).toLocaleDateString() : '';
+          paperMeta.textContent = `Paper ID: ${analysis.data.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
+        }
+      }
+      return;
+    }
     
     if (analysis) {
       console.log('Found analysis in local storage:', analysis);
@@ -1245,6 +1280,22 @@ document.addEventListener('DOMContentLoaded', function() {
         analyzeBtn.style.backgroundColor = '#2196F3';
         analyzeBtn.textContent = 'Analyze Paper';
       }
+    }
+
+    // After rendering analysis and author analysis, control visibility based on viewMode
+    if (viewMode === 'authors') {
+      // Hide summary and chat sections
+      if (summaryDiv) summaryDiv.style.display = 'none';
+      if (chatSection) chatSection.style.display = 'none';
+      // Show only the author analysis container if it exists
+      const authorAnalysis = document.querySelector('.author-analysis-container');
+      if (authorAnalysis) authorAnalysis.style.display = 'block';
+    } else {
+      // Default: show summary and chat, hide author analysis (handled by displayAuthorAnalysis)
+      if (summaryDiv) summaryDiv.style.display = 'block';
+      if (chatSection) chatSection.style.display = 'block';
+      const authorAnalysis = document.querySelector('.author-analysis-container');
+      if (authorAnalysis) authorAnalysis.style.display = '';
     }
   })();
 

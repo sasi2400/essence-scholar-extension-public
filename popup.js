@@ -56,8 +56,25 @@ document.addEventListener('DOMContentLoaded', function() {
       analyzeBtn.onclick = analyzePaper;
 
       if (!status) {
-        console.log('No analysis status found for this paper ID');
-        return;
+        // No local status, check backend
+        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        if (backendHasAnalysis) {
+          showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = async () => {
+            chrome.tabs.create({
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+            });
+          };
+          return;
+        } else {
+          showStatus('Analysis has not been done for this paper.', 'info');
+          setButtonState('Analyze Current Paper', false, false);
+          analyzeBtn.style.backgroundColor = '#2196F3';
+          analyzeBtn.onclick = analyzePaper;
+          return;
+        }
       }
       
       // Check if the status is stale (older than 5 minutes)
@@ -68,8 +85,24 @@ document.addEventListener('DOMContentLoaded', function() {
       if (status.status === 'in_progress' && now - startedAt > fiveMinutes) {
         console.log('Found stale in_progress status, clearing...');
         await clearStaleAnalysisStatus();
-        showStatus('Previous analysis timed out. Please try again.', 'error');
+        // Check backend before showing timeout error
+        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        if (backendHasAnalysis) {
+          showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+          setButtonState('View Analysis', false, false);
+          analyzeBtn.style.backgroundColor = '#4CAF50';
+          analyzeBtn.onclick = async () => {
+            chrome.tabs.create({
+              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+            });
+          };
+          return;
+        }
+        // If backend does not have analysis, show not done message
+        showStatus('Analysis has not been done for this paper.', 'info');
         setButtonState('Analyze Current Paper', false, false);
+        analyzeBtn.style.backgroundColor = '#2196F3';
+        analyzeBtn.onclick = analyzePaper;
         return;
       }
       

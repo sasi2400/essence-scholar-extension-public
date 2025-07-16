@@ -470,6 +470,27 @@ async function triggerPDFAnalysis(tabId) {
   }
 }
 
+async function checkBackendForAnalysisByTabUrl(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.url) return false;
+    const paperId = extractSsrnIdFromUrl(tab.url);
+    if (!paperId) return false;
+    // Use smart backend detection
+    const endpoint = '/analysis/' + encodeURIComponent(paperId);
+    const backendUrl = await getApiUrl(endpoint);
+    const resp = await fetch(backendUrl);
+    if (resp.ok) {
+      const data = await resp.json();
+      return !!data && !!data.summary;
+    }
+    return false;
+  } catch (e) {
+    console.error('Error checking backend for analysis:', e);
+    return false;
+  }
+}
+
 // Listen for tab activation
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
