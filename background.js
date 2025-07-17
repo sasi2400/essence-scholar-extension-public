@@ -12,17 +12,7 @@ console.log('Background script: Smart backend detection enabled');
 console.log('Background script: Available backends:', Object.keys(CONFIG.BACKENDS));
 console.log('Background script: Auto-detect enabled:', CONFIG.AUTO_DETECT_BACKENDS);
 
-// Initialize backend detection
-backendManager.detectBestBackend().then(backend => {
-  if (backend) {
-    console.log(`Background script: Initial backend selected: ${backend.name} (${backend.url})`);
-  } else {
-    console.log('Background script: No healthy backends found during initialization');
-  }
-}).catch(error => {
-  console.error('Background script: Error during initial backend detection:', error);
-});
-
+// Remove global backendManager usage and initialization
 
 
 // Listen for tab updates
@@ -57,7 +47,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // Function to add analysis to queue
-function addToAnalysisQueue(tabId, url, priority = 0) {
+async function addToAnalysisQueue(tabId, url, priority = 0) {
   console.log(`Background: Adding tab ${tabId} to analysis queue`);
   
   // Check if already in queue
@@ -67,6 +57,19 @@ function addToAnalysisQueue(tabId, url, priority = 0) {
     analysisQueue[existingIndex].priority = priority;
     analysisQueue[existingIndex].timestamp = Date.now();
     return;
+  }
+  
+  // Assign backend if not already assigned
+  let currentTabState = activeTabs.get(tabId) || {};
+  if (!currentTabState.backend) {
+    const backend = await getOrDetectTabBackend(tabId);
+    if (backend) {
+      currentTabState.backend = backend;
+      activeTabs.set(tabId, currentTabState);
+      console.log(`Assigned backend ${backend.name} to tab ${tabId}`);
+    } else {
+      console.error('No healthy backend available to assign to tab', tabId);
+    }
   }
   
   // Add to queue
@@ -220,6 +223,7 @@ async function ensureContentScriptInjected(tabId) {
 
 // Function to automatically trigger PDF analysis
 async function triggerPDFAnalysis(tabId) {
+  let paperUrl = undefined;
   try {
     // Check if analysis is already in progress for this tab
     if (analysisInProgress.has(tabId)) {
@@ -252,7 +256,7 @@ async function triggerPDFAnalysis(tabId) {
       // For PDF files, use the tab URL directly
       const isPDF = tab.url.toLowerCase().endsWith('.pdf');
       let paperContent;
-      let paperUrl = tab.url;
+      paperUrl = tab.url;
 
       if (!isPDF) {
         // For non-PDF files, get content from content script
@@ -324,16 +328,46 @@ async function triggerPDFAnalysis(tabId) {
       // Get LLM settings
       const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
       
+      // Always use per-tab backend
+      let backend = (activeTabs.get(tabId) || {}).backend;
+      if (!backend) {
+        backend = await getOrDetectTabBackend(tabId);
+      }
+      
       // Make API request to backend
-      const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
-        method: 'POST',
-        body: JSON.stringify({
-          content: paperContent || { paperUrl },
-          model: llmSettings.model,
-          openai_api_key: llmSettings.openaiKey || undefined,
-          claude_api_key: llmSettings.claudeKey || undefined
-        })
-      });
+      let serverResponse;
+      try {
+        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_ENDPOINT, {
+          method: 'POST',
+          body: JSON.stringify({
+            content: paperContent || { paperUrl },
+            model: llmSettings.model,
+            openai_api_key: llmSettings.openaiKey || undefined,
+            claude_api_key: llmSettings.claudeKey || undefined
+          })
+        }, backend);
+      } catch (apiError) {
+        // If backend fails, try to re-detect and assign a new backend for this tab
+        console.error(`API request failed for tab ${tabId} on backend ${backend?.name}:`, apiError);
+        backend = await BackendManager.detectBestBackend();
+        if (backend) {
+          const backendKey = `tab_backend_${tabId}`;
+          await chrome.storage.local.set({ [backendKey]: backend });
+          let tabState = activeTabs.get(tabId) || {};
+          tabState.backend = backend;
+          activeTabs.set(tabId, tabState);
+        }
+        // Retry once with new backend
+        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_ENDPOINT, {
+          method: 'POST',
+          body: JSON.stringify({
+            content: paperContent || { paperUrl },
+            model: llmSettings.model,
+            openai_api_key: llmSettings.openaiKey || undefined,
+            claude_api_key: llmSettings.claudeKey || undefined
+          })
+        }, backend);
+      }
 
       if (!serverResponse.ok) {
         const errorData = await serverResponse.json();
@@ -532,6 +566,10 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     console.log(`Background: Removed tab ${tabId} from analysis queue`);
   }
   
+  // Remove backend assignment from storage
+  const backendKey = `tab_backend_${tabId}`;
+  await chrome.storage.local.remove([backendKey]);
+  
   console.log('Background: Tab removed:', tabId, 'URL:', tabUrl);
   console.log('Background: activeTabs size after removal:', activeTabs.size);
   console.log('Background: analysisInProgress size after removal:', analysisInProgress.size);
@@ -567,44 +605,37 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 
 // Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background: Received message:', request);
-
-  // Handle analysis status messages from popup (these don't have sender.tab)
-  if (request.action === 'analysisStarted' && request.tabId) {
-    // Handle analysis started notification from popup
-    console.log('Background: Analysis requested for tabId:', request.tabId, 'URL:', request.url);
-    console.log('Background: Current queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
-    
-    // Check if analysis is already in progress for this tab
-    if (analysisInProgress.has(request.tabId)) {
-      console.log(`Analysis already in progress for tab ${request.tabId}`);
-      sendResponse({ success: true, queued: false, inProgress: true });
+  // Handle getTabBackend for popup (which has no sender.tab)
+  if (request.action === 'getTabBackend') {
+    const tabId = request.tabId;
+    console.log('[BG] getTabBackend request for tab', tabId);
+    const tabState = activeTabs.get(tabId);
+    if (tabState?.backend) {
+      console.log('[BG] Returning backend from activeTabs:', tabState.backend);
+      sendResponse({ backend: tabState.backend });
       return true;
     }
-    
-    // Update tab state to show analysis is queued
-    const currentTabState = activeTabs.get(request.tabId) || {};
-    const newTabState = {
-      ...currentTabState,
-      url: request.url,
-      analysisQueued: true,
-      analysisRequestTime: Date.now(),
-      lastUpdated: Date.now()
-    };
-    activeTabs.set(request.tabId, newTabState);
-    
-    // Add to analysis queue instead of starting immediately
-    addToAnalysisQueue(request.tabId, request.url);
-    
-    // Start queue processing if not already running
-    if (!isProcessingQueue) {
-      processAnalysisQueue();
-    }
-    
-    console.log('Background: Updated tab state for analysis request:', newTabState);
-    console.log('Background: After queue update - queue size:', analysisQueue.length, 'analysisInProgress size:', analysisInProgress.size);
-    
-    sendResponse({ success: true, queued: true });
+    const backendKey = `tab_backend_${tabId}`;
+    chrome.storage.local.get([backendKey]).then(async stored => {
+      if (stored[backendKey]) {
+        console.log('[BG] Returning backend from storage:', stored[backendKey]);
+        sendResponse({ backend: stored[backendKey] });
+      } else {
+        // No backend assigned yet: detect and assign one now
+        const backend = await BackendManager.detectBestBackend();
+        if (backend) {
+          await chrome.storage.local.set({ [backendKey]: backend });
+          let currentTabState = activeTabs.get(tabId) || {};
+          currentTabState.backend = backend;
+          activeTabs.set(tabId, currentTabState);
+          console.log('[BG] Detected and assigned backend:', backend);
+          sendResponse({ backend });
+        } else {
+          console.log('[BG] No backend could be assigned');
+          sendResponse({ backend: null });
+        }
+      }
+    });
     return true;
   }
 

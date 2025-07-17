@@ -1097,54 +1097,41 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       console.log('=== AUTHOR ANALYSIS START ===');
       console.log('Popup: analyzeAuthors function called');
-      
       // Get the current active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
       console.log('Popup: Current tab:', tab);
-      
       if (!tab.url) {
         throw new Error('No active tab found');
       }
-
       // Only allow author analysis on SSRN pages (since this is the only option for SSRN)
       if (!tab.url.includes('ssrn.com')) {
         throw new Error('Author analysis is only available on SSRN pages');
       }
-
       // Start analysis process
       console.log('Popup: Starting author analysis process...');
       setAuthorsButtonState('Analyzing...', true, true);
       showStatus('Extracting authors from the page...', 'progress');
-
       // Ensure content script is injected
       console.log('Popup: Ensuring content script is injected...');
       await ensureContentScript(tab.id);
-
       // Wait a short moment for the content script to initialize
       console.log('Popup: Waiting for content script to initialize...');
       await new Promise(resolve => setTimeout(resolve, 500));
-
       // Request content from the content script to get authors
       console.log('Popup: Requesting content from content script...');
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
-      
       console.log('Popup: Content script response:', response);
-      
       if (response.error) {
         console.log('Popup: Content script returned error:', response.error);
         throw new Error(response.error);
       }
-
       if (!response.content) {
         console.log('Popup: No content received from content script');
         throw new Error('No content received from the page');
       }
-
       // Extract authors and affiliations
       const authors = response.content.authors || [];
       const affiliations = response.content.affiliations || [];
-
       console.log('Popup: Raw extracted content:', {
         title: response.content.title,
         authors: authors,
@@ -1154,7 +1141,6 @@ document.addEventListener('DOMContentLoaded', function() {
         hasPdf: !!response.content.hasPdf,
         pageUrl: tab.url
       });
-
       if (authors.length === 0) {
         // Provide detailed debugging information
         const debugInfo = `
@@ -1181,43 +1167,35 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
 
         throw new Error(debugInfo);
       }
-
       console.log('Popup: Found authors:', authors);
       console.log('Popup: Found affiliations:', affiliations);
-
       showStatus(`Found ${authors.length} authors. Analyzing their profiles and publications...`, 'progress');
-
       try {
-        // Call the backend to analyze authors using smart detection
-        console.log('Popup: Calling author analysis endpoint with smart backend detection...');
-        
-        const serverResponse = await makeApiRequest(CONFIG.ANALYZE_AUTHORS_ENDPOINT, {
+        // Get the backend for this tab
+        const backend = await getTabAssignedBackend(tab.id);
+        if (!backend) throw new Error('No backend available for this tab');
+        // Call the backend to analyze authors using per-tab backend
+        console.log('Popup: Calling author analysis endpoint with per-tab backend...');
+        const serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_AUTHORS_ENDPOINT, {
           method: 'POST',
           body: JSON.stringify({ 
             authors: authors,
             affiliations: affiliations
           })
-        });
-
+        }, backend);
         console.log('Popup: Backend response received for author analysis');
-
         if (!serverResponse.ok) {
           const errorText = await serverResponse.text();
           throw new Error(`Backend error: ${serverResponse.status} - ${errorText}`);
         }
-
         const data = await serverResponse.json();
-        
         if (data.error) {
           throw new Error(data.error);
         }
-
         console.log('Popup: Author analysis results:', data);
-
         // Display results
         showStatus('Author analysis complete! View detailed results below.', 'success');
         displayAuthorAnalysisResults(data);
-
         // Update button state
         setAuthorsButtonState('View Full Analysis', false, false);
         analyzeAuthorsBtn.style.backgroundColor = '#4CAF50';
@@ -1237,12 +1215,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           }
           chrome.tabs.create({ url: fullpageUrl });
         };
-
       } catch (error) {
         console.error('Error calling author analysis backend:', error);
         throw new Error(`Failed to analyze authors: ${error.message}`);
       }
-      
     } catch (error) {
       console.error('Error in author analysis:', error);
       showStatus(`Error: ${error.message}`, 'error');
@@ -1410,8 +1386,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     const paperId = extractSsrnIdOrUrl(url);
     const isSSRN = url.includes('ssrn.com') && paperId && !await checkIfPDFPage(tab);
     const isPDF = await checkIfPDFPage(tab);
+    let backend = await getTabAssignedBackend(tab.id);
+    console.log('[POPUP] getTabAssignedBackend result:', backend);
+    if (!backend) {
+      showStatus('❌ No backends available. Please check your backend server.', 'error');
+      setButtonState('Analyze Current Paper', true, false);
+      analyzeBtn.style.backgroundColor = '#ccc';
+      analyzeBtn.style.display = '';
+      return;
+    }
     let backendHasAnalysis = false;
-    if (paperId) backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+    if (paperId) backendHasAnalysis = await checkAnalysisOnBackend(paperId, backend);
         
     // Hide all buttons initially
     showAuthorsButton(false);
@@ -1606,164 +1591,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     return true; // Keep message channel open for async response
   });
 
-  // Function to analyze authors
-  async function analyzeAuthors() {
-    try {
-      console.log('=== AUTHOR ANALYSIS START ===');
-      console.log('Popup: analyzeAuthors function called');
-      
-      // Get the current active tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      console.log('Popup: Current tab:', tab);
-      
-      if (!tab.url) {
-        throw new Error('No active tab found');
-      }
-
-      // Only allow author analysis on SSRN pages (since this is the only option for SSRN)
-      if (!tab.url.includes('ssrn.com')) {
-        throw new Error('Author analysis is only available on SSRN pages');
-      }
-
-      // Start analysis process
-      console.log('Popup: Starting author analysis process...');
-      setAuthorsButtonState('Analyzing...', true, true);
-      showStatus('Extracting authors from the page...', 'progress');
-
-      // Ensure content script is injected
-      console.log('Popup: Ensuring content script is injected...');
-      await ensureContentScript(tab.id);
-
-      // Wait a short moment for the content script to initialize
-      console.log('Popup: Waiting for content script to initialize...');
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Request content from the content script to get authors
-      console.log('Popup: Requesting content from content script...');
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
-      
-      console.log('Popup: Content script response:', response);
-      
-      if (response.error) {
-        console.log('Popup: Content script returned error:', response.error);
-        throw new Error(response.error);
-      }
-
-      if (!response.content) {
-        console.log('Popup: No content received from content script');
-        throw new Error('No content received from the page');
-      }
-
-      // Extract authors and affiliations
-      const authors = response.content.authors || [];
-      const affiliations = response.content.affiliations || [];
-
-      console.log('Popup: Raw extracted content:', {
-        title: response.content.title,
-        authors: authors,
-        affiliations: affiliations,
-        hasTitle: !!response.content.title,
-        hasAbstract: !!response.content.abstract,
-        hasPdf: !!response.content.hasPdf,
-        pageUrl: tab.url
-      });
-
-      if (authors.length === 0) {
-        // Provide detailed debugging information
-        const debugInfo = `
-No authors found on this SSRN page.
-
-Page: ${tab.url}
-Title found: ${response.content.title ? 'Yes' : 'No'}
-Abstract found: ${response.content.abstract ? 'Yes' : 'No'}
-PDF available: ${response.content.hasPdf ? 'Yes' : 'No'}
-
-This could happen if:
-1. The page is still loading - try refreshing and waiting
-2. The page structure has changed - SSRN may have updated their layout
-3. This is not a paper details page - make sure you're on a paper abstract page
-4. Authors are dynamically loaded - try scrolling down or waiting a moment
-
-To troubleshoot:
-1. Refresh the page and wait for it to fully load
-2. Make sure you're on an SSRN paper abstract page (not search results)
-3. Try opening the developer console (F12) to see detailed extraction logs
-4. Check if authors are visible on the page manually
-
-If the issue persists, this may be a compatibility issue with the current SSRN page structure.`;
-
-        throw new Error(debugInfo);
-      }
-
-      console.log('Popup: Found authors:', authors);
-      console.log('Popup: Found affiliations:', affiliations);
-
-      showStatus(`Found ${authors.length} authors. Analyzing their profiles and publications...`, 'progress');
-
-      try {
-        // Call the backend to analyze authors using smart detection
-        console.log('Popup: Calling author analysis endpoint with smart backend detection...');
-        
-        const serverResponse = await makeApiRequest(CONFIG.ANALYZE_AUTHORS_ENDPOINT, {
-          method: 'POST',
-          body: JSON.stringify({ 
-            authors: authors,
-            affiliations: affiliations
-          })
-        });
-
-        console.log('Popup: Backend response received for author analysis');
-
-        if (!serverResponse.ok) {
-          const errorText = await serverResponse.text();
-          throw new Error(`Backend error: ${serverResponse.status} - ${errorText}`);
-        }
-
-        const data = await serverResponse.json();
-        
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
-        console.log('Popup: Author analysis results:', data);
-
-        // Display results
-        showStatus('Author analysis complete! View detailed results below.', 'success');
-        displayAuthorAnalysisResults(data);
-
-        // Update button state
-        setAuthorsButtonState('View Full Analysis', false, false);
-        analyzeAuthorsBtn.style.backgroundColor = '#4CAF50';
-        analyzeAuthorsBtn.onclick = () => {
-          // Store results and open full page
-          chrome.storage.local.set({
-            lastAuthorAnalysis: {
-              timestamp: new Date().toISOString(),
-              paperId: extractSsrnIdOrUrl(tab.url),
-              data: data
-            }
-          });
-          const unifiedId = extractSsrnIdOrUrl(tab.url);
-          let fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
-          if (unifiedId) {
-            fullpageUrl += `&paperID=${encodeURIComponent(unifiedId)}`;
-          }
-          chrome.tabs.create({ url: fullpageUrl });
-        };
-
-      } catch (error) {
-        console.error('Error calling author analysis backend:', error);
-        throw new Error(`Failed to analyze authors: ${error.message}`);
-      }
-      
-    } catch (error) {
-      console.error('Error in author analysis:', error);
-      showStatus(`Error: ${error.message}`, 'error');
-      setAuthorsButtonState('Analyze Authors', false, false);
-      analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
-    }
-  }
 
   // Function to display author analysis results
   function displayAuthorAnalysisResults(data) {
@@ -1936,4 +1763,116 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       UnderAnalysis = 0;
     }
   });
+
+  // Utility to get the assigned backend for the current tab
+  async function getTabAssignedBackend(tabId) {
+    const response = await chrome.runtime.sendMessage({ action: 'getTabBackend', tabId });
+    return response.backend || null;
+  }
+
+  // Patch checkAnalysisOnBackend to accept a backend argument
+  async function checkAnalysisOnBackend(paperId, backend) {
+    try {
+      console.log('Checking backend for analysis of paper:', paperId);
+      if (!backend) {
+        backend = await backendManager.getCurrentBackend();
+      }
+      if (!backend) {
+        console.log('No healthy backend available for checking analysis');
+        return false;
+      }
+      const url = `${backend.url}/analysis/${paperId}`;
+      console.log('Checking analysis endpoint:', url);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Backend has analysis data:', data);
+        if (data && data.summary) {
+          if (data.summary === 'Error generating analysis' || !data.summary.trim()) {
+            console.log('Backend returned error analysis or empty summary:', data.summary);
+            return false;
+          }
+          const storageKey = `analysis_${paperId}`;
+          const analysisResult = {
+            timestamp: new Date().toISOString(),
+            paperId: paperId,
+            content: data.content || {
+              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
+              paperId: paperId,
+              title: 'Paper Analysis',
+              abstract: 'Analysis loaded from backend',
+              paperContent: 'Content processed by backend'
+            },
+            summary: data.summary,
+            data: data,
+            autoAnalyzed: true
+          };
+          const storageData = {};
+          storageData[storageKey] = analysisResult;
+          await chrome.storage.local.set(storageData);
+          console.log('Stored analysis data from backend');
+          await setAnalysisStatus(paperId, 'complete');
+        }
+        return true;
+      } else if (response.status === 404) {
+        console.log('No analysis found on backend for paper:', paperId);
+        return false;
+      } else {
+        console.log('Backend returned error for analysis check:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error checking analysis on backend:', error);
+      return false;
+    }
+  }
+
+  // Patch updateBackendStatusDisplay to accept a backend argument
+  async function updateBackendStatusDisplay(backend = null, error = null) {
+    const statusDiv = document.getElementById('backend-status');
+    if (!statusDiv) return;
+    try {
+      if (error) {
+        statusDiv.innerHTML = `<div class="error">❌ Backend Error<br><small>${error}</small></div>`;
+        return;
+      }
+      if (!backend) {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        backend = tab ? await getTabAssignedBackend(tab.id) : null;
+      }
+      if (backend) {
+        const start = Date.now();
+        try {
+          await fetch(`${backend.url}${CONFIG.HEALTH_ENDPOINT}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(CONFIG.HEALTH_CHECK_TIMEOUT)
+          });
+          const latency = Date.now() - start;
+          statusDiv.innerHTML = `
+            <div class="success">
+              ✅ Connected to ${backend.name}
+              <br><small>${backend.url} (${latency}ms)</small>
+            </div>
+          `;
+        } catch (error) {
+          statusDiv.innerHTML = `
+            <div class="success">
+              ✅ Using ${backend.name}
+              <br><small>${backend.url}</small>
+            </div>
+          `;
+        }
+      } else {
+        statusDiv.innerHTML = '<div class="error">❌ No backends available</div>';
+      }
+    } catch (error) {
+      console.error('Error updating backend status:', error);
+      statusDiv.innerHTML = '<div class="error">❌ Backend detection failed</div>';
+    }
+  }
 });
