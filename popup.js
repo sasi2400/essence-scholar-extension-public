@@ -597,105 +597,138 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Function to monitor analysis progress and update UI when complete
-  async function monitorAnalysisProgress(tabId) {
-    let lastStatus = null;
+  async function monitorAnalysisProgress(tabId, paperId, isPdf = false) {
+    console.log('[POPUP] Starting background monitoring for paper:', paperId, 'tab:', tabId);
     
-    const checkInterval = setInterval(async () => {
-      try {
-        const status = await checkAnalysisStatus(tabId);
-        
-        // Only update UI if status changed
-        if (JSON.stringify(status) !== JSON.stringify(lastStatus)) {
-          lastStatus = status;
-          
-                if (status.inProgress || status.analysisInProgress) {
-        // Still in progress - update progress indicator
-        showProgress(2, 'Analysis in progress. Please wait...');
-      } else if (status.queued) {
-        // Analysis is queued - show queue position
-        const queueMsg = status.queuePosition > 0 
-          ? `Analysis queued. Position: ${status.queuePosition}. Please wait...`
-          : 'Analysis queued. Please wait...';
-        showProgress(1, queueMsg);
-      } else {
-            // Analysis completed
-            clearInterval(checkInterval);
-            console.log('Analysis completed, updating UI');
-            
-            hideProgress();
-            
-            // Check if we have results in storage
-            const hasResults = await checkForExistingAnalysis();
-            
-            if (!hasResults) {
-              // Analysis completed but no results found - check badge for status
-              try {
-                const badge = await chrome.action.getBadgeText({});
-                if (badge === 'OK') {
-                  showStatus('Analysis completed successfully! Click "Go to Full Page" to view results.', 'success');
-                  setButtonState('View Analysis', false, false);
-                  analyzeBtn.style.backgroundColor = '#4CAF50';
-                } else {
-                  // Analysis may have failed - re-check page type to set correct button state
-                  await checkPageType();
-                }
-              } catch (error) {
-                console.log('Could not read badge text:', error);
-                // Re-check page type to set correct button state
-                await checkPageType();
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error monitoring analysis progress:', error);
-        clearInterval(checkInterval);
-        hideProgress();
-        // Re-check page type to set correct button state
-        await checkPageType();
-        showStatus('Error monitoring analysis. Click to try again.', 'error');
+    try {
+      // Get the backend for this tab
+      const backend = await getTabAssignedBackend(tabId);
+      if (!backend) {
+        console.error('[POPUP] No backend available for monitoring');
+        return;
       }
-    }, 2000); // Check every 2 seconds
+      
+      // Start monitoring in background script
+      const response = await chrome.runtime.sendMessage({
+        action: 'startMonitoring',
+        paperId: paperId,
+        tabId: tabId,
+        backend: backend
+      });
+      
+      if (response.success) {
+        console.log('[POPUP] Background monitoring started successfully');
+        showProgress(1, 'Analysis in progress. Monitoring in background...');
+      } else {
+        console.error('[POPUP] Failed to start background monitoring');
+      }
+      
+    } catch (error) {
+      console.error('[POPUP] Error starting background monitoring:', error);
+    }
+  }
 
-    // Clear interval after 5 minutes to prevent infinite polling
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      console.log('Analysis monitoring timeout reached');
-    }, 5 * 60 * 1000);
+  // Function to stop analysis monitoring
+  async function stopAnalysisMonitoring(paperId) {
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'stopMonitoring',
+        paperId: paperId
+      });
+      console.log('[POPUP] Background monitoring stopped for paper:', paperId);
+    } catch (error) {
+      console.error('[POPUP] Error stopping background monitoring:', error);
+    }
+  }
+
+  // Function to check if monitoring is active
+  async function getMonitoringStatus(paperId) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'getMonitoringStatus',
+        paperId: paperId
+      });
+      return response.status;
+    } catch (error) {
+      console.error('[POPUP] Error getting monitoring status:', error);
+      return null;
+    }
+  }
+
+  // Helper: perform SSE analysis with progress callback
+  async function analyzeWithSmartBackendStream(payload, progressCallback = () => {}) {
+    try {
+      const finalData = await makeStreamRequest(CONFIG.ANALYZE_STREAM_ENDPOINT, payload, (eventData) => {
+        if (!eventData) return;
+        // Map backend events to checklist updates
+        if (eventData.section) {
+          if (eventData.status === 'junior_start') {
+            updateTaskStatus(eventData.section, 'in_progress');
+          } else if (eventData.status === 'junior_done' || eventData.status === 'authors_extracted') {
+            updateTaskStatus(eventData.section, 'done');
+          }
+        } else if (eventData.status === 'extracting_pdf') {
+          updateTaskStatus('PDF Extraction', 'in_progress');
+        } else if (eventData.status === 'pdf_extracted') {
+          updateTaskStatus('PDF Extraction', 'done');
+        } else if (eventData.status === 'analyzing') {
+          // high-level analyze step
+          updateTaskStatus('Analysis', 'in_progress');
+        } else if (eventData.status === 'done') {
+          updateTaskStatus('Analysis', 'done');
+        }
+
+        // Forward message to generic progress handler
+        if (eventData.message) progressCallback(eventData.message);
+      });
+      return finalData;
+    } catch (error) {
+      console.error('Popup: Streaming analysis failed:', error);
+      throw error;
+    }
   }
 
   // Function to analyze paper
   async function analyzePaper() {
     try {
+      if (UnderAnalysis) {
+        console.log('analyzePaper called while UnderAnalysis = 1; ignoring duplicate click');
+        return;
+      }
+      
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) {
         showStatus('No active tab found', 'error');
         return;
       }
 
-      // Set initial status
-      const paperId = extractSsrnIdOrUrl(tab.url);
-      if (!paperId) {
-        showStatus('Could not extract paper ID from URL', 'error');
+      const isPdf = tab.url.toLowerCase().endsWith('.pdf');
+      
+      // Skip this function for PDFs - they are handled directly in updatePopupUI
+      if (isPdf) {
+        console.log('analyzePaper: PDF detected, but PDF analysis is handled in updatePopupUI. Skipping.');
         return;
       }
+
+      UnderAnalysis = 1;
+
+      // Extract paper ID (fallback to filename for PDFs)
+      const paperId = extractSsrnIdOrUrl(tab.url) || tab.url.split('/').pop();
       
       // Update UI to show analysis is starting
       await setAnalysisStatus(paperId, 'in_progress');
-      showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
+      showStatus('Analysis in progress for this paper...', 'progress');
       setButtonState('Analyzing...', true, true);
       analyzeBtn.style.backgroundColor = '#FF9800';
 
-      // Send message to background script to start analysis
+      // Use background script workflow for HTML SSRN pages
       await chrome.runtime.sendMessage({
         action: 'analysisStarted',
         tabId: tab.id,
         url: tab.url
       });
-
-      // Start monitoring the analysis progress
+      // Start monitoring progress via storage
       checkAndMonitorAnalysisStatus();
-
     } catch (error) {
       console.error('Error in analyzePaper:', error);
       const errorMessage = error.message || 'Unknown error occurred';
@@ -949,10 +982,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return url;
   }
 
-  // Event listeners
-  if (analyzeBtn) {
-    analyzeBtn.addEventListener('click', analyzePaper);
-  }
+  // Event listeners - removed permanent analyzePaper listener since we set onclick dynamically in updatePopupUI
   
   if (analyzeAuthorsBtn) {
     analyzeAuthorsBtn.addEventListener('click', analyzeAuthors);
@@ -1309,7 +1339,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return false;
       }
       
-      const url = `${backend.url}/analysis/${paperId}`;
+      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
       console.log('Checking analysis endpoint:', url);
       
       const response = await fetch(url, {
@@ -1370,6 +1400,54 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
+  // Function to check analysis status first, then completed analysis if needed
+  async function checkAnalysisStatusAndCompletion(paperId, backend) {
+    try {
+      console.log('Checking analysis status first for paper:', paperId);
+      console.log('[DEBUG] checkAnalysisStatusAndCompletion using backend:', backend?.name, backend?.url);
+      
+      // First check if analysis is in progress
+      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
+      console.log('Checking status endpoint:', statusUrl);
+      
+      const statusResponse = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('[DEBUG] Status response:', statusResponse.status, statusResponse.statusText);
+      
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        console.log('Backend status data:', statusData);
+        
+        if (statusData.status === 'in_progress') {
+          console.log('Analysis is in progress');
+          return { inProgress: true, hasCompleted: false };
+        } else if (statusData.status === 'complete') {
+          console.log('Analysis status shows complete, checking for results');
+          const hasCompleted = await checkAnalysisOnBackend(paperId);
+          return { inProgress: false, hasCompleted };
+        } else if (statusData.status === 'error') {
+          console.log('Analysis status shows error');
+          return { inProgress: false, hasCompleted: false, error: statusData.errorMessage };
+        }
+      } else if (statusResponse.status === 404) {
+        console.log('No status found, checking for completed analysis');
+        // No status entry, check if completed analysis exists
+        const hasCompleted = await checkAnalysisOnBackend(paperId);
+        return { inProgress: false, hasCompleted };
+      }
+      
+      return { inProgress: false, hasCompleted: false };
+    } catch (error) {
+      console.error('Error checking analysis status and completion:', error);
+      return { inProgress: false, hasCompleted: false };
+    }
+  }
+
   /**
    * Update the popup UI according to the following logic:
    * 1) If page is an SSRN url with paperID, and not a PDF > only show the Analyze Authors button
@@ -1388,6 +1466,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     const isPDF = await checkIfPDFPage(tab);
     let backend = await getTabAssignedBackend(tab.id);
     console.log('[POPUP] getTabAssignedBackend result:', backend);
+    
+    // Add comprehensive debug logging
+    console.log('[POPUP DEBUG] ===================');
+    console.log('[POPUP DEBUG] Tab ID:', tab.id);
+    console.log('[POPUP DEBUG] Paper ID:', paperId);
+    console.log('[POPUP DEBUG] Tab URL:', tab.url);
+    console.log('[POPUP DEBUG] Assigned Backend:', backend?.name, backend?.url);
+    console.log('[POPUP DEBUG] ===================');
+    
     if (!backend) {
       showStatus('❌ No backends available. Please check your backend server.', 'error');
       setButtonState('Analyze Current Paper', true, false);
@@ -1395,8 +1482,26 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       analyzeBtn.style.display = '';
       return;
     }
-    let backendHasAnalysis = false;
-    if (paperId) backendHasAnalysis = await checkAnalysisOnBackend(paperId, backend);
+    
+    let analysisStatus = { inProgress: false, hasCompleted: false };
+    
+    // Check if monitoring is already active for this paper
+    if (paperId) {
+      const monitoringStatus = await getMonitoringStatus(paperId);
+      if (monitoringStatus) {
+        console.log('[POPUP DEBUG] Monitoring already active for paper:', paperId);
+        // Show monitoring is active
+        showProgress(2, 'Analysis in progress. Monitoring active...');
+        setButtonState('Analyzing...', true, true);
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        analyzeBtn.style.display = '';
+        return;
+      }
+      
+      console.log('[POPUP DEBUG] About to call checkAnalysisStatusAndCompletion with backend:', backend.url);
+      analysisStatus = await checkAnalysisStatusAndCompletion(paperId, backend);
+      console.log('[POPUP DEBUG] checkAnalysisStatusAndCompletion returned:', analysisStatus);
+    }
         
     // Hide all buttons initially
     showAuthorsButton(false);
@@ -1410,7 +1515,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       setAuthorsButtonState('Analyze Authors', false, false);
       analyzeAuthorsBtn.style.display = '';
       analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
-        if (backendHasAnalysis) {
+        if (analysisStatus.hasCompleted) {
         // Show both View Analysis and Analyze Authors
         analyzeBtn.style.display = '';
           setButtonState('View Analysis', false, false);
@@ -1432,8 +1537,26 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       let analyzingKey = getAnalyzingKey(tab.id, paperId);
       let analyzingObj = await chrome.storage.local.get([analyzingKey]);
       let isAnalyzing = analyzingObj[analyzingKey] === true;
+      
+      // If analysis is marked as in progress but the actual status shows complete or error,
+      // clear the analyzing state and reset UnderAnalysis
+      if (isAnalyzing && (analysisStatus.hasCompleted || analysisStatus.error)) {
+        await chrome.storage.local.remove(analyzingKey);
+        isAnalyzing = false;
+        console.log('Cleared stale analyzing state - analysis has completed or errored');
+      }
+      
       UnderAnalysis = isAnalyzing ? 1 : 0;
-      if (backendHasAnalysis) {
+      if (analysisStatus.inProgress) {
+        // Analysis is in progress - show status and start monitoring
+        analyzeBtn.style.display = '';
+        setButtonState('Analyzing...', true, true);
+        analyzeBtn.style.backgroundColor = '#FF9800';
+        showStatus('Analysis in progress... Please wait.', 'progress');
+        // Start monitoring backend logs for progress
+        monitorAnalysisProgress(tab.id, paperId, true);
+        return;
+      } else if (analysisStatus.hasCompleted) {
         // Show View Analysis only
         analyzeBtn.style.display = '';
         setButtonState('View Analysis', false, false);
@@ -1446,11 +1569,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         showStatus('Analysis exists for this paper! Click "View Analysis".', 'success');
         return;
       } else if (isAnalyzing) {
-        // Show Analyzing... state
+        // Show Analyzing... state and start/resume polling backend logs
         analyzeBtn.style.display = '';
         setButtonState('Analyzing...', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
         showStatus('Analyzing... Please wait.', 'progress');
+        // Start/resume polling backend logs for progress
+        monitorAnalysisProgress(tab.id, paperId, true);
         return;
       } else {
         // Only show Analyze Current Paper
@@ -1462,8 +1587,69 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           let key = getAnalyzingKey(tab.id, paperId);
           await chrome.storage.local.set({ [key]: true });
           UnderAnalysis = 1;
-          updatePopupUI();
-          await analyzePaper();
+          
+          try {
+            // Update UI to show analysis is starting
+            await setAnalysisStatus(paperId, 'in_progress');
+            showStatus('Analysis in progress for this paper...', 'progress');
+            setButtonState('Analyzing...', true, true);
+            analyzeBtn.style.backgroundColor = '#FF9800';
+
+            // Direct streaming analysis for PDFs
+            let fileContentB64 = null;
+            try {
+              const resp = await fetch(tab.url);
+              const blob = await resp.blob();
+              const arrayBuf = await blob.arrayBuffer();
+              const uint8Array = new Uint8Array(arrayBuf);
+              
+              // Convert to base64 in chunks to avoid stack overflow on large files
+              let binary = '';
+              const chunkSize = 0x8000; // 32KB chunks
+              for (let i = 0; i < uint8Array.length; i += chunkSize) {
+                const chunk = uint8Array.subarray(i, i + chunkSize);
+                binary += String.fromCharCode.apply(null, chunk);
+              }
+              fileContentB64 = btoa(binary);
+            } catch (e) {
+              console.warn('Could not fetch PDF content for base64; backend will download directly', e);
+            }
+
+            const bodyPayload = fileContentB64
+              ? { content: { paperUrl: tab.url }, file_content: fileContentB64 }
+              : { content: { paperUrl: tab.url } };
+
+            // Start background monitoring
+            await monitorAnalysisProgress(tab.id, paperId, true);
+            
+            const finalEvt = await analyzeWithSmartBackendStream(bodyPayload, (msg) => {
+              showStatus(msg, 'info');
+            });
+
+            // Clear analyzing state
+            await chrome.storage.local.remove(key);
+            UnderAnalysis = 0;
+            
+            // Analysis completed via streaming - update UI directly
+            await setAnalysisStatus(paperId, 'complete');
+            showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
+            setButtonState('View Analysis', false, false);
+            analyzeBtn.style.backgroundColor = '#4CAF50';
+            analyzeBtn.onclick = () => {
+              chrome.tabs.create({
+                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
+              });
+            };
+            
+            // Stop any background monitoring
+            await stopAnalysisMonitoring(paperId);
+          } catch (error) {
+            console.error('Error in PDF analysis:', error);
+            await chrome.storage.local.remove(key);
+            UnderAnalysis = 0;
+            showStatus('Analysis failed: ' + (error.message || 'Unknown error'), 'error');
+            updatePopupUI();
+          }
         };
         showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
         return;
@@ -1478,22 +1664,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     showAuthorsButton(false);
           }
 
-  // Patch analyzePaper to reset UnderAnalysis when analysis is done
+
+
+  // Patch analyzePaper to only fetch /analysis when status is complete
   const originalAnalyzePaper = analyzePaper;
   analyzePaper = async function(...args) {
-    try {
-      await originalAnalyzePaper.apply(this, args);
-      // After analysis, check backend again
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const paperId = tab && tab.url ? extractSsrnIdOrUrl(tab.url) : null;
-      if (paperId && await checkAnalysisOnBackend(paperId)) {
-        UnderAnalysis = 0;
-      }
-    } catch (e) {
-      UnderAnalysis = 0;
-      throw e;
-    }
-    updatePopupUI();
+    // This is now only used for non-PDFs or as a helper
+    await originalAnalyzePaper.apply(this, args);
   };
 
   // Patch message listener for analysisComplete to reset UnderAnalysis
@@ -1510,7 +1687,14 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       displayBackendStatus();
       await debugStorageState();
       await updateBackendStatusDisplay();
-      // Do NOT reset UnderAnalysis or window.clickedAnalyzeThisSession here
+      
+      // Reset UnderAnalysis on popup initialization (handles tab refresh case)
+      UnderAnalysis = 0;
+      window.clickedAnalyzeThisSession = false;
+      
+      // Check for stale analyzing states and clean them up
+      await cleanupStaleAnalyzingStates();
+      
       await updatePopupUI();
     } catch (error) {
       console.error('Popup: Initialization error:', error);
@@ -1536,6 +1720,14 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         // Also show all stored statuses
         const storage = await chrome.storage.local.get([STATUS_KEY]);
         console.log('All stored statuses:', storage[STATUS_KEY]);
+        
+        // Check background monitoring status
+        try {
+          const response = await chrome.runtime.sendMessage({ action: 'debugMonitoring' });
+          console.log('Background monitoring debug info:', response.debugInfo);
+        } catch (error) {
+          console.error('Error getting background monitoring info:', error);
+        }
       }
     }
   };
@@ -1555,6 +1747,22 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     
     if (message.action === 'analysisComplete') {
       console.log('Analysis completion notification received');
+      
+      // Reset analysis state
+      UnderAnalysis = 0;
+      
+      // Clear analyzing state for this tab/paper if available
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        if (tabs && tabs.length > 0) {
+          const tab = tabs[0];
+          const paperId = extractSsrnIdOrUrl(tab.url);
+          if (paperId && message.tabId === tab.id) {
+            const analyzingKey = getAnalyzingKey(tab.id, paperId);
+            await chrome.storage.local.remove(analyzingKey);
+            console.log('Cleared analyzing state on completion:', analyzingKey);
+          }
+        }
+      });
       
       // Update UI to show completion
       hideProgress();
@@ -1584,6 +1792,55 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       setTimeout(() => {
         checkAndMonitorAnalysisStatus();
       }, 1000);
+      
+      sendResponse({ received: true });
+    } else if (message.action === 'analysisProgress') {
+      console.log('Analysis progress update received:', message.data);
+      
+      // Update progress based on backend status
+      if (message.data.status === 'in_progress') {
+        let latestMessage = 'Analysis in progress...';
+        
+        // Process logs for detailed progress
+        if (message.data.logs && message.data.logs.length > 0) {
+          const lastLog = message.data.logs[message.data.logs.length - 1];
+          if (lastLog.section) {
+            if (lastLog.status === 'junior_start') {
+              updateTaskStatus(lastLog.section, 'in_progress');
+            } else if (lastLog.status === 'junior_done') {
+              updateTaskStatus(lastLog.section, 'done');
+            }
+          }
+          latestMessage = `[${lastLog.section || lastLog.status}] ${lastLog.message}`;
+        }
+        
+        showProgress(2, latestMessage);
+      }
+      
+      sendResponse({ received: true });
+    } else if (message.action === 'analysisError') {
+      console.log('Analysis error notification received:', message.error);
+      
+      // Reset analysis state
+      UnderAnalysis = 0;
+      
+      // Clear analyzing state for this tab/paper if available
+      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+        if (tabs && tabs.length > 0) {
+          const tab = tabs[0];
+          const paperId = extractSsrnIdOrUrl(tab.url);
+          if (paperId && message.tabId === tab.id) {
+            const analyzingKey = getAnalyzingKey(tab.id, paperId);
+            await chrome.storage.local.remove(analyzingKey);
+            console.log('Cleared analyzing state on error:', analyzingKey);
+          }
+        }
+      });
+      
+      hideProgress();
+      showStatus('Analysis failed: ' + (message.error || 'Unknown error'), 'error');
+      setButtonState('Analyze Current Paper', false, false);
+      analyzeBtn.style.backgroundColor = '#2196F3';
       
       sendResponse({ received: true });
     }
@@ -1674,7 +1931,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return false;
       }
       
-      const url = `${backend.url}/analysis/${paperId}`;
+      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
       console.log('Checking analysis endpoint:', url);
       
       const response = await fetch(url, {
@@ -1735,6 +1992,54 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
+  // Function to check analysis status first, then completed analysis if needed
+  async function checkAnalysisStatusAndCompletion(paperId, backend) {
+    try {
+      console.log('Checking analysis status first for paper:', paperId);
+      console.log('[DEBUG] checkAnalysisStatusAndCompletion using backend:', backend?.name, backend?.url);
+      
+      // First check if analysis is in progress
+      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
+      console.log('Checking status endpoint:', statusUrl);
+      
+      const statusResponse = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('[DEBUG] Status response:', statusResponse.status, statusResponse.statusText);
+      
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        console.log('Backend status data:', statusData);
+        
+        if (statusData.status === 'in_progress') {
+          console.log('Analysis is in progress');
+          return { inProgress: true, hasCompleted: false };
+        } else if (statusData.status === 'complete') {
+          console.log('Analysis status shows complete, checking for results');
+          const hasCompleted = await checkAnalysisOnBackend(paperId);
+          return { inProgress: false, hasCompleted };
+        } else if (statusData.status === 'error') {
+          console.log('Analysis status shows error');
+          return { inProgress: false, hasCompleted: false, error: statusData.errorMessage };
+        }
+      } else if (statusResponse.status === 404) {
+        console.log('No status found, checking for completed analysis');
+        // No status entry, check if completed analysis exists
+        const hasCompleted = await checkAnalysisOnBackend(paperId);
+        return { inProgress: false, hasCompleted };
+      }
+      
+      return { inProgress: false, hasCompleted: false };
+    } catch (error) {
+      console.error('Error checking analysis status and completion:', error);
+      return { inProgress: false, hasCompleted: false };
+    }
+  }
+
   // Listen for tab refresh and reset UnderAnalysis if the current tab is reloaded
   chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
     if (changeInfo.status === 'loading') {
@@ -1750,6 +2055,25 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   // Utility to get the analyzing key for a tab and paper
   function getAnalyzingKey(tabId, paperId) {
     return `analyzing_${tabId}_${paperId}`;
+  }
+
+  // Function to clean up stale analyzing states on popup initialization
+  async function cleanupStaleAnalyzingStates() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) return;
+      
+      const paperId = extractSsrnIdOrUrl(tab.url);
+      if (!paperId) return;
+      
+      // Clear any analyzing state for this tab/paper combination
+      const analyzingKey = getAnalyzingKey(tab.id, paperId);
+      await chrome.storage.local.remove(analyzingKey);
+      
+      console.log('Cleaned up stale analyzing state for tab:', tab.id, 'paper:', paperId);
+    } catch (error) {
+      console.error('Error cleaning up stale analyzing states:', error);
+    }
   }
 
   // On tab refresh or redirect, clear persistent analyzing state
@@ -1781,7 +2105,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         console.log('No healthy backend available for checking analysis');
         return false;
       }
-      const url = `${backend.url}/analysis/${paperId}`;
+      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
       console.log('Checking analysis endpoint:', url);
       const response = await fetch(url, {
         method: 'GET',
@@ -1874,5 +2198,52 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       console.error('Error updating backend status:', error);
       statusDiv.innerHTML = '<div class="error">❌ Backend detection failed</div>';
     }
+  }
+
+  // === Task progress checklist helpers ===
+  // Keep an in-memory map of section -> status (in_progress | done)
+  const taskStatusMap = {};
+
+  // Ensure a checklist container exists just below the progress bar
+  function ensureTaskChecklist() {
+    let checklist = document.getElementById('progress-tasks');
+    if (!checklist) {
+      const progressContainer = document.getElementById('progress-container');
+      if (!progressContainer) return null;
+      checklist = document.createElement('ul');
+      checklist.id = 'progress-tasks';
+      checklist.style.listStyle = 'none';
+      checklist.style.padding = '6px 12px';
+      checklist.style.margin = '0';
+      checklist.style.fontSize = '12px';
+      progressContainer.parentNode.insertBefore(checklist, progressContainer.nextSibling);
+    }
+    return checklist;
+  }
+
+  function renderTaskChecklist() {
+    const checklist = ensureTaskChecklist();
+    if (!checklist) return;
+    checklist.innerHTML = '';
+    Object.entries(taskStatusMap).forEach(([section, status]) => {
+      const li = document.createElement('li');
+      li.textContent = `${status === 'done' ? '✅' : status === 'in_progress' ? '⏳' : '•'} ${section}`;
+      li.style.opacity = status === 'done' ? '0.7' : '1';
+      checklist.appendChild(li);
+    });
+  }
+
+  function updateTaskStatus(section, status) {
+    if (!section) return;
+    // Only update if status changes or new
+    if (taskStatusMap[section] !== status) {
+      taskStatusMap[section] = status;
+      renderTaskChecklist();
+    }
+  }
+
+  function resetTaskChecklist() {
+    for (const key in taskStatusMap) delete taskStatusMap[key];
+    renderTaskChecklist();
   }
 });

@@ -31,6 +31,8 @@ const CONFIG = {
   CHAT_ENDPOINT: '/chat',
   HEALTH_ENDPOINT: '/health',
   ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
+  // SSE streaming endpoint for progressive analysis
+  ANALYZE_STREAM_ENDPOINT: '/analyze-stream',
   
   // Timeouts
   REQUEST_TIMEOUT: 60000, // 60 seconds for local (increased from 10)
@@ -96,11 +98,31 @@ class BackendManager {
       const isHealthy = await BackendManager.checkBackendHealth(backend);
       if (isHealthy) {
         console.log(`✅ Selected backend: ${backend.name} (${backend.url})`);
+        // cache the result
+        BackendManager._currentBackend = backend;
+        BackendManager._lastDetection = Date.now();
         return backend;
       }
     }
     console.log('❌ No healthy backends found');
     return null;
+  }
+
+  // Cached backend accessor
+  static async getCurrentBackend() {
+    const now = Date.now();
+    if (BackendManager._currentBackend && BackendManager._lastDetection &&
+        now - BackendManager._lastDetection < CONFIG.BACKEND_CACHE_DURATION) {
+      return BackendManager._currentBackend;
+    }
+    return await BackendManager.detectBestBackend();
+  }
+
+  // Force re-detect backend regardless of cache
+  static async refreshBackend() {
+    BackendManager._currentBackend = null;
+    BackendManager._lastDetection = 0;
+    return await BackendManager.detectBestBackend();
   }
 }
 
@@ -146,6 +168,65 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   }
 }
 
+// Helper: auto-detect backend and make a non-stream request
+async function makeApiRequest(endpoint, options = {}) {
+  const backend = await BackendManager.detectBestBackend();
+  if (!backend) {
+    throw new Error('No healthy backend available');
+  }
+  return makeApiRequestWithBackend(endpoint, options, backend);
+}
+
+// Helper: perform SSE streaming request
+function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const backend = await BackendManager.detectBestBackend();
+      if (!backend) {
+        throw new Error('No healthy backend available');
+      }
+      const url = `${backend.url}${endpoint}`;
+      console.log(`📡 Starting SSE request to ${backend.name}: ${url}`);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify(bodyObj)
+      });
+      if (!response.ok) {
+        reject(new Error(`Backend error: ${response.status}`));
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          const jsonStr = line.replace(/^data:\s*/, '');
+          if (!jsonStr) continue;
+          let evt;
+          try { evt = JSON.parse(jsonStr); } catch (e) { console.warn('SSE parse error', e, jsonStr); continue; }
+          try { onEvent(evt); } catch (cbErr) { console.warn('onEvent error', cbErr); }
+          if (evt.status === 'done') return resolve(evt);
+          if (evt.status === 'error') return reject(new Error(evt.message || 'Analysis error'));
+        }
+      }
+      reject(new Error('Stream ended without completion'));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // Initialize backend detection when config loads
 console.log('🔧 Backend Manager initialized');
 console.log('📊 Available backends:', Object.keys(CONFIG.BACKENDS));
@@ -161,6 +242,9 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.CONFIG = CONFIG;
   window.BackendManager = BackendManager;
+  window.backendManager = BackendManager; // legacy alias
   window.getApiUrlWithBackend = getApiUrlWithBackend;
   window.makeApiRequestWithBackend = makeApiRequestWithBackend;
+  window.makeApiRequest = makeApiRequest;
+  window.makeStreamRequest = makeStreamRequest;
 } 

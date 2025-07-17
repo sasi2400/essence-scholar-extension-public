@@ -881,7 +881,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
       }
       
-      const url = `${backend.url}/analysis/${paperId}`;
+      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
       console.log('Trying to fetch analysis from backend:', url);
       
       const response = await fetch(url, {
@@ -921,11 +921,10 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         }
         
-        // Clean up summary
+        // Clean up summary (only remove script tags, preserve markdown)
         if (summary) {
           summary = summary
             .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-            .replace(/<[^>]*>/g, '')
             .trim();
         }
         
@@ -1048,7 +1047,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (paperMeta) {
           const authors = (analysis.data.content.authors || []).join(', ');
           const analyzed = analysis.timestamp ? new Date(analysis.timestamp).toLocaleDateString() : '';
-          paperMeta.textContent = `Paper ID: ${analysis.data.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
+          const metaInfo = `Paper ID: ${analysis.data.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
+          paperMeta.textContent = metaInfo;
         }
       }
       return;
@@ -1163,10 +1163,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Display the summary if available and valid
       if (summary && typeof summary === 'string' && summary.trim()) {
         try {
-          // Clean up any potential HTML or script tags for security
+          // Only remove script tags for security, preserve markdown content
           summary = summary
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-            .replace(/<[^>]*>/g, '');
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
             
           const html = markdownToHtml(summary);
           if (html) {
@@ -1175,207 +1174,85 @@ document.addEventListener('DOMContentLoaded', function() {
               analysisContent.style.display = 'block';
             }
             
+            // Display the summary content
+            if (summaryDiv) {
+              summaryDiv.innerHTML = html;
+              summaryDiv.style.display = 'block';
+            }
+            
+            // Enable chat section if we have content and not in authors view
+            if (analysis.content && (analysis.content.paperContent || analysis.content.abstract) && viewMode !== 'authors') {
+              currentPdfContent = analysis.content;
+              if (chatSection) {
+                chatSection.style.display = 'block';
+                console.log('Chat enabled: Paper content loaded from stored analysis');
+              }
+            }
+            
             // Set paper information if available
             if (analysis.content) {
               if (paperTitle && analysis.content.title) {
                 paperTitle.textContent = analysis.content.title;
               }
               if (paperMeta) {
-                let metaInfo = `Paper ID: ${paperId}`;
-                if (analysis.content.authors && analysis.content.authors.length > 0) {
-                  metaInfo += ` | Authors: ${analysis.content.authors.join(', ')}`;
-                }
-                if (analysis.timestamp) {
-                  metaInfo += ` | Analyzed: ${new Date(analysis.timestamp).toLocaleDateString()}`;
-                }
+                let metaInfo = `Paper ID: ${analysis.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
                 paperMeta.textContent = metaInfo;
               }
-              if (paperInfo) {
-                paperInfo.style.display = 'block';
-              }
             }
-            
-            summaryDiv.innerHTML = html;
-            console.log('Successfully rendered analysis summary');
-            
-            // Show chat section if we have content
-            if (analysis.content && (analysis.content.paperContent || analysis.content.abstract)) {
-              currentPdfContent = analysis.content;
-              chatSection.style.display = 'block';
-              console.log('Chat enabled: Paper content loaded');
-            }
-          } else {
-            throw new Error('Failed to convert summary to HTML');
           }
         } catch (error) {
           console.error('Error rendering summary:', error);
-          summaryDiv.innerHTML = '<div class="markdown-content"><p>Error: Could not display analysis summary. Please try regenerating the analysis.</p><p>Error details: ' + error.message + '</p></div>';
           updateStatus('Error displaying analysis summary', true);
-          
-          // Show analyze button for regeneration
-          if (analyzeBtn) {
-            analyzeBtn.style.display = 'inline-block';
-            analyzeBtn.style.backgroundColor = '#2196F3';
-            analyzeBtn.textContent = 'Regenerate Analysis';
-            analyzeBtn.onclick = async () => {
-              if (analysis && analysis.content) {
-                await analyzePaper(analysis.content);
-              } else {
-                updateStatus('No paper content available for reanalysis', true);
-              }
-            };
-          }
-        }
-      } else {
-        console.warn('Invalid or missing summary in analysis data:', summary);
-        summaryDiv.innerHTML = '<div class="markdown-content"><p>Error: The analysis summary is missing or invalid. Please try regenerating the analysis.</p></div>';
-        updateStatus('Error: Invalid analysis data', true);
-        
-        // Show analyze button for regeneration
-        if (analyzeBtn) {
-          analyzeBtn.style.display = 'inline-block';
-          analyzeBtn.style.backgroundColor = '#2196F3';
-          analyzeBtn.textContent = 'Regenerate Analysis';
-          analyzeBtn.onclick = async () => {
-            if (analysis && analysis.content) {
-              await analyzePaper(analysis.content);
-            } else {
-              updateStatus('No paper content available for reanalysis', true);
-            }
-          };
         }
       }
-      
-      // Display author analysis if available
-      if (analysis && analysis.data?.author_data) {
-        try {
-          displayAuthorAnalysis(analysis.data.author_data);
-          if (viewAuthorsBtn) {
-            viewAuthorsBtn.style.display = 'inline-block';
-            viewAuthorsBtn.style.backgroundColor = '#4CAF50';
-            const authorCount = analysis.data.author_data.summary?.total_authors || 0;
-            const citationCount = analysis.data.author_data.summary?.total_citations || 0;
-            updateStatus(`Author profiles available: ${authorCount} authors with ${citationCount.toLocaleString()} total citations`);
-          }
-        } catch (error) {
-          console.error('Error displaying author analysis:', error);
-          updateStatus('Error displaying author analysis', true);
-        }
-      } else {
-        if (viewAuthorsBtn) {
-          viewAuthorsBtn.style.display = 'none';
-        }
-      }
-    } else {
-      updateStatus('No analysis found for this paper. Please analyze the paper first.', true);
-      
-      // Show upload section if no analysis is found
-      if (uploadSection) {
-        uploadSection.style.display = 'block';
-      }
-      
-      // Show analyze button
-      if (analyzeBtn) {
-        analyzeBtn.style.display = 'inline-block';
-        analyzeBtn.style.backgroundColor = '#2196F3';
-        analyzeBtn.textContent = 'Analyze Paper';
-      }
-    }
-
-    // After rendering analysis and author analysis, control visibility based on viewMode
-    if (viewMode === 'authors') {
-      // Hide summary and chat sections
-      if (summaryDiv) summaryDiv.style.display = 'none';
-      if (chatSection) chatSection.style.display = 'none';
-      // Show only the author analysis container if it exists
-      const authorAnalysis = document.querySelector('.author-analysis-container');
-      if (authorAnalysis) authorAnalysis.style.display = 'block';
-    } else {
-      // Default: show summary and chat, hide author analysis (handled by displayAuthorAnalysis)
-      if (summaryDiv) summaryDiv.style.display = 'block';
-      if (chatSection) chatSection.style.display = 'block';
-      const authorAnalysis = document.querySelector('.author-analysis-container');
-      if (authorAnalysis) authorAnalysis.style.display = '';
     }
   })();
 
-  // Event listeners
-  if (analyzeBtn) {
-    analyzeBtn.addEventListener('click', async function() {
-      console.log('Analyze button clicked');
-      await analyzePaper();
-    });
-  } else {
-    console.warn('analyzeBtn not found');
-  }
-
-  if (backBtn) {
-    // Set up context-aware back button behavior
-    if (viewMode === 'authors') {
-      // In authors view: back means return to full page
-      backBtn.addEventListener('click', function() {
-        console.log('Back button clicked (authors view)');
-        window.location.href = '/fullpage.html?paperID=' + encodeURIComponent(paperId);
-      });
-    } else {
-      // In full page view: back means close tab and return to PDF
-      backBtn.addEventListener('click', function() {
-        console.log('Back button clicked (full page view)');
-        // Try to close the tab if possible
-        if (chrome && chrome.tabs) {
-          chrome.tabs.getCurrent(function(tab) {
-            if (tab && tab.id) {
-              chrome.tabs.remove(tab.id);
-            }
-          });
-        }
-      });
-    }
-  } else {
-    console.warn('backBtn not found');
-  }
-
-  if (clearBtn) {
-    clearBtn.addEventListener('click', clearContent);
-  } else {
-    console.warn('clearBtn not found');
-  }
-
-  if (uploadBtn && pdfUpload) {
-    
-        uploadBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      pdfUpload.click();
-    });
-    
-    // Make the entire upload section clickable
-    if (uploadSection) {
-      uploadSection.addEventListener('click', function(e) {
-        // Don't trigger if clicking on the upload button
-        if (e.target.id === 'uploadBtn' || e.target === uploadBtn || e.target.closest('button')) {
-          return;
-        }
-        
-        // Trigger file picker for any other click in the upload section
-        e.preventDefault();
-        e.stopPropagation();
-        pdfUpload.click();
-      });
-    }
-    
-    pdfUpload.addEventListener('change', function(event) {
-      const file = event.target.files[0];
-      if (file) {
-        if (file.type === 'application/pdf') {
-          handlePdfUpload(file);
-        } else {
-          updateStatus('Please select a PDF file only. Supported format: .pdf', true);
-          pdfUpload.value = '';
-        }
+  // Set up event listeners for buttons
+  if (viewAuthorsBtn) {
+    viewAuthorsBtn.addEventListener('click', function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paperId = urlParams.get('paperID');
+      if (paperId) {
+        const authorsUrl = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&view=authors';
+        window.location.href = authorsUrl;
       }
     });
   }
 
+  if (backBtn) {
+    backBtn.addEventListener('click', function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const viewMode = urlParams.get('view');
+      const paperId = urlParams.get('paperID');
+      
+      if (viewMode === 'authors' && paperId) {
+        // Go back to main analysis view
+        const mainUrl = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
+        window.location.href = mainUrl;
+      } else {
+        // Go back to extension popup or previous page
+        window.history.back();
+      }
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paperId = urlParams.get('paperID');
+      if (paperId && confirm('Are you sure you want to clear this analysis? This action cannot be undone.')) {
+        const storageKey = `analysis_${paperId}`;
+        await chrome.storage.local.remove([storageKey]);
+        await setAnalysisStatus(paperId, 'not_started');
+        updateStatus('Analysis cleared successfully.', false);
+        // Redirect to main fullpage interface
+        window.location.href = chrome.runtime.getURL('fullpage.html');
+      }
+    });
+  }
+
+  // Set up chat functionality event listeners
   if (sendBtn && chatInput) {
     sendBtn.addEventListener('click', async function() {
       const message = chatInput.value.trim();
@@ -1398,61 +1275,4 @@ document.addEventListener('DOMContentLoaded', function() {
   } else {
     console.warn('sendBtn or chatInput not found');
   }
-
-  if (viewAuthorsBtn) {
-    viewAuthorsBtn.addEventListener('click', function() {
-      window.location.href = '/fullpage.html?paperID=' + encodeURIComponent(paperId) + '&view=authors';
-    });
-  } else {
-    console.warn('viewAuthorsBtn not found');
-  }
-
-  // Add drag and drop functionality only if uploadSection exists
-  if (uploadSection) {
-    console.log('Setting up drag and drop functionality for PDF upload');
-    
-    uploadSection.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      uploadSection.classList.add('dragover');
-    });
-
-    uploadSection.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // Only remove dragover if we're actually leaving the upload section
-      if (!uploadSection.contains(e.relatedTarget)) {
-        uploadSection.classList.remove('dragover');
-      }
-    });
-
-    uploadSection.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      uploadSection.classList.remove('dragover');
-      
-      const files = e.dataTransfer.files;
-      if (files && files.length > 0) {
-        const file = files[0];
-        if (file.type === 'application/pdf') {
-          console.log('PDF file dropped, starting upload:', file.name);
-          handlePdfUpload(file);
-        } else {
-          console.warn('Non-PDF file dropped:', file.type);
-          updateStatus('Please upload a PDF file only. Supported format: .pdf', true);
-        }
-      } else {
-        updateStatus('No file detected. Please try again.', true);
-      }
-    });
-    
-      console.log('Drag and drop functionality set up successfully');
-} else {
-  console.warn('uploadSection not found - drag and drop functionality will not be available');
-}
-
-
-
-
-
-}); 
+});

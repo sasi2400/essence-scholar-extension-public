@@ -7,6 +7,69 @@ let analysisInProgress = new Set(); // Track which tabs are being analyzed
 let analysisQueue = []; // Queue for pending analyses
 let isProcessingQueue = false; // Flag to prevent multiple queue processing
 
+// Analysis monitoring state
+let activeMonitors = new Map(); // Map of paperId -> monitor info
+let monitoringIntervals = new Map(); // Map of paperId -> intervalId
+
+// Persist monitoring state to chrome.storage
+async function persistMonitoringState() {
+  const monitoringState = {};
+  for (const [paperId, monitorInfo] of activeMonitors.entries()) {
+    monitoringState[paperId] = {
+      paperId: monitorInfo.paperId,
+      tabId: monitorInfo.tabId,
+      backend: monitorInfo.backend,
+      startTime: monitorInfo.startTime,
+      lastLogIndex: monitorInfo.lastLogIndex
+    };
+  }
+  
+  try {
+    await chrome.storage.local.set({ backgroundMonitoring: monitoringState });
+    console.log('[BG] Persisted monitoring state for papers:', Object.keys(monitoringState));
+  } catch (error) {
+    console.error('[BG] Error persisting monitoring state:', error);
+  }
+}
+
+// Restore monitoring state from chrome.storage
+async function restoreMonitoringState() {
+  try {
+    const result = await chrome.storage.local.get(['backgroundMonitoring']);
+    const monitoringState = result.backgroundMonitoring || {};
+    
+    console.log('[BG] Restoring monitoring state for papers:', Object.keys(monitoringState));
+    
+    for (const [paperId, monitorInfo] of Object.entries(monitoringState)) {
+      // Check if monitoring should still be active (not older than 15 minutes)
+      const ageMinutes = (Date.now() - monitorInfo.startTime) / (1000 * 60);
+      if (ageMinutes < 15) {
+        console.log('[BG] Restoring monitoring for paper:', paperId, 'age:', ageMinutes, 'minutes');
+        
+        // Restore monitor info
+        activeMonitors.set(paperId, monitorInfo);
+        
+        // Start interval again
+        const intervalId = setInterval(async () => {
+          console.log('[BG] Restored interval triggered for paper:', paperId);
+          await pollAnalysisStatus(paperId);
+        }, 2000);
+        
+        monitoringIntervals.set(paperId, intervalId);
+        console.log('[BG] Restored monitoring for paper:', paperId);
+      } else {
+        console.log('[BG] Skipping stale monitoring for paper:', paperId, 'age:', ageMinutes, 'minutes');
+      }
+    }
+  } catch (error) {
+    console.error('[BG] Error restoring monitoring state:', error);
+  }
+}
+
+// Call restore on startup
+console.log('[BG] Service worker starting up, restoring monitoring state...');
+restoreMonitoringState();
+
 // Log configuration on startup
 console.log('Background script: Smart backend detection enabled');
 console.log('Background script: Available backends:', Object.keys(CONFIG.BACKENDS));
@@ -14,9 +77,256 @@ console.log('Background script: Auto-detect enabled:', CONFIG.AUTO_DETECT_BACKEN
 
 // Remove global backendManager usage and initialization
 
+// Analysis monitoring functions
+async function startAnalysisMonitoring(paperId, tabId, backend) {
+  console.log('[BG] Starting analysis monitoring for paper:', paperId, 'tab:', tabId);
+  console.log('[BG] Backend for monitoring:', backend.name, backend.url);
+  console.log('[BG] Current active monitors before start:', Array.from(activeMonitors.keys()));
+  
+  // Clear any existing monitor for this paper
+  stopAnalysisMonitoring(paperId);
+  
+  const monitorInfo = {
+    paperId,
+    tabId,
+    backend,
+    startTime: Date.now(),
+    lastLogIndex: -1
+  };
+  
+  activeMonitors.set(paperId, monitorInfo);
+  console.log('[BG] Added monitor info for paper:', paperId);
+  console.log('[BG] Current active monitors after add:', Array.from(activeMonitors.keys()));
+  
+  // Start polling every 5 seconds (reduced frequency to prevent backend overload)
+  const intervalId = setInterval(async () => {
+    console.log('[BG] Interval triggered for paper:', paperId);
+    
+    // Double-check we should still be monitoring
+    if (!activeMonitors.has(paperId)) {
+      console.log('[BG] Stopping orphaned interval for paper:', paperId);
+      clearInterval(intervalId);
+      monitoringIntervals.delete(paperId);
+      return;
+    }
+    
+    await pollAnalysisStatus(paperId);
+  }, 5000);
+  
+  monitoringIntervals.set(paperId, intervalId);
+  console.log('[BG] Started interval with ID:', intervalId, 'for paper:', paperId);
+  console.log('[BG] Current monitoring intervals:', Array.from(monitoringIntervals.keys()));
+  
+  // Set timeout to stop monitoring after 10 minutes
+  setTimeout(() => {
+    if (activeMonitors.has(paperId)) {
+      console.log('[BG] Analysis monitoring timeout for paper:', paperId);
+      stopAnalysisMonitoring(paperId);
+    }
+  }, 10 * 60 * 1000); // 10 minutes
+  
+  console.log('[BG] Monitoring setup complete for paper:', paperId);
+  
+  // Persist the new monitoring state
+  await persistMonitoringState();
+}
+
+async function stopAnalysisMonitoring(paperId) {
+  console.log('[BG] Stopping analysis monitoring for paper:', paperId);
+  
+  const intervalId = monitoringIntervals.get(paperId);
+  if (intervalId) {
+    clearInterval(intervalId);
+    monitoringIntervals.delete(paperId);
+    console.log('[BG] Cleared interval for paper:', paperId);
+  }
+  
+  activeMonitors.delete(paperId);
+  console.log('[BG] Removed monitor info for paper:', paperId);
+  console.log('[BG] Remaining active monitors:', Array.from(activeMonitors.keys()));
+  
+  // Persist the updated monitoring state
+  await persistMonitoringState();
+}
+
+async function pollAnalysisStatus(paperId) {
+  const monitorInfo = activeMonitors.get(paperId);
+  if (!monitorInfo) {
+    console.log('[BG] No monitor info found for paper:', paperId);
+    return;
+  }
+  
+  // Prevent concurrent polling
+  if (monitorInfo.polling) {
+    console.log('[BG] Already polling for paper:', paperId, 'skipping this round');
+    return;
+  }
+  
+  monitorInfo.polling = true;
+  console.log('[BG] Polling analysis status for paper:', paperId, 'using backend:', monitorInfo.backend.url);
+  
+  try {
+    const statusUrl = `${monitorInfo.backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
+    const response = await fetch(statusUrl);
+    
+    console.log('[BG] Status response:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.log('[BG] Analysis status not found for paper:', paperId);
+        return;
+      }
+      throw new Error(`Status check failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('[BG] Status data received:', data);
+    
+    // Check if status changed
+    if (data.status === 'complete') {
+      console.log('[BG] Analysis completed for paper:', paperId);
+      stopAnalysisMonitoring(paperId);
+      
+      // Notify popup if it's open
+      try {
+        chrome.runtime.sendMessage({
+          action: 'analysisComplete',
+          paperId: paperId,
+          tabId: monitorInfo.tabId
+        });
+        console.log('[BG] Sent analysisComplete message');
+      } catch (e) {
+        console.log('[BG] Could not send analysisComplete message (popup may be closed):', e);
+      }
+      
+      // Update badge
+      chrome.action.setBadgeText({ text: '✓' });
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+      
+    } else if (data.status === 'error') {
+      console.log('[BG] Analysis failed for paper:', paperId);
+      stopAnalysisMonitoring(paperId);
+      
+      // Notify popup if it's open
+      try {
+        chrome.runtime.sendMessage({
+          action: 'analysisError',
+          paperId: paperId,
+          tabId: monitorInfo.tabId,
+          error: data.errorMessage
+        });
+        console.log('[BG] Sent analysisError message');
+      } catch (e) {
+        console.log('[BG] Could not send analysisError message (popup may be closed):', e);
+      }
+      
+      // Update badge
+      chrome.action.setBadgeText({ text: '✗' });
+      chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+      
+    } else if (data.status === 'in_progress') {
+      console.log('[BG] Analysis still in progress for paper:', paperId);
+      // Send progress update to popup if it's open
+      try {
+        chrome.runtime.sendMessage({
+          action: 'analysisProgress',
+          paperId: paperId,
+          tabId: monitorInfo.tabId,
+          data: data
+        });
+        console.log('[BG] Sent analysisProgress message');
+      } catch (e) {
+        console.log('[BG] Could not send analysisProgress message (popup may be closed):', e);
+      }
+    }
+    
+  } catch (error) {
+    console.error('[BG] Error polling analysis status for paper', paperId, ':', error);
+  } finally {
+    // Clear polling flag
+    if (monitorInfo) {
+      monitorInfo.polling = false;
+    }
+  }
+}
+
+// Function to get monitoring status for a paper
+function getMonitoringStatus(paperId) {
+  const monitorInfo = activeMonitors.get(paperId);
+  if (!monitorInfo) return null;
+  
+  return {
+    isMonitoring: true,
+    startTime: monitorInfo.startTime,
+    paperId: monitorInfo.paperId,
+    tabId: monitorInfo.tabId
+  };
+}
+
+// Debug function - accessible via chrome.runtime.sendMessage
+function debugBackgroundMonitoring() {
+  console.log('=== BACKGROUND MONITORING DEBUG ===');
+  console.log('Active monitors:', Array.from(activeMonitors.keys()));
+  console.log('Monitoring intervals:', Array.from(monitoringIntervals.keys()));
+  console.log('Monitor details:');
+  for (const [paperId, info] of activeMonitors.entries()) {
+    console.log(`  ${paperId}:`, {
+      tabId: info.tabId,
+      backend: info.backend.name,
+      startTime: new Date(info.startTime).toLocaleTimeString(),
+      ageMinutes: (Date.now() - info.startTime) / (1000 * 60)
+    });
+  }
+  console.log('=== END DEBUG ===');
+  
+  return {
+    activeMonitors: Array.from(activeMonitors.keys()),
+    monitoringIntervals: Array.from(monitoringIntervals.keys()),
+    details: Array.from(activeMonitors.entries()).map(([paperId, info]) => ({
+      paperId,
+      tabId: info.tabId,
+      backend: info.backend.name,
+      startTime: info.startTime,
+      ageMinutes: (Date.now() - info.startTime) / (1000 * 60)
+    }))
+  };
+}
 
 // Listen for tab updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Handle tab refresh/navigation start
+  if (changeInfo.status === 'loading') {
+    console.log('Background: Tab starting to load/refresh:', tabId, tab.url);
+    
+    // Clean up analyzing states for this tab when it refreshes
+    if (tab.url) {
+      const paperId = extractSsrnIdFromUrl(tab.url);
+      if (paperId) {
+        const analyzingKey = `analyzing_${tabId}_${paperId}`;
+        chrome.storage.local.remove(analyzingKey).then(() => {
+          console.log('Background: Cleared analyzing state on tab refresh:', analyzingKey);
+        }).catch(err => {
+          console.error('Background: Error clearing analyzing state:', err);
+        });
+        
+        // Stop any active monitoring for this paper
+        stopAnalysisMonitoring(paperId);
+      }
+    }
+    
+    // Remove from analysis progress tracking
+    analysisInProgress.delete(tabId);
+    
+    // Update tab state
+    const currentState = activeTabs.get(tabId) || {};
+    activeTabs.set(tabId, {
+      ...currentState,
+      analysisInProgress: false,
+      analysisQueued: false,
+      lastUpdated: Date.now()
+    });
+  }
+  
   if (changeInfo.status === 'complete') {
     // Check if the tab is a PDF or SSRN page
     if (tab.url && (
@@ -639,6 +949,65 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // Add monitoring control handlers
+  if (request.action === 'startMonitoring') {
+    const { paperId, tabId, backend } = request;
+    console.log('[BG] Starting monitoring for paper:', paperId, 'tab:', tabId);
+    startAnalysisMonitoring(paperId, tabId, backend);
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (request.action === 'stopMonitoring') {
+    const { paperId } = request;
+    console.log('[BG] Stopping monitoring for paper:', paperId);
+    stopAnalysisMonitoring(paperId);
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (request.action === 'getMonitoringStatus') {
+    const { paperId } = request;
+    const status = getMonitoringStatus(paperId);
+    sendResponse({ status });
+    return true;
+  }
+
+  if (request.action === 'debugMonitoring') {
+    const debugInfo = debugBackgroundMonitoring();
+    sendResponse({ debugInfo });
+    return true;
+  }
+
+  if (request.action === 'analysisStarted') {
+    // Message sent by popup.js when user clicks the Analyze button on an SSRN HTML page.
+    // The popup context has no sender.tab, so handle this action before the sender.tab guard.
+    const tabId = request.tabId;
+    const url = request.url;
+    console.log('[BG] analysisStarted message received for tab', tabId, 'url', url);
+    try {
+      // If analysis already running for the tab, acknowledge and exit.
+      if (analysisInProgress.has(tabId)) {
+        console.log(`[BG] Analysis already in progress for tab ${tabId}`);
+        sendResponse({ success: true, inProgress: true });
+        return true;
+      }
+
+      // Show badge indicator that analysis is starting
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+
+      // Queue the analysis (priority 1 to match manualAnalyze behaviour)
+      addToAnalysisQueue(tabId, url || null, 1);
+      sendResponse({ success: true, queued: true });
+    } catch (error) {
+      console.error('[BG] Error queuing analysis from analysisStarted:', error);
+      sendResponse({ error: error.message || 'Failed to queue analysis' });
+    }
+    return true;
+  }
+
+  // Existing sender.tab guard remains below
   if (!sender.tab) {
     console.warn('Message received without tab context:', request);
     sendResponse({ error: 'No tab context available' });
