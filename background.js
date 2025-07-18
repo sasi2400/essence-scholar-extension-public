@@ -757,7 +757,7 @@ async function triggerPDFAnalysis(tabId) {
       chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
 
       // Get LLM settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
       
       // Use global backend instead of per-tab
       let backend = await BackendManager.getCurrentBackend();
@@ -784,6 +784,7 @@ async function triggerPDFAnalysis(tabId) {
           body: JSON.stringify({
             content: paperContent || { paperUrl },
             model: llmSettings.model,
+            google_api_key: llmSettings.geminiKey || undefined,
             openai_api_key: llmSettings.openaiKey || undefined,
             claude_api_key: llmSettings.claudeKey || undefined
           })

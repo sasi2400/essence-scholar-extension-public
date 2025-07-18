@@ -768,6 +768,41 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // Update configuration status display
+  async function updateConfigurationStatus() {
+    const configStatusDiv = document.getElementById('config-status');
+    if (!configStatusDiv) return;
+    
+    try {
+      const result = await chrome.storage.local.get(['llmSettings']);
+      const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      
+      const model = settings.model;
+      let hasValidConfig = false;
+      
+      // Check if user has configured appropriate API key for selected model
+      if (model.startsWith('gemini-') && settings.geminiKey) {
+        hasValidConfig = true;
+      } else if (model.startsWith('gpt-') && settings.openaiKey) {
+        hasValidConfig = true;
+      } else if (model.startsWith('claude-') && settings.claudeKey) {
+        hasValidConfig = true;
+      }
+      
+      if (hasValidConfig) {
+        configStatusDiv.style.display = 'none';
+      } else {
+        configStatusDiv.style.display = 'block';
+        const modelType = model.startsWith('gemini-') ? 'Google AI' : 
+                         model.startsWith('gpt-') ? 'OpenAI' : 
+                         model.startsWith('claude-') ? 'Claude' : 'LLM';
+        configStatusDiv.innerHTML = `<div class="warning">⚠️ Please configure your ${modelType} API key in Settings</div>`;
+      }
+    } catch (error) {
+      console.error('Error checking configuration status:', error);
+    }
+  }
+
   // Update backend status display
   async function updateBackendStatusDisplay(backend = null, error = null) {
     const statusDiv = document.getElementById('backend-status');
@@ -1070,6 +1105,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // Settings modal logic
   const settingsModal = document.getElementById('settings-modal');
   const modelSelect = document.getElementById('model-select');
+  const geminiKeySection = document.getElementById('gemini-key-section');
+  const geminiKeyInput = document.getElementById('gemini-key-input');
   const openaiKeySection = document.getElementById('openai-key-section');
   const openaiKeyInput = document.getElementById('openai-key-input');
   const claudeKeySection = document.getElementById('claude-key-section');
@@ -1082,12 +1119,15 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsBtn.addEventListener('click', () => {
       // Load settings from storage
       chrome.storage.local.get(['llmSettings'], (result) => {
-        const settings = result.llmSettings || { model: 'gemini-2.5-flash', openaiKey: '', claudeKey: '' };
+        const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
         modelSelect.value = settings.model || 'gemini-2.5-flash';
+        geminiKeyInput.value = settings.geminiKey || '';
         openaiKeyInput.value = settings.openaiKey || '';
         claudeKeyInput.value = settings.claudeKey || '';
-        openaiKeySection.style.display = (settings.model === 'openai') ? 'block' : 'none';
-        claudeKeySection.style.display = (settings.model === 'claude') ? 'block' : 'none';
+        // Show appropriate API key section
+        geminiKeySection.style.display = settings.model.startsWith('gemini-') ? 'block' : 'none';
+        openaiKeySection.style.display = settings.model.startsWith('gpt-') ? 'block' : 'none';
+        claudeKeySection.style.display = settings.model.startsWith('claude-') ? 'block' : 'none';
         settingsModal.style.display = 'flex';
       });
     });
@@ -1104,9 +1144,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (modelSelect) {
     modelSelect.addEventListener('change', () => {
       const selectedModel = modelSelect.value;
-      // Show OpenAI key section for GPT models
+      // Show appropriate API key section based on model
+      geminiKeySection.style.display = selectedModel.startsWith('gemini-') ? 'block' : 'none';
       openaiKeySection.style.display = selectedModel.startsWith('gpt-') ? 'block' : 'none';
-      // Show Claude key section for Claude models
       claudeKeySection.style.display = selectedModel.startsWith('claude-') ? 'block' : 'none';
     });
   }
@@ -1115,10 +1155,15 @@ document.addEventListener('DOMContentLoaded', function() {
   if (settingsSaveBtn) {
     settingsSaveBtn.addEventListener('click', () => {
       const model = modelSelect.value;
+      const geminiKey = geminiKeyInput.value.trim();
       const openaiKey = openaiKeyInput.value.trim();
       const claudeKey = claudeKeyInput.value.trim();
       
-      // Validate API keys if needed
+      // Validate API keys for all models
+      if (model.startsWith('gemini-') && !geminiKey) {
+        alert('Please enter your Google AI API key to use Gemini models');
+        return;
+      }
       if (model.startsWith('gpt-') && !openaiKey) {
         alert('Please enter your OpenAI API key to use GPT models');
         return;
@@ -1131,11 +1176,14 @@ document.addEventListener('DOMContentLoaded', function() {
       chrome.storage.local.set({ 
         llmSettings: { 
           model, 
+          geminiKey,
           openaiKey, 
           claudeKey 
         } 
       }, () => {
         settingsModal.style.display = 'none';
+        // Update configuration status after saving
+        updateConfigurationStatus();
       });
     });
   }
@@ -1792,6 +1840,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   
   // Run initialization
   initializePopup();
+  updateConfigurationStatus();
   
   // Debug function to manually check status (for testing)
   window.debugCheckStatus = async function() {
@@ -2329,4 +2378,98 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     for (const key in taskStatusMap) delete taskStatusMap[key];
     renderTaskChecklist();
   }
+
+  // Version checking functionality
+  async function checkForUpdates() {
+    try {
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No backend available for version check');
+        return;
+      }
+
+      // Get extension version from manifest
+      const manifest = chrome.runtime.getManifest();
+      const extensionVersion = `v${manifest.version}`;
+
+      const response = await fetch(`${backend.url}${CONFIG.VERSION_ENDPOINT}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Extension-Version': extensionVersion
+        }
+      });
+
+      if (response.ok) {
+        const versionData = await response.json();
+        console.log('Version check result:', versionData);
+
+        if (versionData.update_available || versionData.deprecated) {
+          showVersionNotification(versionData);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for updates:', error);
+    }
+  }
+
+  function showVersionNotification(versionData) {
+    // Remove any existing version notifications first
+    const existingNotification = document.getElementById('version-notification');
+    if (existingNotification) {
+      existingNotification.remove();
+    }
+
+    const notificationContainer = document.createElement('div');
+    notificationContainer.id = 'version-notification';
+    notificationContainer.style.cssText = `
+      margin: 8px 0;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      text-align: left;
+      ${versionData.deprecated || versionData.type === 'deprecated' ? 
+        'background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404;' : 
+        'background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460;'
+      }
+    `;
+
+    const isDeprecated = versionData.deprecated || versionData.type === 'deprecated';
+    const icon = isDeprecated ? '⚠️' : 'ℹ️';
+    const title = isDeprecated ? 'Extension Update Required' : 'Update Available';
+    
+    notificationContainer.innerHTML = `
+      <div style="font-weight: bold; margin-bottom: 4px;">
+        ${icon} ${title}
+      </div>
+      <div style="margin-bottom: 6px;">
+        ${versionData.message || 'A newer version is available.'}
+      </div>
+      <div style="font-size: 11px; color: #666;">
+        Current: ${versionData.extension_version || 'Unknown'} → Latest: ${versionData.latest_version || versionData.backend_version || 'Unknown'}
+      </div>
+    `;
+
+    // Insert notification below backend status
+    const backendStatus = document.getElementById('backend-status');
+    if (backendStatus && backendStatus.parentNode) {
+      backendStatus.parentNode.insertBefore(notificationContainer, backendStatus.nextSibling);
+    }
+  }
+
+  // Global functions for handling version warnings from API responses
+  window.showVersionWarningFromAPI = function(versionWarning) {
+    console.log('Received version warning from API:', versionWarning);
+    showVersionNotification(versionWarning);
+  };
+
+  window.checkResponseForVersionWarning = function(versionWarning) {
+    console.log('Checking response for version warning:', versionWarning);
+    showVersionNotification(versionWarning);
+  };
+
+  // Initialize version checking
+  setTimeout(() => {
+    checkForUpdates();
+  }, 2000); // Check for updates 2 seconds after popup loads
 });

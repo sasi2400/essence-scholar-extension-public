@@ -523,15 +523,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     try {
       // Get LLM settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', openaiKey: '', claudeKey: '' };
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
       
       // Format request to match backend's expected structure
       const requestBody = {
         message: message,
         paper: currentPdfContent, // Send the entire PDF content object as 'paper'
         model: getModelName(llmSettings.model),
-        openai_api_key: llmSettings.model === 'openai' ? llmSettings.openaiKey : undefined,
-        claude_api_key: llmSettings.model === 'claude' ? llmSettings.claudeKey : undefined
+        google_api_key: llmSettings.geminiKey || undefined,
+        openai_api_key: llmSettings.openaiKey || undefined,
+        claude_api_key: llmSettings.claudeKey || undefined
       };
 
       const response = await makeApiRequest(CONFIG.CHAT_ENDPOINT, {
