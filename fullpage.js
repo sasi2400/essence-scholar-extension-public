@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Global variables
   let viewMode = null; // Will be set from URL parameters
+  let isHomepage = false; // Track if we're on homepage
   
   console.log('Fullpage loaded: DOMContentLoaded event fired');
   
@@ -25,6 +26,382 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Error during fullpage backend detection:', error);
     });
   }
+  
+  // Homepage elements
+  const searchInput = document.getElementById('searchInput');
+  const searchBtn = document.getElementById('searchBtn');
+  const searchBtnText = document.getElementById('searchBtnText');
+  const searchBtnLoading = document.getElementById('searchBtnLoading');
+  const searchResults = document.getElementById('searchResults');
+  const settingsForm = document.getElementById('settingsForm');
+  const googleScholarUrl = document.getElementById('googleScholarUrl');
+  const researchInterests = document.getElementById('researchInterests');
+  const saveBtnText = document.getElementById('saveBtnText');
+  const saveBtnLoading = document.getElementById('saveBtnLoading');
+  const totalPapers = document.getElementById('totalPapers');
+  const analyzedPapers = document.getElementById('analyzedPapers');
+  const totalAuthors = document.getElementById('totalAuthors');
+  
+  // Upload elements
+  const uploadArea = document.getElementById('uploadArea');
+  const pdfUploadHomepage = document.getElementById('pdfUploadHomepage');
+  const uploadBtnHomepage = document.getElementById('uploadBtnHomepage');
+
+  // Homepage functions
+  async function loadHomepageStats() {
+    try {
+      const backend = await backendManager.detectBestBackend();
+      if (!backend) {
+        console.error('No backend available for stats');
+        return;
+      }
+
+      const response = await fetch(`${backend.url}/storage/info`);
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update stats with animated counter
+        const finalCount = data.persistent_storage.analyses || 0;
+        if (analyzedPapers) {
+          animateCounter(analyzedPapers, 0, finalCount, 1000); // 1 second animation
+        }
+        
+        // Debug logging
+        console.log('📊 Homepage Stats:', {
+          analyzedPapers: finalCount
+        });
+      }
+    } catch (error) {
+      console.error('Error loading homepage stats:', error);
+    }
+  }
+
+  async function searchPapers(query) {
+    try {
+      const backend = await backendManager.detectBestBackend();
+      if (!backend) {
+        throw new Error('No backend available');
+      }
+
+      const response = await fetch(`${backend.url}/papers/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: query,
+          max_results: 20
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to search papers');
+      }
+
+      const data = await response.json();
+      return data.results || [];
+    } catch (error) {
+      console.error('Error searching papers:', error);
+      throw error;
+    }
+  }
+
+  function displaySearchResults(papers) {
+    if (!searchResults) return;
+
+    if (papers.length === 0) {
+      searchResults.innerHTML = '<div class="no-results">No papers found matching your search.</div>';
+      searchResults.style.display = 'block';
+      return;
+    }
+
+    const resultsHtml = papers.map((paper, idx) => {
+      const title = paper.title || 'Untitled';
+      // Robust author extraction
+      let authors = '';
+      if (Array.isArray(paper.metadata?.authors) && paper.metadata.authors.length > 0) {
+        authors = paper.metadata.authors.join(', ');
+      } else if (Array.isArray(paper.authors) && paper.authors.length > 0) {
+        authors = paper.authors.join(', ');
+      } else if (typeof paper.metadata?.authors === 'string' && paper.metadata.authors) {
+        authors = paper.metadata.authors;
+      } else if (typeof paper.authors === 'string' && paper.authors) {
+        authors = paper.authors;
+      }
+      const paperId = paper.paper_id || paper.paperId || '';
+      const hasAnalysis = paper.analysis !== null && paper.analysis !== undefined;
+      
+      return `
+        <div class="search-result-item" data-paper-id="${paperId}">
+          <div class="search-result-title">${title}</div>
+          <div class="search-result-meta">
+            Paper ID: ${paperId} ${hasAnalysis ? '• Analyzed' : '• Not analyzed'}
+          </div>
+          <div class="search-result-authors">${authors ? authors : '<span style=\'color:#bbb\'>No authors found</span>'}</div>
+        </div>
+      `;
+    }).join('');
+
+    searchResults.innerHTML = resultsHtml;
+    searchResults.style.display = 'block';
+
+    // Add click handlers for navigation
+    Array.from(searchResults.getElementsByClassName('search-result-item')).forEach(item => {
+      item.addEventListener('click', function() {
+        const paperId = this.getAttribute('data-paper-id');
+        if (paperId) {
+          window.location.href = `fullpage.html?paperID=${encodeURIComponent(paperId)}`;
+        }
+      });
+    });
+  }
+
+  async function handleSearch() {
+    const query = searchInput.value.trim();
+    if (!query) {
+      searchResults.style.display = 'none';
+      return;
+    }
+
+    // Show loading state
+    searchBtn.disabled = true;
+    searchBtnText.style.display = 'none';
+    searchBtnLoading.style.display = 'inline-block';
+
+    try {
+      const papers = await searchPapers(query);
+      displaySearchResults(papers);
+    } catch (error) {
+      searchResults.innerHTML = `<div class="no-results">Error searching papers: ${error.message}</div>`;
+      searchResults.style.display = 'block';
+    } finally {
+      // Hide loading state
+      searchBtn.disabled = false;
+      searchBtnText.style.display = 'inline';
+      searchBtnLoading.style.display = 'none';
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      // Try to load from backend first
+      const backend = await backendManager.detectBestBackend();
+      if (backend) {
+        try {
+          const response = await fetch(`${backend.url}/user/settings`);
+          if (response.ok) {
+            const data = await response.json();
+            if (googleScholarUrl) googleScholarUrl.value = data.google_scholar_url || '';
+            if (researchInterests) researchInterests.value = data.research_interests || '';
+            return;
+          }
+        } catch (error) {
+          console.log('Backend settings not available, using local storage');
+        }
+      }
+      
+      // Fallback to local storage
+      const result = await chrome.storage.local.get(['userSettings']);
+      const settings = result.userSettings || {};
+      
+      if (googleScholarUrl) googleScholarUrl.value = settings.googleScholarUrl || '';
+      if (researchInterests) researchInterests.value = settings.researchInterests || '';
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    
+    // Show loading state
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    saveBtnText.style.display = 'none';
+    saveBtnLoading.style.display = 'inline-block';
+
+    try {
+      const settings = {
+        google_scholar_url: googleScholarUrl.value.trim(),
+        research_interests: researchInterests.value.trim()
+      };
+
+      // Try to save to backend first
+      const backend = await backendManager.detectBestBackend();
+      if (backend) {
+        try {
+          const response = await fetch(`${backend.url}/user/settings`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(settings)
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Settings saved to backend:', data);
+          }
+        } catch (error) {
+          console.log('Backend settings not available, using local storage');
+        }
+      }
+      
+      // Also save to local storage as backup
+      const localSettings = {
+        googleScholarUrl: settings.google_scholar_url,
+        researchInterests: settings.research_interests,
+        updatedAt: new Date().toISOString()
+      };
+      await chrome.storage.local.set({ userSettings: localSettings });
+      
+      // Show success message
+      alert('Settings saved successfully!');
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Error saving settings: ' + error.message);
+    } finally {
+      // Hide loading state
+      submitBtn.disabled = false;
+      saveBtnText.style.display = 'inline';
+      saveBtnLoading.style.display = 'none';
+    }
+  }
+
+  // Counter animation function
+  function animateCounter(element, start, end, duration) {
+    const startTime = performance.now();
+    const difference = end - start;
+    
+    function updateCounter(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for smooth animation
+      const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+      const current = Math.floor(start + (difference * easeOutQuart));
+      
+      element.textContent = current;
+      
+      if (progress < 1) {
+        requestAnimationFrame(updateCounter);
+      }
+    }
+    
+    requestAnimationFrame(updateCounter);
+  }
+
+  // Global function to view a paper (called from search results)
+  window.viewPaper = function(paperId) {
+    const url = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
+    window.location.href = url;
+  };
+
+  // Upload functionality for homepage
+  function setupHomepageUpload() {
+    if (!uploadArea || !pdfUploadHomepage || !uploadBtnHomepage) return;
+    
+    // Click to upload
+    uploadBtnHomepage.addEventListener('click', () => {
+      pdfUploadHomepage.click();
+    });
+    
+    // File input change
+    pdfUploadHomepage.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        handleHomepagePdfUpload(file);
+      }
+    });
+    
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.querySelector('.upload-placeholder').classList.add('dragover');
+    });
+    
+    uploadArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      uploadArea.querySelector('.upload-placeholder').classList.remove('dragover');
+    });
+    
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.querySelector('.upload-placeholder').classList.remove('dragover');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].type === 'application/pdf') {
+        handleHomepagePdfUpload(files[0]);
+      }
+    });
+  }
+  
+  async function handleHomepagePdfUpload(file) {
+    if (file.type !== 'application/pdf') {
+      alert('Please select a PDF file.');
+      return;
+    }
+    
+    if (file.size > 50 * 1024 * 1024) { // 50MB limit
+      alert('File size must be less than 50MB.');
+      return;
+    }
+    
+    try {
+      // Show loading state
+      const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
+      const originalContent = uploadPlaceholder.innerHTML;
+      uploadPlaceholder.innerHTML = `
+        <div class="loading" style="margin: 20px auto;"></div>
+        <p>Processing PDF...</p>
+      `;
+      
+      // Switch to analysis view by hiding homepage content
+      document.body.classList.remove('homepage-mode');
+      
+      // Use the existing handlePdfUpload function from the original fullpage.js
+      const result = await handlePdfUpload(file);
+      
+      // After analysis is complete, update the URL with the paper ID
+      // so the page knows to display the analysis results
+      if (result && result.paperId) {
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('paperID', result.paperId);
+        window.history.replaceState({}, '', currentUrl.toString());
+        
+        // Trigger a page reload to properly initialize the analysis view
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Error uploading PDF:', error);
+      alert('Error uploading PDF: ' + error.message);
+      
+      // Restore original content and homepage mode
+      const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
+      uploadPlaceholder.innerHTML = originalContent;
+      document.body.classList.add('homepage-mode');
+    }
+  }
+
+  // Event listeners for homepage
+  if (searchInput) {
+    searchInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        handleSearch();
+      }
+    });
+  }
+  
+  if (searchBtn) {
+    searchBtn.addEventListener('click', handleSearch);
+  }
+  
+  if (settingsForm) {
+    settingsForm.addEventListener('submit', saveSettings);
+  }
+  
+  // Setup upload functionality
+  setupHomepageUpload();
   
   async function setAnalysisStatus(paperId, status, errorMessage = null) {
     const now = new Date().toISOString();
@@ -192,21 +569,25 @@ document.addEventListener('DOMContentLoaded', function() {
       
       while (attempts < maxAttempts) {
         try {
-          const serverResponse = await makeApiRequest(CONFIG.ANALYZE_ENDPOINT, {
-            method: 'POST',
-            body: JSON.stringify({ content })
+          // Use streaming endpoint for better user experience
+          const serverResponse = await makeStreamRequest(CONFIG.ANALYZE_STREAM_ENDPOINT, { 
+            content,
+            file_content: content.file_content // Move file_content to top level for backend
+          }, (event) => {
+            // Handle streaming updates with detailed progress messages
+            if (event.status === 'progress' || event.status === 'extracting_pdf' || event.status === 'analyzing' || event.status === 'extracting_authors' || 
+                event.status === 'junior_start' || event.status === 'junior_done' || event.status === 'pdf_extracted' || event.status === 'authors_extracted') {
+              // Show detailed progress messages from the backend
+              const message = event.message || 'Processing...';
+              updateStatus(message);
+              console.log(`[Stream] ${event.status}: ${message}`);
+            } else if (event.status === 'error') {
+              throw new Error(event.message || 'Analysis failed');
+            }
           });
 
-          if (!serverResponse.ok) {
-            const errorText = await serverResponse.text();
-            let errorMessage = 'Backend error';
-            try {
-              const errorData = JSON.parse(errorText);
-              errorMessage = errorData.error || errorData.details || errorText;
-            } catch (e) {
-              errorMessage = errorText;
-            }
-            throw new Error(`Backend error: ${serverResponse.status} - ${errorMessage}`);
+          if (!serverResponse || !serverResponse.summary) {
+            throw new Error('No analysis results received');
           }
 
           const currentBackend = await backendManager.getCurrentBackend();
@@ -277,59 +658,56 @@ document.addEventListener('DOMContentLoaded', function() {
       const maxSize = 50 * 1024 * 1024; // 50MB
       if (file.size > maxSize) {
         updateStatus('File too large. Maximum size is 50MB.', true);
-        return;
+        return null;
       }
       
-      // Create a FileReader to read the file content
-      const reader = new FileReader();
+      // Convert file to base64 using Promise
+      const base64Content = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+          try {
+            updateStatus('Converting PDF to base64...');
+            
+            // Extract base64 content (remove data:application/pdf;base64, prefix)
+            const base64Content = e.target.result.split(',')[1];
+            
+            if (!base64Content) {
+              reject(new Error('Failed to convert PDF to base64'));
+              return;
+            }
+            
+            resolve(base64Content);
+          } catch (error) {
+            reject(error);
+          }
+        };
+
+        reader.onerror = function(error) {
+          console.error('Error reading file:', error);
+          reject(new Error('Error reading PDF file. Please try again.'));
+        };
+
+        // Read as data URL (which gives us base64)
+        reader.readAsDataURL(file);
+      });
       
-      // Read the file as base64 directly
-      reader.onload = async function(e) {
-        try {
-          updateStatus('Converting PDF to base64...');
-          
-          // Extract base64 content (remove data:application/pdf;base64, prefix)
-          const base64Content = e.target.result.split(',')[1];
-          
-          if (!base64Content) {
-            throw new Error('Failed to convert PDF to base64');
-          }
-          
-          updateStatus('PDF processed successfully. Starting analysis...');
+      updateStatus('PDF processed successfully. Starting analysis...');
 
-          const content = {
-            title: file.name.replace('.pdf', ''),
-            paperId: file.name.replace('.pdf', ''),
-            paperUrl: URL.createObjectURL(file),
-            isLocalFile: true,
-            filePath: file.name,
-            hasPdf: true,
-            fileContent: base64Content // Send as base64 string
-          };
-
-          currentPdfContent = content;
-          await analyzePaper(content);
-        } catch (error) {
-          console.error('Error processing PDF:', error);
-          updateStatus(`Error processing PDF: ${error.message}`, true);
-          // Show upload section again on error
-          if (uploadSection) {
-            uploadSection.style.display = 'block';
-          }
-        }
+      const content = {
+        title: file.name.replace('.pdf', ''),
+        paperId: file.name.replace('.pdf', ''),
+        paperUrl: URL.createObjectURL(file),
+        isLocalFile: true,
+        filePath: file.name,
+        hasPdf: true,
+        file_content: base64Content // Send as base64 string - backend expects 'file_content'
       };
 
-      reader.onerror = function(error) {
-        console.error('Error reading file:', error);
-        updateStatus('Error reading PDF file. Please try again.', true);
-        // Show upload section again on error
-        if (uploadSection) {
-          uploadSection.style.display = 'block';
-        }
-      };
-
-      // Read as data URL (which gives us base64)
-      reader.readAsDataURL(file);
+      currentPdfContent = content;
+      const result = await analyzePaper(content);
+      return result; // Return the result so we can get the paper ID
+      
     } catch (error) {
       console.error('Error handling PDF upload:', error);
       updateStatus(`Error uploading PDF: ${error.message}`, true);
@@ -337,6 +715,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (uploadSection) {
         uploadSection.style.display = 'block';
       }
+      return null;
     }
   }
 
@@ -394,22 +773,9 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Use smart backend detection to connect to the server
       updateStatus('Connecting to backend...');
-      const serverResponse = await analyzeWithSmartBackend(content);
+      const data = await analyzeWithSmartBackend(content);
       
-      updateStatus('Server response received, processing...');
-      let data;
-      try {
-        const responseText = await serverResponse.text();
-        if (!responseText) {
-          throw new Error('Empty response from server');
-        }
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Error parsing server response:', e);
-        throw new Error('Invalid response from server');
-      }
-      
-      if (!data.summary) {
+      if (!data || !data.summary) {
         throw new Error('No summary received from server');
       }
 
@@ -450,6 +816,9 @@ document.addEventListener('DOMContentLoaded', function() {
         displayAuthorAnalysis(data.author_data);
       }
       
+      // Return the paper ID so the calling function can update the URL
+      return { paperId: paperId };
+      
     } catch (error) {
       console.error('Error analyzing paper:', error);
       updateStatus(`Analysis failed: ${error.message}`, true);
@@ -479,6 +848,9 @@ document.addEventListener('DOMContentLoaded', function() {
           };
         }
       }
+      
+      // Return null for error case
+      return null;
     }
   }
 
@@ -995,14 +1367,30 @@ document.addEventListener('DOMContentLoaded', function() {
     const paperUrl = urlParams.get('paperUrl');
     const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
 
-    // Only show error if no paper ID is found
+    // Check if we're on homepage (no paperID)
     if (!paperId) {
-      updateStatus('No paper ID provided. Please open the analysis from the extension popup.', true);
+      isHomepage = true;
+      document.body.classList.add('homepage-mode');
+      
+      // Load homepage data
+      await loadHomepageStats();
+      await loadSettings();
+      
+      // Focus search input
+      if (searchInput) {
+        searchInput.focus();
+      }
+      
+      console.log('Initialized homepage mode');
       return;
     }
 
-    // If we have a paperID, we're viewing an existing analysis - hide upload section and analyze button immediately
+    // If we have a paperID, we're viewing an existing analysis - ensure we're not in homepage mode
     if (paperId) {
+      // Remove homepage mode to show paper analysis content
+      document.body.classList.remove('homepage-mode');
+      isHomepage = false;
+      
       if (uploadSection) uploadSection.style.display = 'none';
       if (analyzeBtn) analyzeBtn.style.display = 'none';
       updateStatus(`Loading analysis for paper ID: ${paperId}...`);
@@ -1183,11 +1571,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Enable chat section if we have content and not in authors view
-            if (analysis.content && (analysis.content.paperContent || analysis.content.abstract) && viewMode !== 'authors') {
-              currentPdfContent = analysis.content;
-              if (chatSection) {
-                chatSection.style.display = 'block';
-                console.log('Chat enabled: Paper content loaded from stored analysis');
+            if (analysis.content && viewMode !== 'authors') {
+              // Check for various content fields that might contain the paper data
+              const hasContent = analysis.content.paperContent || 
+                                analysis.content.abstract || 
+                                analysis.content.file_content ||
+                                analysis.content.title; // Even just having a title is enough for chat
+              
+              if (hasContent) {
+                currentPdfContent = analysis.content;
+                if (chatSection) {
+                  chatSection.style.display = 'block';
+                  console.log('Chat enabled: Paper content loaded from stored analysis');
+                }
+              } else {
+                console.log('No suitable content found for chat:', analysis.content);
               }
             }
             

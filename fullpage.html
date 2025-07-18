@@ -9,21 +9,457 @@
   <style>
     body {
       width: 100%;
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background-color: #f8f9fa;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
     }
     .container {
       width: 100%;
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 0 auto;
       background-color: white;
       padding: 30px;
-      border-radius: 12px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
     }
+    
+    /* Homepage specific styles */
+    .homepage-container {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .homepage-header {
+      margin-bottom: 60px;
+    }
+    .homepage-title {
+      font-size: 48px;
+      font-weight: 700;
+      color: #2c3e50;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .homepage-subtitle {
+      font-size: 20px;
+      color: #6c757d;
+      margin-bottom: 40px;
+      font-weight: 400;
+    }
+    
+    /* Two Column Layout */
+    .two-column-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 60px;
+    }
+    
+    .left-column, .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+    }
+    
+    /* Search section */
+    .search-section {
+      padding: 30px;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      border-radius: 20px;
+      border: 1px solid #dee2e6;
+    }
+    .search-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 20px;
+    }
+    .search-description {
+      font-size: 16px;
+      color: #6c757d;
+      margin-bottom: 30px;
+    }
+    .search-container {
+      display: flex;
+      max-width: 600px;
+      margin: 0 auto;
+      gap: 12px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 16px 20px;
+      border: 2px solid #dee2e6;
+      border-radius: 12px;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      background: white;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    .search-button {
+      padding: 16px 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      white-space: nowrap;
+    }
+    .search-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    .search-button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    /* Search results */
+    .search-results {
+      margin-top: 30px;
+      text-align: left;
+    }
+    .search-result-item {
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .search-result-item:hover {
+      border-color: #667eea;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+      transform: translateY(-2px);
+    }
+    .search-result-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 8px;
+    }
+    .search-result-meta {
+      font-size: 14px;
+      color: #6c757d;
+      margin-bottom: 8px;
+    }
+    .search-result-authors {
+      font-size: 14px;
+      color: #495057;
+      font-style: italic;
+    }
+    .no-results {
+      text-align: center;
+      color: #6c757d;
+      font-style: italic;
+      padding: 40px;
+    }
+    
+    /* Settings section */
+    .settings-section {
+      margin-top: 60px;
+      padding: 40px;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      border-radius: 20px;
+      border: 1px solid #dee2e6;
+    }
+    .settings-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 20px;
+    }
+    .settings-description {
+      font-size: 16px;
+      color: #6c757d;
+      margin-bottom: 30px;
+    }
+    .settings-form {
+      max-width: 600px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    .form-group {
+      margin-bottom: 24px;
+    }
+    .form-label {
+      display: block;
+      font-size: 16px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 8px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 16px 20px;
+      border: 2px solid #dee2e6;
+      border-radius: 12px;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      background: white;
+      box-sizing: border-box;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    .form-textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .save-settings-btn {
+      padding: 16px 32px;
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    .save-settings-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
+    }
+    
+    /* Loading states */
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Stats section */
+    .stats-section {
+      margin-top: 40px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .stat-card {
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+      transition: all 0.3s ease;
+      max-width: 400px;
+      width: 100%;
+    }
+    .stat-card.featured {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+      transform: translateY(-4px);
+    }
+    .stat-card.featured:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 12px 40px rgba(102, 126, 234, 0.4);
+    }
+    .stat-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.9;
+    }
+    .stat-number {
+      font-size: 64px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 12px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-label {
+      font-size: 18px;
+      color: rgba(255,255,255,0.9);
+      font-weight: 600;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .stat-description {
+      font-size: 14px;
+      color: rgba(255,255,255,0.7);
+      font-weight: 400;
+    }
+    
+    /* Upload Section Homepage */
+    .upload-section-homepage {
+      padding: 40px;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      border-radius: 20px;
+      border: 1px solid #dee2e6;
+      text-align: center;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .upload-icon-large {
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.8;
+    }
+    
+    .upload-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 12px;
+    }
+    
+    .upload-description {
+      font-size: 16px;
+      color: #6c757d;
+      margin-bottom: 30px;
+    }
+    
+    .upload-area {
+      margin-bottom: 20px;
+    }
+    
+    .upload-placeholder {
+      border: 3px dashed #dee2e6;
+      border-radius: 16px;
+      padding: 40px 20px;
+      background: white;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    
+    .upload-placeholder:hover {
+      border-color: #667eea;
+      background-color: rgba(102, 126, 234, 0.05);
+      transform: translateY(-2px);
+    }
+    
+    .upload-placeholder.dragover {
+      border-color: #667eea;
+      background-color: rgba(102, 126, 234, 0.15);
+      transform: scale(1.02);
+    }
+    
+    .upload-icon {
+      font-size: 48px;
+      color: #667eea;
+      margin-bottom: 16px;
+    }
+    
+    .upload-placeholder p {
+      color: #6c757d;
+      margin: 8px 0;
+      font-size: 16px;
+    }
+    
+    .upload-or {
+      color: #999 !important;
+      font-size: 14px !important;
+      margin: 12px 0 !important;
+    }
+    
+    .upload-button {
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .upload-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+    
+    .upload-info {
+      margin-top: auto;
+    }
+    
+    .upload-info p {
+      color: #6c757d;
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .two-column-layout {
+        grid-template-columns: 1fr;
+        gap: 30px;
+      }
+      
+      .left-column, .right-column {
+        gap: 20px;
+      }
+      
+      .search-section, .upload-section-homepage {
+        padding: 25px;
+      }
+      
+      .upload-icon-large {
+        font-size: 48px;
+      }
+      
+      .upload-title {
+        font-size: 24px;
+      }
+      
+      .stat-number {
+        font-size: 48px;
+      }
+    }
+    
+    /* Footer */
+    .footer {
+      margin-top: 60px;
+      padding: 20px;
+      text-align: center;
+      border-top: 1px solid #e9ecef;
+    }
+    .footer p {
+      color: #6c757d;
+      font-size: 14px;
+      margin: 0;
+    }
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.3s ease;
+    }
+    .footer a:hover {
+      color: #764ba2;
+      text-decoration: underline;
+    }
+
+    /* Original styles for paper analysis view */
     .header {
       display: flex;
       justify-content: space-between;
@@ -326,54 +762,156 @@
       color: #999;
       cursor: not-allowed;
     }
+    
+    /* Hide homepage content when viewing papers */
+    .homepage-content {
+      display: none;
+    }
+    
+    /* Show homepage content when no paperID */
+    .homepage-mode .homepage-content {
+      display: block;
+    }
+    .homepage-mode .paper-analysis-content {
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>SSRN Paper Summarizer</h1>
-      <div class="button-group">
-        <button id="analyzeBtn" class="button">Analyze New Paper</button>
-        <button id="backBtn" class="button">Back</button>
-        <button id="clearBtn" class="button">Clear</button>
-        <button id="viewAuthorsBtn" class="button" style="background-color: #9C27B0;">View Author Analysis</button>
+    <!-- Homepage Content -->
+    <div class="homepage-content">
+      <div class="homepage-container">
+        <div class="homepage-header">
+          <h1 class="homepage-title">SSRN Paper Summarizer</h1>
+          <p class="homepage-subtitle">Intelligent analysis and insights for academic research papers</p>
+        </div>
+        
+        <!-- Two Column Layout -->
+        <div class="two-column-layout">
+          <!-- Left Column: Search and Stats -->
+          <div class="left-column">
+            <!-- Search Section -->
+            <div class="search-section">
+              <h2 class="search-title">Search Your Papers</h2>
+              <p class="search-description">Find and analyze papers from your database</p>
+              <div class="search-container">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search by title, authors, or keywords...">
+                <button id="searchBtn" class="search-button">
+                  <span id="searchBtnText">Search</span>
+                  <span id="searchBtnLoading" class="loading" style="display: none;"></span>
+                </button>
+              </div>
+              <div id="searchResults" class="search-results" style="display: none;"></div>
+            </div>
+            
+            <!-- Stats Section -->
+            <div class="stats-section">
+              <div class="stat-card featured">
+                <div class="stat-number" id="analyzedPapers">0</div>
+                <div class="stat-label">Analyzed Papers</div>
+                <div class="stat-description">Papers ready for analysis and insights</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Right Column: PDF Upload -->
+          <div class="right-column">
+            <div class="upload-section-homepage">
+              <div class="upload-icon-large">📄</div>
+              <h2 class="upload-title">Analyze New Paper</h2>
+              <p class="upload-description">Upload a PDF to get instant analysis and insights</p>
+              <div class="upload-area" id="uploadArea">
+                <input type="file" id="pdfUploadHomepage" accept=".pdf" style="display: none;">
+                <div class="upload-placeholder">
+                  <div class="upload-icon">📁</div>
+                  <p>Drag & drop your PDF here</p>
+                  <p class="upload-or">or</p>
+                  <button id="uploadBtnHomepage" class="upload-button">Choose File</button>
+                </div>
+              </div>
+              <div class="upload-info">
+                <p>Supported format: PDF files only</p>
+                <p>Maximum file size: 50MB</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Settings Section -->
+        <div class="settings-section">
+          <h2 class="settings-title">Research Profile Settings</h2>
+          <p class="settings-description">Configure your research profile to get personalized insights</p>
+          <form class="settings-form" id="settingsForm">
+            <div class="form-group">
+              <label for="googleScholarUrl" class="form-label">Google Scholar Profile URL</label>
+              <input type="url" id="googleScholarUrl" class="form-input" placeholder="https://scholar.google.com/citations?user=...">
+            </div>
+            <div class="form-group">
+              <label for="researchInterests" class="form-label">Research Interests</label>
+              <textarea id="researchInterests" class="form-input form-textarea" placeholder="Describe your research interests, areas of expertise, and current projects. This helps provide more relevant paper recommendations and analysis insights."></textarea>
+            </div>
+            <button type="submit" class="save-settings-btn">
+              <span id="saveBtnText">Save Settings</span>
+              <span id="saveBtnLoading" class="loading" style="display: none;"></span>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
+    
+    <!-- Paper Analysis Content (Original) -->
+    <div class="paper-analysis-content">
+      <div class="header">
+        <h1>SSRN Paper Summarizer</h1>
+        <div class="button-group">
+          <button id="analyzeBtn" class="button">Analyze New Paper</button>
+          <button id="backBtn" class="button">Back</button>
+          <button id="clearBtn" class="button">Clear</button>
+          <button id="viewAuthorsBtn" class="button" style="background-color: #9C27B0;">View Author Analysis</button>
+        </div>
+      </div>
 
-    <div id="uploadSection" class="upload-section">
-      <input type="file" id="pdfUpload" accept=".pdf" style="display: none;">
-      <div class="upload-icon">📄</div>
-      <button id="uploadBtn" class="button">Upload PDF</button>
-      <p>or drag and drop a PDF file here</p>
-      <small style="color: #999; margin-top: 10px; display: block;">Supported format: PDF files only</small>
-    </div>
-    
-    <div id="status" class="status"></div>
-    
-    <!-- Main content area for analysis results -->
-    <div id="analysisContent" style="display: none;">
-      <!-- Paper title and metadata will be inserted here -->
-      <div id="paperInfo" style="margin-bottom: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border-left: 4px solid #4CAF50;">
-        <h2 id="paperTitle" style="margin: 0 0 10px 0; color: #2c3e50;"></h2>
-        <div id="paperMeta" style="color: #6c757d; font-size: 14px;"></div>
+      <div id="uploadSection" class="upload-section">
+        <input type="file" id="pdfUpload" accept=".pdf" style="display: none;">
+        <div class="upload-icon">📄</div>
+        <button id="uploadBtn" class="button">Upload PDF</button>
+        <p>or drag and drop a PDF file here</p>
+        <small style="color: #999; margin-top: 10px; display: block;">Supported format: PDF files only</small>
       </div>
       
-      <!-- Summary section -->
-      <div id="summary" class="summary"></div>
+      <div id="status" class="status"></div>
       
-      <!-- Author analysis will be appended after summary -->
+      <!-- Main content area for analysis results -->
+      <div id="analysisContent" style="display: none;">
+        <!-- Paper title and metadata will be inserted here -->
+        <div id="paperInfo" style="margin-bottom: 30px; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border-left: 4px solid #4CAF50;">
+          <h2 id="paperTitle" style="margin: 0 0 10px 0; color: #2c3e50;"></h2>
+          <div id="paperMeta" style="color: #6c757d; font-size: 14px;"></div>
+        </div>
+        
+        <!-- Summary section -->
+        <div id="summary" class="summary"></div>
+        
+        <!-- Author analysis will be appended after summary -->
+      </div>
+      
+      <!-- Fallback summary div for backward compatibility -->
+      <div id="summaryFallback" class="summary" style="display: none;"></div>
+
+      <div id="chatSection" class="chat-section" style="display: none;">
+        <h3 style="margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">Chat about this paper</h3>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-container">
+          <input type="text" id="chatInput" placeholder="Ask a question about the paper...">
+          <button id="sendBtn" class="button">Send</button>
+        </div>
+      </div>
     </div>
     
-    <!-- Fallback summary div for backward compatibility -->
-    <div id="summaryFallback" class="summary" style="display: none;"></div>
-
-    <div id="chatSection" class="chat-section" style="display: none;">
-      <h3 style="margin-top: 0; color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">Chat about this paper</h3>
-      <div id="chatMessages" class="chat-messages"></div>
-      <div class="chat-input-container">
-        <input type="text" id="chatInput" placeholder="Ask a question about the paper...">
-        <button id="sendBtn" class="button">Send</button>
-      </div>
+    <!-- Footer -->
+    <div class="footer">
+      <p>Created by <a href="https://www.sasanm.de" target="_blank" rel="noopener">Sasan Mansouri</a></p>
     </div>
   </div>
   
