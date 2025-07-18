@@ -9,7 +9,7 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-2-2-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-2-3-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 3,
       enabled: true
@@ -24,6 +24,7 @@ const CONFIG = {
   ANALYZE_ENDPOINT: '/analyze',
   CHAT_ENDPOINT: '/chat',
   HEALTH_ENDPOINT: '/health',
+  VERSION_ENDPOINT: '/version',
   ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
   // SSE streaming endpoint for progressive analysis
   ANALYZE_STREAM_ENDPOINT: '/analyze-stream',
@@ -138,6 +139,11 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
     ? CONFIG.REQUEST_TIMEOUT 
     : CONFIG.CLOUD_REQUEST_TIMEOUT;
   console.log(`Making API request to ${backend.name}: ${url}`);
+  
+  // Get extension version for the request
+  const manifest = chrome?.runtime?.getManifest?.();
+  const extensionVersion = manifest ? `v${manifest.version}` : 'unknown';
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
@@ -146,10 +152,21 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        'X-Extension-Version': extensionVersion,
         ...options.headers
       }
     });
     clearTimeout(timeoutId);
+    
+    // Check for version warnings in successful responses
+    if (response.ok && window.checkResponseForVersionWarning) {
+      response.clone().json().then(data => {
+        if (data.version_warning) {
+          window.checkResponseForVersionWarning(data.version_warning);
+        }
+      }).catch(() => {}); // Ignore errors for this check
+    }
+    
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
@@ -181,11 +198,17 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
       }
       const url = `${backend.url}${endpoint}`;
       console.log(`📡 Starting SSE request to ${backend.name}: ${url}`);
+      
+      // Get extension version for the request
+      const manifest = chrome?.runtime?.getManifest?.();
+      const extensionVersion = manifest ? `v${manifest.version}` : 'unknown';
+      
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
+          'Accept': 'text/event-stream',
+          'X-Extension-Version': extensionVersion
         },
         body: JSON.stringify(bodyObj)
       });
@@ -210,7 +233,13 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
           let evt;
           try { evt = JSON.parse(jsonStr); } catch (e) { console.warn('SSE parse error', e, jsonStr); continue; }
           try { onEvent(evt); } catch (cbErr) { console.warn('onEvent error', cbErr); }
-          if (evt.status === 'done') return resolve(evt);
+          if (evt.status === 'done') {
+            // Check for version warnings in the final response
+            if (evt.version_warning && window.showVersionWarningFromAPI) {
+              window.showVersionWarningFromAPI(evt.version_warning);
+            }
+            return resolve(evt);
+          }
           if (evt.status === 'error') return reject(new Error(evt.message || 'Analysis error'));
         }
       }
