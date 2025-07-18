@@ -1,6 +1,86 @@
 // Import configuration and smart backend detection
 importScripts('config.js');
 
+// Inline ID generation functions for service worker compatibility
+async function generateSHA256Hash(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex.substring(0, 12); // Take first 12 characters like backend
+}
+
+// Inline exact copy of shared-id-generator functions
+function extractSsrnIdFromUrlInline(url) {
+  if (!url) return null;
+  
+  // Prefer query string: abstractId or abstract_id
+  let match = url.match(/[?&]abstractId=(\d+)/i);
+  if (match) {
+    console.debug('Found abstractId in URL:', match[1]);
+    return match[1];
+  }
+  
+  match = url.match(/[?&]abstract_id=(\d+)/i);
+  if (match) {
+    console.debug('Found abstract_id in URL:', match[1]);
+    return match[1];
+  }
+  
+  // Handle abstract= in URL (common SSRN format)
+  match = url.match(/\/abstract=(\d+)/i);
+  if (match) {
+    console.debug('Found /abstract= in URL:', match[1]);
+    return match[1];
+  }
+      
+  match = url.match(/[?&]abstract=(\d+)/i);
+  if (match) {
+    console.debug('Found abstract= in URL:', match[1]);
+    return match[1];
+  }
+  
+  console.debug('No SSRN ID found in URL, returning null');
+  return null;
+}
+
+async function generatePaperIdInline(paperContent) {
+  console.log('[BACKGROUND generatePaperIdInline] Called with:', paperContent);
+  
+  // Try to extract SSRN numeric ID first
+  if (paperContent.paperUrl) {
+    const url = paperContent.paperUrl;
+    console.debug('[BACKGROUND] Attempting to extract ID from URL:', url);
+    const extractedId = extractSsrnIdFromUrlInline(url);
+    console.debug('[BACKGROUND] Extracted ID:', extractedId);
+    
+    // If we got a numeric ID (SSRN paper), use it
+    if (extractedId && /^\d+$/.test(extractedId)) {
+      console.log('[BACKGROUND] Using SSRN ID:', extractedId);
+      return extractedId;
+    }
+    
+    // If no SSRN ID found (non-SSRN paper), create a hash-based ID from URL
+    if (!extractedId) {
+      const urlHash = await generateSHA256Hash(url);
+      console.debug('[BACKGROUND] Generated hash-based ID for non-SSRN URL:', urlHash);
+      return urlHash;
+    }
+  }
+
+  // Fallback: hash the whole content to guarantee a deterministic ID
+  const identifier = JSON.stringify(paperContent, Object.keys(paperContent).sort()).substring(0, 1000);
+  const contentHash = await generateSHA256Hash(identifier);
+  console.debug('[BACKGROUND] Generated content-based ID:', contentHash);
+  return contentHash;
+}
+
+async function generateIdFromUrl(url) {
+  console.log('[BACKGROUND generateIdFromUrl] Called with URL:', url);
+  return await generatePaperIdInline({ paperUrl: url });
+}
+
 // Keep track of active tabs and their states
 let activeTabs = new Map();
 let analysisInProgress = new Set(); // Track which tabs are being analyzed
@@ -369,18 +449,7 @@ async function addToAnalysisQueue(tabId, url, priority = 0) {
     return;
   }
   
-  // Assign backend if not already assigned
-  let currentTabState = activeTabs.get(tabId) || {};
-  if (!currentTabState.backend) {
-    const backend = await getOrDetectTabBackend(tabId);
-    if (backend) {
-      currentTabState.backend = backend;
-      activeTabs.set(tabId, currentTabState);
-      console.log(`Assigned backend ${backend.name} to tab ${tabId}`);
-    } else {
-      console.error('No healthy backend available to assign to tab', tabId);
-    }
-  }
+  // Removed tab-level backend assignment - using global backends now
   
   // Add to queue
   analysisQueue.push({
@@ -469,23 +538,75 @@ async function processAnalysisQueue() {
   }
 }
 
-// Function to extract SSRN ID from URL
-function extractSsrnIdFromUrl(url) {
+// Generate SHA-256 hash using Web Crypto API for service worker
+async function generateSHA256Hash(text) {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex.substring(0, 12); // Take first 12 characters like backend
+  } catch (error) {
+    console.error('Error generating hash:', error);
+    return null;
+  }
+}
+
+// Extract SSRN ID from URL (matches backend logic)
+function extractSsrnIdFromUrlSync(url) {
   if (!url) return null;
   
-  // Extract from abstractId parameter
-  const abstractIdMatch = url.match(/abstractId=(\d+)/);
-  if (abstractIdMatch) return abstractIdMatch[1];
+  // Prefer query string: abstractId or abstract_id
+  let match = url.match(/[?&]abstractId=(\d+)/i);
+  if (match) {
+    console.debug('Found abstractId in URL:', match[1]);
+    return match[1];
+  }
   
-  // Extract from ssrn_id pattern in URL
-  const ssrnIdMatch = url.match(/ssrn_id(\d+)/);
-  if (ssrnIdMatch) return ssrnIdMatch[1];
+  match = url.match(/[?&]abstract_id=(\d+)/i);
+  if (match) {
+    console.debug('Found abstract_id in URL:', match[1]);
+    return match[1];
+  }
   
-  // Extract from papers.ssrn.com/sol3/papers.cfm?abstract_id=
-  const paperUrlMatch = url.match(/abstract_id=(\d+)/);
-  if (paperUrlMatch) return paperUrlMatch[1];
+  // Handle abstract= in URL (common SSRN format)
+  match = url.match(/\/abstract=(\d+)/i);
+  if (match) {
+    console.debug('Found /abstract= in URL:', match[1]);
+    return match[1];
+  }
+      
+  match = url.match(/[?&]abstract=(\d+)/i);
+  if (match) {
+    console.debug('Found abstract= in URL:', match[1]);
+    return match[1];
+  }
   
+  console.debug('No SSRN ID found in URL, returning null');
   return null;
+}
+
+// Use inlined ID generator for service worker compatibility
+async function extractSsrnIdFromUrl(url) {
+  if (!url) return null;
+  
+  console.log('[BACKGROUND extractSsrnIdFromUrl] Called with URL:', url);
+  
+  // Use the inlined generateIdFromUrl function for consistency with popup.js
+  try {
+    const paperId = await generateIdFromUrl(url);
+    console.log('[BACKGROUND extractSsrnIdFromUrl] Generated paper ID:', paperId, 'for URL:', url);
+    console.log('🔍 BACKGROUND ID GENERATION - URL:', url, 'RESULT:', paperId);
+    return paperId;
+  } catch (error) {
+    console.error('[BACKGROUND extractSsrnIdFromUrl] Error generating paper ID:', error);
+    // Fallback to simple SSRN ID extraction
+    const match = url.match(/[?&]abstract(?:_?id)?=(\d+)/i);
+    const fallbackId = match ? match[1] : url;
+    console.log('[BACKGROUND extractSsrnIdFromUrl] Fallback paper ID:', fallbackId);
+    return fallbackId;
+  }
 }
 
 // Function to ensure content script is injected
@@ -638,11 +759,8 @@ async function triggerPDFAnalysis(tabId) {
       // Get LLM settings
       const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', openaiKey: '', claudeKey: '' };
       
-      // Always use per-tab backend
-      let backend = (activeTabs.get(tabId) || {}).backend;
-      if (!backend) {
-        backend = await getOrDetectTabBackend(tabId);
-      }
+      // Use global backend instead of per-tab
+      let backend = await BackendManager.getCurrentBackend();
       
       // Make API request to backend
       let serverResponse;
@@ -657,16 +775,9 @@ async function triggerPDFAnalysis(tabId) {
           })
         }, backend);
       } catch (apiError) {
-        // If backend fails, try to re-detect and assign a new backend for this tab
+        // If backend fails, try to detect a new global backend  
         console.error(`API request failed for tab ${tabId} on backend ${backend?.name}:`, apiError);
         backend = await BackendManager.detectBestBackend();
-        if (backend) {
-          const backendKey = `tab_backend_${tabId}`;
-          await chrome.storage.local.set({ [backendKey]: backend });
-          let tabState = activeTabs.get(tabId) || {};
-          tabState.backend = backend;
-          activeTabs.set(tabId, tabState);
-        }
         // Retry once with new backend
         serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_ENDPOINT, {
           method: 'POST',
@@ -818,7 +929,7 @@ async function checkBackendForAnalysisByTabUrl(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
     if (!tab || !tab.url) return false;
-    const paperId = extractSsrnIdFromUrl(tab.url);
+    const paperId = await extractSsrnIdFromUrl(tab.url);
     if (!paperId) return false;
     // Use smart backend detection
     const endpoint = '/analysis/' + encodeURIComponent(paperId);
@@ -876,9 +987,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     console.log(`Background: Removed tab ${tabId} from analysis queue`);
   }
   
-  // Remove backend assignment from storage
-  const backendKey = `tab_backend_${tabId}`;
-  await chrome.storage.local.remove([backendKey]);
+  // Removed tab backend cleanup - using global backends now
   
   console.log('Background: Tab removed:', tabId, 'URL:', tabUrl);
   console.log('Background: activeTabs size after removal:', activeTabs.size);
@@ -914,40 +1023,8 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 // Listen for messages from popup and content scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Handle getTabBackend for popup (which has no sender.tab)
-  if (request.action === 'getTabBackend') {
-    const tabId = request.tabId;
-    console.log('[BG] getTabBackend request for tab', tabId);
-    const tabState = activeTabs.get(tabId);
-    if (tabState?.backend) {
-      console.log('[BG] Returning backend from activeTabs:', tabState.backend);
-      sendResponse({ backend: tabState.backend });
-      return true;
-    }
-    const backendKey = `tab_backend_${tabId}`;
-    chrome.storage.local.get([backendKey]).then(async stored => {
-      if (stored[backendKey]) {
-        console.log('[BG] Returning backend from storage:', stored[backendKey]);
-        sendResponse({ backend: stored[backendKey] });
-      } else {
-        // No backend assigned yet: detect and assign one now
-        const backend = await BackendManager.detectBestBackend();
-        if (backend) {
-          await chrome.storage.local.set({ [backendKey]: backend });
-          let currentTabState = activeTabs.get(tabId) || {};
-          currentTabState.backend = backend;
-          activeTabs.set(tabId, currentTabState);
-          console.log('[BG] Detected and assigned backend:', backend);
-          sendResponse({ backend });
-        } else {
-          console.log('[BG] No backend could be assigned');
-          sendResponse({ backend: null });
-        }
-      }
-    });
-    return true;
-  }
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+  // Removed getTabBackend - now using global BackendManager
 
   // Add monitoring control handlers
   if (request.action === 'startMonitoring') {
@@ -1045,6 +1122,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } catch (error) {
       console.error('Error starting manual analysis:', error);
       sendResponse({ error: error.message });
+    }
+  } else if (request.action === 'ping') {
+    sendResponse({ status: 'ok', timestamp: Date.now() });
+  } else if (request.action === 'testPaperId') {
+    // Test paper ID generation
+    try {
+      const paperId = await extractSsrnIdFromUrl(request.url);
+      sendResponse({ success: true, paperId: paperId, url: request.url });
+    } catch (error) {
+      sendResponse({ success: false, error: error.message });
+    }
+  } else if (request.action === 'testBackend') {
+    // Test backend detection
+    try {
+      const backend = await backendManager.getCurrentBackend();
+      sendResponse({ 
+        success: true, 
+        backendAvailable: !!backend,
+        backendUrl: backend?.url || null,
+        status: backend ? 'Available' : 'No healthy backend found'
+      });
+    } catch (error) {
+      sendResponse({ 
+        success: false, 
+        error: error.message,
+        backendAvailable: false 
+      });
     }
   } else {
     console.log('Unknown message action:', request.action);

@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       
-      const paperId = extractSsrnIdOrUrl(tab.url);
+      const paperId = await extractSsrnIdOrUrl(tab.url);
       if (!paperId) {
         console.log('No paper ID found for status monitoring');
         return;
@@ -151,8 +151,8 @@ document.addEventListener('DOMContentLoaded', function() {
             analyzeBtn.onclick = null;
             return;
           }
-          showStatus('Analysis in progress for this paper. Monitoring for completion...', 'progress');
-          setButtonState('Analyzing...', true, true);
+          showStatus('Analysis in progress for this paper. Monitoring for completion... Please do not close this popup.', 'progress');
+          setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
           analyzeBtn.style.backgroundColor = '#FF9800';
         }
         
@@ -259,7 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!tab) return;
 
       // First check local storage status
-      const paperId = extractSsrnIdOrUrl(tab.url);
+      const paperId = await extractSsrnIdOrUrl(tab.url);
       if (paperId) {
         const localStatus = await getAnalysisStatus(paperId);
         if (localStatus && localStatus.status === 'in_progress') {
@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Set local status to in progress and start monitoring
         if (tab.url) {
-          const paperId = extractSsrnIdOrUrl(tab.url);
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           if (paperId) {
             await setAnalysisStatus(paperId, 'in_progress');
             checkAndMonitorAnalysisStatus();
@@ -299,7 +299,7 @@ document.addEventListener('DOMContentLoaded', function() {
           analyzeBtn.onclick = async () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
-            const paperId = extractSsrnIdOrUrl(tab.url);
+            const paperId = await extractSsrnIdOrUrl(tab.url);
             chrome.tabs.create({
               url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
             });
@@ -476,7 +476,7 @@ document.addEventListener('DOMContentLoaded', function() {
           analyzeBtn.onclick = async () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
-            const paperId = extractSsrnIdOrUrl(tab.url);
+            const paperId = await extractSsrnIdOrUrl(tab.url);
             chrome.tabs.create({
               url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
             });
@@ -517,7 +517,7 @@ document.addEventListener('DOMContentLoaded', function() {
             analyzeBtn.onclick = async () => {
               const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
               if (!tab || !tab.url) return;
-              const paperId = extractSsrnIdOrUrl(tab.url);
+              const paperId = await extractSsrnIdOrUrl(tab.url);
               chrome.tabs.create({
                 url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
               });
@@ -562,8 +562,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Analysis in progress detected, restoring UI state');
         
         // Show that analysis is in progress
-        setButtonState('Analyzing...', true, true);
-        showProgress(2, 'Analysis in progress. Please wait...');
+        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
+        showProgress(2, 'Analysis in progress. Please wait... Do not close this popup.');
         
         // Set up monitoring to check for completion
         monitorAnalysisProgress(tab.id).catch(error => {
@@ -601,8 +601,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('[POPUP] Starting background monitoring for paper:', paperId, 'tab:', tabId);
     
     try {
-      // Get the backend for this tab
-      const backend = await getTabAssignedBackend(tabId);
+      // Use global backend instead of tab-specific
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.error('[POPUP] No backend available for monitoring');
         return;
@@ -618,7 +618,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (response.success) {
         console.log('[POPUP] Background monitoring started successfully');
-        showProgress(1, 'Analysis in progress. Monitoring in background...');
+        showProgress(1, 'Analysis in progress. Monitoring in background... Do not close this popup.');
       } else {
         console.error('[POPUP] Failed to start background monitoring');
       }
@@ -713,12 +713,12 @@ document.addEventListener('DOMContentLoaded', function() {
       UnderAnalysis = 1;
 
       // Extract paper ID (fallback to filename for PDFs)
-      const paperId = extractSsrnIdOrUrl(tab.url) || tab.url.split('/').pop();
+      const paperId = (await extractSsrnIdOrUrl(tab.url)) || tab.url.split('/').pop();
       
       // Update UI to show analysis is starting
       await setAnalysisStatus(paperId, 'in_progress');
-      showStatus('Analysis in progress for this paper...', 'progress');
-      setButtonState('Analyzing...', true, true);
+      showStatus('Analysis in progress for this paper... Please do not close this popup.', 'progress');
+      setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
       analyzeBtn.style.backgroundColor = '#FF9800';
 
       // Use background script workflow for HTML SSRN pages
@@ -737,7 +737,7 @@ document.addEventListener('DOMContentLoaded', function() {
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab && tab.url) {
-          const paperId = extractSsrnIdOrUrl(tab.url);
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           if (paperId) {
             // Set error status
             await setAnalysisStatus(paperId, 'error', errorMessage);
@@ -913,49 +913,76 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to check if a tab contains a PDF using multiple detection methods
   async function checkIfPDFPage(tab) {
     try {
+      console.log('[PDF DEBUG] Checking PDF for URL:', tab.url);
+      console.log('[PDF DEBUG] Tab title:', tab.title);
+      
       // Method 1: Check URL patterns
       const urlPatterns = [
         tab.url.toLowerCase().endsWith('.pdf'),
         tab.url.startsWith('file:///'),
         tab.url.includes('pdf') && (tab.url.includes('viewer') || tab.url.includes('download')),
         tab.url.includes('application/pdf'),
-        tab.url.includes('content-type=application/pdf')
+        tab.url.includes('content-type=application/pdf'),
+        // Common academic PDF URL patterns
+        /arxiv\.org\/pdf\//.test(tab.url),
+        /researchgate\.net.*\/publication\/.*\//.test(tab.url),
+        /\.edu\/.*\/pdf\//.test(tab.url),
+        /\/pdf\//.test(tab.url) && !tab.url.includes('html'), // Generic /pdf/ pattern but not HTML pages
+        tab.url.includes('/pdf/') || tab.url.includes('/PDF/') // Simple PDF path check
       ];
       
+      console.log('[PDF DEBUG] URL pattern checks:', {
+        'ends with .pdf': tab.url.toLowerCase().endsWith('.pdf'),
+        'starts with file:///': tab.url.startsWith('file:///'),
+        'has pdf + viewer/download': tab.url.includes('pdf') && (tab.url.includes('viewer') || tab.url.includes('download')),
+        'has application/pdf': tab.url.includes('application/pdf'),
+        'has content-type=application/pdf': tab.url.includes('content-type=application/pdf'),
+        'arxiv.org/pdf/': /arxiv\.org\/pdf\//.test(tab.url),
+        'researchgate publication': /researchgate\.net.*\/publication\/.*\//.test(tab.url),
+        'edu domain with /pdf/': /\.edu\/.*\/pdf\//.test(tab.url),
+        'generic /pdf/ pattern': /\/pdf\//.test(tab.url) && !tab.url.includes('html'),
+        'simple PDF path check': tab.url.includes('/pdf/') || tab.url.includes('/PDF/')
+      });
+      
       if (urlPatterns.some(pattern => pattern)) {
-        console.log('checkIfPDFPage: PDF detected via URL pattern');
+        console.log('[PDF DEBUG] PDF detected via URL pattern - SUCCESS');
         return true;
       }
       
       // Method 2: Check content type via content script
       try {
+        console.log('[PDF DEBUG] Trying content type check via content script...');
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkContentType' });
+        console.log('[PDF DEBUG] Content type response:', response);
         if (response && response.contentType === 'application/pdf') {
-          console.log('checkIfPDFPage: PDF detected via content type');
+          console.log('[PDF DEBUG] PDF detected via content type - SUCCESS');
           return true;
         }
       } catch (error) {
-        console.log('checkIfPDFPage: Could not check content type via content script:', error.message);
+        console.log('[PDF DEBUG] Content type check failed:', error.message);
       }
       
       // Method 3: Check for PDF elements in the page
       try {
+        console.log('[PDF DEBUG] Trying PDF elements check via content script...');
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFElements' });
+        console.log('[PDF DEBUG] PDF elements response:', response);
         if (response && response.hasPDFElements) {
-          console.log('checkIfPDFPage: PDF detected via page elements');
+          console.log('[PDF DEBUG] PDF detected via page elements - SUCCESS');
           return true;
         }
       } catch (error) {
-        console.log('checkIfPDFPage: Could not check PDF elements:', error.message);
+        console.log('[PDF DEBUG] PDF elements check failed:', error.message);
       }
       
       // Method 4: Check if the page title suggests it's a PDF
       const title = tab.title || '';
       if (title.toLowerCase().includes('pdf') || title.toLowerCase().includes('document')) {
-        console.log('checkIfPDFPage: PDF suggested by title:', title);
+        console.log('[PDF DEBUG] PDF suggested by title:', title);
         // This is a weaker indicator, so we'll log it but not return true immediately
       }
       
+      console.log('[PDF DEBUG] Final result: PDF detection FAILED');
       return false;
     } catch (error) {
       console.error('Error checking if page is PDF:', error);
@@ -963,23 +990,53 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Replace the old extractSsrnIdOrUrl with a robust version
-  function extractSsrnIdOrUrl(url) {
+  // Test function to compare ID generation
+  async function testIdGeneration(url) {
+    console.log('🧪 TESTING ID GENERATION FOR:', url);
+    
+    // Test SharedIdGenerator directly
+    try {
+      const sharedId = await SharedIdGenerator.generateIdFromUrl(url);
+      console.log('🧪 SharedIdGenerator result:', sharedId);
+      
+      // Test backend ID generation via message
+      const bgResponse = await chrome.runtime.sendMessage({ action: 'testPaperId', url: url });
+      console.log('🧪 Background result:', bgResponse);
+      
+      if (sharedId === bgResponse.paperId) {
+        console.log('✅ IDs MATCH!');
+      } else {
+        console.log('❌ IDs DO NOT MATCH!');
+        console.log('   SharedIdGenerator:', sharedId);
+        console.log('   Background:', bgResponse.paperId);
+      }
+    } catch (error) {
+      console.error('🧪 Test failed:', error);
+    }
+  }
+
+  // Use shared ID generator for consistent paper ID generation
+  async function extractSsrnIdOrUrl(url) {
     if (!url) return null;
-    // Prefer query string: abstract_id or abstractId
-    let match = url.match(/[?&]abstract_id=(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/[?&]abstractId=(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/[?&]abstract=(\d+)/i);
-    if (match) return match[1];
-    // Fallback: look for ssrn_id1234567 or abstract1234567 in the path/filename
-    match = url.match(/ssrn_id(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/abstract(\d+)/i);
-    if (match) return match[1];
-    // Fallback: use the full URL as ID
-    return url;
+    
+    console.log('[POPUP ID DEBUG] Input URL:', url);
+    
+    // Add test call
+    await testIdGeneration(url);
+    
+    // Use the shared ID generator which matches backend logic
+    try {
+      const paperId = await SharedIdGenerator.generateIdFromUrl(url);
+      console.log('[POPUP ID DEBUG] Generated paperId:', paperId);
+      return paperId;
+    } catch (error) {
+      console.error('[POPUP ID DEBUG] Error generating paper ID:', error);
+      // Fallback to simple SSRN ID extraction
+      const match = url.match(/[?&]abstract(?:_?id)?=(\d+)/i);
+      const fallbackId = match ? match[1] : url;
+      console.log('[POPUP ID DEBUG] Fallback paperId:', fallbackId);
+      return fallbackId;
+    }
   }
 
   // Event listeners - removed permanent analyzePaper listener since we set onclick dynamically in updatePopupUI
@@ -1008,6 +1065,7 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
   }
+
 
   // Settings modal logic
   const settingsModal = document.getElementById('settings-modal');
@@ -1139,7 +1197,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       // Start analysis process
       console.log('Popup: Starting author analysis process...');
-      setAuthorsButtonState('Analyzing...', true, true);
+      setAuthorsButtonState('Analyzing... Do Not Close Extension Popup', true, true);
       showStatus('Extracting authors from the page...', 'progress');
       // Ensure content script is injected
       console.log('Popup: Ensuring content script is injected...');
@@ -1201,9 +1259,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       console.log('Popup: Found affiliations:', affiliations);
       showStatus(`Found ${authors.length} authors. Analyzing their profiles and publications...`, 'progress');
       try {
-        // Get the backend for this tab
-        const backend = await getTabAssignedBackend(tab.id);
-        if (!backend) throw new Error('No backend available for this tab');
+        // Use global backend
+        const backend = await BackendManager.getCurrentBackend();
+        if (!backend) throw new Error('No backend available');
         // Call the backend to analyze authors using per-tab backend
         console.log('Popup: Calling author analysis endpoint with per-tab backend...');
         const serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_AUTHORS_ENDPOINT, {
@@ -1229,16 +1287,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         // Update button state
         setAuthorsButtonState('View Full Analysis', false, false);
         analyzeAuthorsBtn.style.backgroundColor = '#4CAF50';
-        analyzeAuthorsBtn.onclick = () => {
+        analyzeAuthorsBtn.onclick = async () => {
           // Store results and open full page
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           chrome.storage.local.set({
             lastAuthorAnalysis: {
               timestamp: new Date().toISOString(),
-              paperId: extractSsrnIdOrUrl(tab.url),
+              paperId: paperId,
               data: data
             }
           });
-          const unifiedId = extractSsrnIdOrUrl(tab.url);
+          const unifiedId = await extractSsrnIdOrUrl(tab.url);
           let fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
           if (unifiedId) {
             fullpageUrl += `&paperID=${encodeURIComponent(unifiedId)}`;
@@ -1313,7 +1372,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         analyzeBtn.onclick = async () => {
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (!tab || !tab.url) return;
-          const paperId = extractSsrnIdOrUrl(tab.url);
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           chrome.tabs.create({
             url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
           });
@@ -1458,21 +1517,29 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
    * Once /analysis/paperID is 200, UnderAnalysis is again 0 and depending on the above scenarios, users see the popup
    */
   async function updatePopupUI() {
+    console.log('[EXTENSION DEBUG] updatePopupUI called - new code is running!');
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return;
     const url = tab.url;
-    const paperId = extractSsrnIdOrUrl(url);
+    console.log('[EXTENSION DEBUG] Processing URL:', url);
+    const paperId = await extractSsrnIdOrUrl(url);
+    console.log('[EXTENSION DEBUG] Generated paperId in popup:', paperId);
+    console.log('🔍 POPUP ID GENERATION - URL:', url, 'RESULT:', paperId);
     const isSSRN = url.includes('ssrn.com') && paperId && !await checkIfPDFPage(tab);
+    console.log('[EXTENSION DEBUG] About to call checkIfPDFPage...');
     const isPDF = await checkIfPDFPage(tab);
-    let backend = await getTabAssignedBackend(tab.id);
-    console.log('[POPUP] getTabAssignedBackend result:', backend);
+    console.log('[EXTENSION DEBUG] checkIfPDFPage returned:', isPDF);
+    
+    // Use global backend detection instead of per-tab
+    let backend = await BackendManager.getCurrentBackend();
+    console.log('[POPUP] Global backend result:', backend);
     
     // Add comprehensive debug logging
     console.log('[POPUP DEBUG] ===================');
     console.log('[POPUP DEBUG] Tab ID:', tab.id);
     console.log('[POPUP DEBUG] Paper ID:', paperId);
     console.log('[POPUP DEBUG] Tab URL:', tab.url);
-    console.log('[POPUP DEBUG] Assigned Backend:', backend?.name, backend?.url);
+    console.log('[POPUP DEBUG] Global Backend:', backend?.name, backend?.url);
     console.log('[POPUP DEBUG] ===================');
     
     if (!backend) {
@@ -1491,8 +1558,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       if (monitoringStatus) {
         console.log('[POPUP DEBUG] Monitoring already active for paper:', paperId);
         // Show monitoring is active
-        showProgress(2, 'Analysis in progress. Monitoring active...');
-        setButtonState('Analyzing...', true, true);
+        showProgress(2, 'Analysis in progress. Monitoring active... Do not close this popup.');
+        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
         analyzeBtn.style.display = '';
         return;
@@ -1531,8 +1598,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       return;
     }
 
-    // PDF page
-    if (isPDF && paperId) {
+    // PDF page - allow analysis for all PDFs, not just ones with existing paperIds
+    if (isPDF) {
+      console.log('[POPUP DEBUG] Entering PDF analysis section');
+      console.log('[POPUP DEBUG] isPDF:', isPDF, 'paperId:', paperId);
+      // Generate paperId if not already available (for non-SSRN PDFs)
+      if (!paperId) {
+        paperId = await SharedIdGenerator.generateIdFromUrl(url);
+        console.log('[POPUP DEBUG] Generated paperId for non-SSRN PDF:', paperId);
+      }
       // Check persistent analyzing state
       let analyzingKey = getAnalyzingKey(tab.id, paperId);
       let analyzingObj = await chrome.storage.local.get([analyzingKey]);
@@ -1547,16 +1621,19 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       }
       
       UnderAnalysis = isAnalyzing ? 1 : 0;
+      console.log('[POPUP DEBUG] Analysis status check - inProgress:', analysisStatus.inProgress, 'hasCompleted:', analysisStatus.hasCompleted, 'isAnalyzing:', isAnalyzing);
       if (analysisStatus.inProgress) {
         // Analysis is in progress - show status and start monitoring
+        console.log('[POPUP DEBUG] Taking inProgress path');
         analyzeBtn.style.display = '';
-        setButtonState('Analyzing...', true, true);
+        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
-        showStatus('Analysis in progress... Please wait.', 'progress');
+        showStatus('Analysis in progress... Please wait and do not close this popup.', 'progress');
         // Start monitoring backend logs for progress
         monitorAnalysisProgress(tab.id, paperId, true);
         return;
       } else if (analysisStatus.hasCompleted) {
+        console.log('[POPUP DEBUG] Taking hasCompleted path');
         // Show View Analysis only
         analyzeBtn.style.display = '';
         setButtonState('View Analysis', false, false);
@@ -1570,15 +1647,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       } else if (isAnalyzing) {
         // Show Analyzing... state and start/resume polling backend logs
+        console.log('[POPUP DEBUG] Taking isAnalyzing path');
         analyzeBtn.style.display = '';
-        setButtonState('Analyzing...', true, true);
+        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
-        showStatus('Analyzing... Please wait.', 'progress');
+        showStatus('Analyzing... Please wait and do not close this popup.', 'progress');
         // Start/resume polling backend logs for progress
         monitorAnalysisProgress(tab.id, paperId, true);
         return;
       } else {
         // Only show Analyze Current Paper
+        console.log('[POPUP DEBUG] Taking fresh analysis path - enabling button');
         analyzeBtn.style.display = '';
         setButtonState('Analyze Current Paper', false, false);
         analyzeBtn.style.backgroundColor = '#2196F3';
@@ -1591,8 +1670,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           try {
             // Update UI to show analysis is starting
             await setAnalysisStatus(paperId, 'in_progress');
-            showStatus('Analysis in progress for this paper...', 'progress');
-            setButtonState('Analyzing...', true, true);
+            showStatus('Analysis in progress for this paper... Please do not close this popup during analysis.', 'progress');
+            setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
             analyzeBtn.style.backgroundColor = '#FF9800';
 
             // Direct streaming analysis for PDFs
@@ -1651,12 +1730,21 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             updatePopupUI();
           }
         };
-        showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
+        
+        // Check if this is an SSRN PDF or a non-SSRN PDF for appropriate messaging
+        const isSSRNPDF = url.includes('ssrn.com');
+        if (isSSRNPDF) {
+          showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
+        } else {
+          showStatus('PDF detected. Note: This extension works best with SSRN papers, but analysis will proceed. Click "Analyze Current Paper" to start.', 'info');
+        }
         return;
       }
     }
 
     // Not SSRN, not PDF, or no paperId
+    console.log('[POPUP DEBUG] Reached final fallback section - disabling button');
+    console.log('[POPUP DEBUG] isSSRN:', isSSRN, 'isPDF:', isPDF, 'paperId:', paperId);
     showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
             setButtonState('Analyze Current Paper', true, false);
             analyzeBtn.style.backgroundColor = '#ccc';
@@ -1712,7 +1800,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     console.log('Current tab:', tab);
     
     if (tab && tab.url) {
-      const paperId = extractSsrnIdOrUrl(tab.url);
+      const paperId = await extractSsrnIdOrUrl(tab.url);
       if (paperId) {
         const status = await getAnalysisStatus(paperId);
         console.log('Status for current URL:', status);
@@ -1752,10 +1840,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       UnderAnalysis = 0;
       
       // Clear analyzing state for this tab/paper if available
-      chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+              chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (tabs && tabs.length > 0) {
           const tab = tabs[0];
-          const paperId = extractSsrnIdOrUrl(tab.url);
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           if (paperId && message.tabId === tab.id) {
             const analyzingKey = getAnalyzingKey(tab.id, paperId);
             await chrome.storage.local.remove(analyzingKey);
@@ -1774,7 +1862,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       analyzeBtn.onclick = async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.url) return;
-        const paperId = extractSsrnIdOrUrl(tab.url);
+        const paperId = await extractSsrnIdOrUrl(tab.url);
         chrome.tabs.create({
           url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
         });
@@ -1785,7 +1873,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       console.log('Analysis started notification received');
       
       // Update UI to show analysis in progress and start monitoring
-      setButtonState('Analyzing...', true, true);
+      setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
       showProgress(1, 'Analysis started...');
       
       // Start monitoring for status changes
@@ -1828,7 +1916,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
         if (tabs && tabs.length > 0) {
           const tab = tabs[0];
-          const paperId = extractSsrnIdOrUrl(tab.url);
+          const paperId = await extractSsrnIdOrUrl(tab.url);
           if (paperId && message.tabId === tab.id) {
             const analyzingKey = getAnalyzingKey(tab.id, paperId);
             await chrome.storage.local.remove(analyzingKey);
@@ -1905,7 +1993,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     analyzeBtn.onclick = async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) return;
-      const paperId = extractSsrnIdOrUrl(tab.url);
+      const paperId = await extractSsrnIdOrUrl(tab.url);
       chrome.tabs.create({
         url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
       });
@@ -2063,7 +2151,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) return;
       
-      const paperId = extractSsrnIdOrUrl(tab.url);
+      const paperId = await extractSsrnIdOrUrl(tab.url);
       if (!paperId) return;
       
       // Clear any analyzing state for this tab/paper combination
@@ -2077,9 +2165,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   }
 
   // On tab refresh or redirect, clear persistent analyzing state
-  chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
+  chrome.tabs.onUpdated.addListener(async function(tabId, changeInfo, tab) {
     if (changeInfo.status === 'loading') {
-      const paperId = tab && tab.url ? extractSsrnIdOrUrl(tab.url) : null;
+      const paperId = tab && tab.url ? await extractSsrnIdOrUrl(tab.url) : null;
       if (paperId) {
         let key = getAnalyzingKey(tabId, paperId);
         chrome.storage.local.remove(key);
@@ -2088,18 +2176,14 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   });
 
-  // Utility to get the assigned backend for the current tab
-  async function getTabAssignedBackend(tabId) {
-    const response = await chrome.runtime.sendMessage({ action: 'getTabBackend', tabId });
-    return response.backend || null;
-  }
+  // Removed getTabAssignedBackend - now using global BackendManager
 
   // Patch checkAnalysisOnBackend to accept a backend argument
   async function checkAnalysisOnBackend(paperId, backend) {
     try {
       console.log('Checking backend for analysis of paper:', paperId);
       if (!backend) {
-        backend = await backendManager.getCurrentBackend();
+        backend = await BackendManager.getCurrentBackend();
       }
       if (!backend) {
         console.log('No healthy backend available for checking analysis');
@@ -2166,8 +2250,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       }
       if (!backend) {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        backend = tab ? await getTabAssignedBackend(tab.id) : null;
+        backend = await BackendManager.getCurrentBackend();
       }
       if (backend) {
         const start = Date.now();

@@ -36,7 +36,7 @@
         "http://*/*.pdf",
         "https://*/*.pdf"
       ],
-      "js": ["content.js"],
+      "js": ["shared-id-generator.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_end",
       "all_frames": true
@@ -51,7 +51,9 @@
         "fullpage.html",
         "fullpage.js",
         "marked.min.js",
-        "marked-init.js"
+        "marked-init.js",
+        "shared-id-generator.js",
+        "id-consistency-test.html"
       ],
       "matches": ["<all_urls>"]
     }

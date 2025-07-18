@@ -412,15 +412,18 @@ async function extractSSRNContent() {
   };
 }
 
-// Utility to extract SSRN ID from URL
-function extractSsrnIdFromUrl(url) {
+// Use shared ID generator for consistent paper ID generation
+async function extractSsrnIdFromUrl(url) {
   if (!url) return null;
-  // Prefer query string: abstract_id or abstractId
-  let match = url.match(/[?&]abstract_id=(\\d+)/i);
-  if (match) return match[1];
-  match = url.match(/[?&]abstractId=(\\d+)/i);
-  if (match) return match[1];
-  match = url.match(/[?&]abstract=(\\d+)/i);
-  if (match) return match[1];
-  return url; // fallback: use URL as ID
+  
+  // Use the shared ID generator which matches backend logic
+  try {
+    const paperId = await SharedIdGenerator.generateIdFromUrl(url);
+    return paperId;
+  } catch (error) {
+    console.error('Error generating paper ID:', error);
+    // Fallback to simple SSRN ID extraction
+    const match = url.match(/[?&]abstract(?:_?id)?=(\d+)/i);
+    return match ? match[1] : url;
+  }
 }

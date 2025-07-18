@@ -4,6 +4,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
   
+  // Global variables
+  let viewMode = null; // Will be set from URL parameters
+  
   console.log('Fullpage loaded: DOMContentLoaded event fired');
   
   if (typeof CONFIG !== 'undefined') {
@@ -180,7 +183,7 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       // Add paperID to content if not present
       if (!content.paperId && content.paperUrl) {
-        content.paperId = extractSsrnIdOrUrl(content.paperUrl);
+        content.paperId = await extractSsrnIdOrUrl(content.paperUrl);
       }
 
       // Try multiple times with different backends
@@ -358,7 +361,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // Extract paper ID
-      const paperId = extractSsrnIdOrUrl(content.paperUrl) || content.paperId;
+      const paperId = (await extractSsrnIdOrUrl(content.paperUrl)) || content.paperId;
       const storageKey = `analysis_${paperId}`;
       
       // Check cache before sending request
@@ -852,23 +855,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Add robust SSRN ID extraction function (copied from popup.js)
-  function extractSsrnIdOrUrl(url) {
+  // Use shared ID generator for consistent paper ID generation
+  async function extractSsrnIdOrUrl(url) {
     if (!url) return null;
-    // Prefer query string: abstract_id or abstractId
-    let match = url.match(/[?&]abstract_id=(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/[?&]abstractId=(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/[?&]abstract=(\d+)/i);
-    if (match) return match[1];
-    // Fallback: look for ssrn_id1234567 or abstract1234567 in the path/filename
-    match = url.match(/ssrn_id(\d+)/i);
-    if (match) return match[1];
-    match = url.match(/abstract(\d+)/i);
-    if (match) return match[1];
-    // Fallback: use the full URL as ID
-    return url;
+    
+    // Use the shared ID generator which matches backend logic
+    try {
+      const paperId = await SharedIdGenerator.generateIdFromUrl(url);
+      return paperId;
+    } catch (error) {
+      console.error('Error generating paper ID:', error);
+      // Fallback to simple SSRN ID extraction
+      const match = url.match(/[?&]abstract(?:_?id)?=(\d+)/i);
+      return match ? match[1] : url;
+    }
   }
 
   // Add this async function to fetch analysis from backend by paperID
@@ -988,27 +988,28 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Check URL parameters to determine view mode
-  const urlParams = new URLSearchParams(window.location.search);
-  const viewMode = urlParams.get('view');
-  const paperUrl = urlParams.get('paperUrl');
-  const paperId = extractSsrnIdOrUrl(paperUrl) || urlParams.get('paperID');
+  (async function initializePage() {
+    const urlParams = new URLSearchParams(window.location.search);
+    viewMode = urlParams.get('view'); // Set global viewMode variable
+    const paperUrl = urlParams.get('paperUrl');
+    const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
 
-  // Only show error if no paper ID is found
-  if (!paperId) {
-    updateStatus('No paper ID provided. Please open the analysis from the extension popup.', true);
-    return;
-  }
+    // Only show error if no paper ID is found
+    if (!paperId) {
+      updateStatus('No paper ID provided. Please open the analysis from the extension popup.', true);
+      return;
+    }
 
-  // If we have a paperID, we're viewing an existing analysis - hide upload section and analyze button immediately
-  if (paperId) {
-    if (uploadSection) uploadSection.style.display = 'none';
-    if (analyzeBtn) analyzeBtn.style.display = 'none';
-    updateStatus(`Loading analysis for paper ID: ${paperId}...`);
-  }
+    // If we have a paperID, we're viewing an existing analysis - hide upload section and analyze button immediately
+    if (paperId) {
+      if (uploadSection) uploadSection.style.display = 'none';
+      if (analyzeBtn) analyzeBtn.style.display = 'none';
+      updateStatus(`Loading analysis for paper ID: ${paperId}...`);
+    }
 
-  // Use paperID for storage key
-  const storageKey = `analysis_${paperId}`;
-  console.log('Looking up analysis for paperID:', paperId, 'with key:', storageKey);
+    // Use paperID for storage key
+    const storageKey = `analysis_${paperId}`;
+    console.log('Looking up analysis for paperID:', paperId, 'with key:', storageKey);
 
   // Initialize the page based on URL parameters
   (async () => {
@@ -1195,6 +1196,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 paperTitle.textContent = analysis.content.title;
               }
               if (paperMeta) {
+                const authors = (analysis.content.authors || []).join(', ');
+                const analyzed = analysis.timestamp ? new Date(analysis.timestamp).toLocaleDateString() : '';
                 let metaInfo = `Paper ID: ${analysis.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
                 paperMeta.textContent = metaInfo;
               }
@@ -1223,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (backBtn) {
     backBtn.addEventListener('click', function() {
       const urlParams = new URLSearchParams(window.location.search);
-      const viewMode = urlParams.get('view');
+      // Use global viewMode variable (no need to redeclare)
       const paperId = urlParams.get('paperID');
       
       if (viewMode === 'authors' && paperId) {
@@ -1275,4 +1278,5 @@ document.addEventListener('DOMContentLoaded', function() {
   } else {
     console.warn('sendBtn or chatInput not found');
   }
+  })(); // End of initializePage async IIFE
 });
