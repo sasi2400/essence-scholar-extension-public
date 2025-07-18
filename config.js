@@ -2,23 +2,17 @@
 const CONFIG = {
   // Backend configuration with priority order
   BACKENDS: {
-    LOCAL_DOCKER: {
-      url: 'http://0.0.0.0:8080',
+    LOCAL_DEV: {
+      url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 2,
-      enabled: false
+      priority: 1,
+      enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-2-0-test-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 3,
       enabled: true
-    },
-    LOCAL_NETWORK: {
-      url: 'http://localhost:8080',
-      name: 'Local Network',
-      priority: 1,
-      enabled: true  // Disabled by default
     }
   },
   
