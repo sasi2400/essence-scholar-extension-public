@@ -2,6 +2,32 @@ document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
   
+  // Helper function to build fullpage URL with scholar parameters
+  async function buildFullpageUrl(paperId, additionalParams = {}) {
+    const baseUrl = chrome.runtime.getURL('fullpage.html');
+    const params = new URLSearchParams();
+    
+    if (paperId) {
+      params.set('paperID', paperId);
+    }
+    
+    // Get current scholar URL from settings
+    const settings = await chrome.storage.local.get(['userSettings']);
+    const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+    
+    // Add scholar parameter
+    params.set('scholar', currentScholarUrl);
+    
+    // Add any additional parameters
+    Object.entries(additionalParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        params.set(key, value);
+      }
+    });
+    
+    return `${baseUrl}?${params.toString()}`;
+  }
+  
   async function setAnalysisStatus(paperId, status, errorMessage = null) {
     console.log('Setting analysis status:', { paperId, status, errorMessage });
     const now = new Date().toISOString();
@@ -63,9 +89,8 @@ document.addEventListener('DOMContentLoaded', function() {
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
           return;
         } else {
@@ -92,9 +117,8 @@ document.addEventListener('DOMContentLoaded', function() {
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
           return;
         }
@@ -114,9 +138,8 @@ document.addEventListener('DOMContentLoaded', function() {
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
         } else {
           setButtonState('Analyze Current Paper', false, false);
@@ -137,9 +160,8 @@ document.addEventListener('DOMContentLoaded', function() {
             setButtonState('View Analysis', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
-              chrome.tabs.create({
-                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-              });
+              const fullpageUrl = await buildFullpageUrl(paperId);
+              chrome.tabs.create({ url: fullpageUrl });
             };
             return;
           }
@@ -185,9 +207,8 @@ document.addEventListener('DOMContentLoaded', function() {
               setButtonState('View Analysis', false, false);
               analyzeBtn.style.backgroundColor = '#4CAF50';
               analyzeBtn.onclick = async () => {
-                chrome.tabs.create({
-                  url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-                });
+                const fullpageUrl = await buildFullpageUrl(paperId);
+                chrome.tabs.create({ url: fullpageUrl });
               };
               return;
             }
@@ -209,9 +230,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 setButtonState('View Analysis', false, false);
                 analyzeBtn.style.backgroundColor = '#4CAF50';
                 analyzeBtn.onclick = async () => {
-                  chrome.tabs.create({
-                    url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-                  });
+                  const fullpageUrl = await buildFullpageUrl(paperId);
+                  chrome.tabs.create({ url: fullpageUrl });
                 };
               } else {
                 // If local storage says complete but no results, check backend one more time
@@ -221,9 +241,8 @@ document.addEventListener('DOMContentLoaded', function() {
                   setButtonState('View Analysis', false, false);
                   analyzeBtn.style.backgroundColor = '#4CAF50';
                   analyzeBtn.onclick = async () => {
-                    chrome.tabs.create({
-                      url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-                    });
+                    const fullpageUrl = await buildFullpageUrl(paperId);
+                    chrome.tabs.create({ url: fullpageUrl });
                   };
                 } else {
                   setButtonState('Analyze Current Paper', false, false);
@@ -477,9 +496,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
           
           showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
@@ -518,9 +536,8 @@ document.addEventListener('DOMContentLoaded', function() {
               const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
               if (!tab || !tab.url) return;
               const paperId = await extractSsrnIdOrUrl(tab.url);
-              chrome.tabs.create({
-                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-              });
+              const fullpageUrl = await buildFullpageUrl(paperId);
+              chrome.tabs.create({ url: fullpageUrl });
             };
             
             showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
@@ -1120,6 +1137,14 @@ document.addEventListener('DOMContentLoaded', function() {
       // Load settings from storage
       chrome.storage.local.get(['llmSettings'], (result) => {
         const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+        
+        console.log('🔍 Popup: Loading LLM settings from storage:', {
+          model: settings.model,
+          geminiKey: settings.geminiKey ? `${settings.geminiKey.substring(0, 10)}...` : 'empty',
+          openaiKey: settings.openaiKey ? `${settings.openaiKey.substring(0, 10)}...` : 'empty',
+          claudeKey: settings.claudeKey ? `${settings.claudeKey.substring(0, 10)}...` : 'empty'
+        });
+        
         modelSelect.value = settings.model || 'gemini-2.5-flash';
         geminiKeyInput.value = settings.geminiKey || '';
         openaiKeyInput.value = settings.openaiKey || '';
@@ -1173,14 +1198,24 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       
+      const settingsToSave = { 
+        model, 
+        geminiKey,
+        openaiKey, 
+        claudeKey 
+      };
+      
+      console.log('🔍 Popup: Saving LLM settings:', {
+        model: settingsToSave.model,
+        geminiKey: settingsToSave.geminiKey ? `${settingsToSave.geminiKey.substring(0, 10)}...` : 'empty',
+        openaiKey: settingsToSave.openaiKey ? `${settingsToSave.openaiKey.substring(0, 10)}...` : 'empty',
+        claudeKey: settingsToSave.claudeKey ? `${settingsToSave.claudeKey.substring(0, 10)}...` : 'empty'
+      });
+      
       chrome.storage.local.set({ 
-        llmSettings: { 
-          model, 
-          geminiKey,
-          openaiKey, 
-          claudeKey 
-        } 
+        llmSettings: settingsToSave
       }, () => {
+        console.log('🔍 Popup: Settings saved successfully');
         settingsModal.style.display = 'none';
         // Update configuration status after saving
         updateConfigurationStatus();
@@ -1421,9 +1456,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
           if (!tab || !tab.url) return;
           const paperId = await extractSsrnIdOrUrl(tab.url);
-          chrome.tabs.create({
-            url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-          });
+          const fullpageUrl = await buildFullpageUrl(paperId);
+          chrome.tabs.create({ url: fullpageUrl });
         };
 
     // Show success message
@@ -1636,7 +1670,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-          chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
         showStatus('Analysis exists for this paper! Click "View Analysis" or "Analyze Authors".', 'success');
         } else {
@@ -1660,12 +1695,12 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       let analyzingObj = await chrome.storage.local.get([analyzingKey]);
       let isAnalyzing = analyzingObj[analyzingKey] === true;
       
-      // If analysis is marked as in progress but the actual status shows complete or error,
+      // If analysis is marked as in progress but the actual status shows complete, error, or no analysis exists,
       // clear the analyzing state and reset UnderAnalysis
-      if (isAnalyzing && (analysisStatus.hasCompleted || analysisStatus.error)) {
+      if (isAnalyzing && (analysisStatus.hasCompleted || analysisStatus.error || (!analysisStatus.inProgress && !analysisStatus.hasCompleted))) {
         await chrome.storage.local.remove(analyzingKey);
         isAnalyzing = false;
-        console.log('Cleared stale analyzing state - analysis has completed or errored');
+        console.log('Cleared stale analyzing state - analysis has completed, errored, or does not exist');
       }
       
       UnderAnalysis = isAnalyzing ? 1 : 0;
@@ -1687,7 +1722,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
-          chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) });
+          const fullpageUrl = await buildFullpageUrl(paperId);
+          chrome.tabs.create({ url: fullpageUrl });
         };
         // Clear analyzing state if analysis is done
         await chrome.storage.local.remove(analyzingKey);
@@ -1742,9 +1778,36 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
               console.warn('Could not fetch PDF content for base64; backend will download directly', e);
             }
 
-            const bodyPayload = fileContentB64
-              ? { content: { paperUrl: tab.url }, file_content: fileContentB64 }
-              : { content: { paperUrl: tab.url } };
+            // Get current model, scholar URL, and API keys from settings
+            const settings = await chrome.storage.local.get(['llmSettings', 'userSettings']);
+            const selectedModel = settings.llmSettings?.model || 'gemini-2.5-flash';
+            const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+            const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+            
+            // Create base payload
+            const basePayload = {
+              content: { paperUrl: tab.url },
+              model: selectedModel,
+              user_scholar_url: userScholarUrl
+            };
+            
+            // Add file content if available
+            if (fileContentB64) {
+              basePayload.file_content = fileContentB64;
+            }
+            
+            // Add API keys if they have content
+            if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
+              basePayload.google_api_key = llmSettings.geminiKey;
+            }
+            if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
+              basePayload.openai_api_key = llmSettings.openaiKey;
+            }
+            if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
+              basePayload.claude_api_key = llmSettings.claudeKey;
+            }
+            
+            const bodyPayload = basePayload;
 
             // Start background monitoring
             await monitorAnalysisProgress(tab.id, paperId, true);
@@ -1762,10 +1825,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
             setButtonState('View Analysis', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
-            analyzeBtn.onclick = () => {
-              chrome.tabs.create({
-                url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-              });
+            analyzeBtn.onclick = async () => {
+              const fullpageUrl = await buildFullpageUrl(paperId);
+              chrome.tabs.create({ url: fullpageUrl });
             };
             
             // Stop any background monitoring
@@ -2043,9 +2105,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) return;
       const paperId = await extractSsrnIdOrUrl(tab.url);
-      chrome.tabs.create({
-        url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-      });
+      const fullpageUrl = await buildFullpageUrl(paperId);
+      chrome.tabs.create({ url: fullpageUrl });
     };
 
     // Show success message
@@ -2203,11 +2264,18 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       const paperId = await extractSsrnIdOrUrl(tab.url);
       if (!paperId) return;
       
-      // Clear any analyzing state for this tab/paper combination
-      const analyzingKey = getAnalyzingKey(tab.id, paperId);
-      await chrome.storage.local.remove(analyzingKey);
-      
-      console.log('Cleaned up stale analyzing state for tab:', tab.id, 'paper:', paperId);
+      // Check if there's actually an analysis in progress or completed
+      const backend = await BackendManager.getCurrentBackend();
+      if (backend) {
+        const analysisStatus = await checkAnalysisStatusAndCompletion(paperId, backend);
+        
+        // If no analysis exists or is in progress, clear the analyzing state
+        if (!analysisStatus.inProgress && !analysisStatus.hasCompleted) {
+          const analyzingKey = getAnalyzingKey(tab.id, paperId);
+          await chrome.storage.local.remove(analyzingKey);
+          console.log('Cleaned up stale analyzing state for tab:', tab.id, 'paper:', paperId);
+        }
+      }
     } catch (error) {
       console.error('Error cleaning up stale analyzing states:', error);
     }

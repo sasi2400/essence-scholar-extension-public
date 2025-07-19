@@ -184,35 +184,166 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function loadSettings() {
     try {
-      // Try to load from backend first
-      const backend = await backendManager.detectBestBackend();
-      if (backend) {
-        try {
-          const response = await fetch(`${backend.url}/user/settings`);
+      console.log('Loading settings...');
+      
+      // Always try local storage first for immediate loading
+      const result = await chrome.storage.local.get(['userSettings']);
+      const localSettings = result.userSettings || {};
+      console.log('Local settings found:', localSettings);
+      
+      if (googleScholarUrl) {
+        googleScholarUrl.value = localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+        console.log('Set Google Scholar URL:', localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en');
+      } else {
+        console.warn('Google Scholar URL element not found');
+      }
+      
+      if (researchInterests) {
+        researchInterests.value = localSettings.researchInterests || '';
+        console.log('Set Research Interests:', localSettings.researchInterests ? 'Content loaded' : 'Empty');
+      } else {
+        console.warn('Research Interests element not found');
+      }
+      
+      // Show indicator if research interests were generated
+      if (localSettings.isGenerated && localSettings.generatedAt) {
+        console.log('Loaded generated research profile from:', new Date(localSettings.generatedAt).toLocaleString());
+      }
+      
+      // Try to load from backend as well (but don't override local settings if backend fails)
+      try {
+        const backend = await BackendManager.getCurrentBackend();
+        if (backend) {
+          const response = await makeApiRequestWithBackend('/user/settings', {
+            method: 'GET'
+          }, backend);
+          
           if (response.ok) {
             const data = await response.json();
-            if (googleScholarUrl) googleScholarUrl.value = data.google_scholar_url || '';
-            if (researchInterests) researchInterests.value = data.research_interests || '';
-            return;
+            console.log('Backend settings found:', data);
+            
+            // Only update if backend has data and local storage is empty
+            if (data.google_scholar_url && !localSettings.googleScholarUrl) {
+              if (googleScholarUrl) googleScholarUrl.value = data.google_scholar_url;
+            }
+            if (data.research_interests && !localSettings.researchInterests) {
+              if (researchInterests) researchInterests.value = data.research_interests;
+            }
+          }
+        }
+      } catch (error) {
+        console.log('Backend settings not available, using local storage only');
+      }
+      
+      console.log('Settings loaded successfully');
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  }
+  
+  // Debug function to check storage contents
+  window.debugStorage = async function() {
+    console.log('=== DEBUG STORAGE ===');
+    try {
+      const userSettings = await chrome.storage.local.get(['userSettings']);
+      const llmSettings = await chrome.storage.local.get(['llmSettings']);
+      console.log('User Settings:', userSettings);
+      console.log('LLM Settings:', llmSettings);
+      
+      // Check if elements exist
+      console.log('Google Scholar URL element:', !!googleScholarUrl);
+      console.log('Research Interests element:', !!researchInterests);
+      
+      if (googleScholarUrl) {
+        console.log('Current Google Scholar URL value:', googleScholarUrl.value);
+      }
+      if (researchInterests) {
+        console.log('Current Research Interests value:', researchInterests.value);
+      }
+    } catch (error) {
+      console.error('Debug storage error:', error);
+    }
+  };
+  
+  async function loadModelSettings() {
+    try {
+      console.log('Loading model settings...');
+      const result = await chrome.storage.local.get(['llmSettings']);
+      const settings = result.llmSettings || { model: 'gemini-2.5-flash' };
+      console.log('Model settings found:', settings);
+      
+      // Set the selected model
+      const modelCards = document.querySelectorAll('.model-card');
+      console.log('Found model cards:', modelCards.length);
+      modelCards.forEach(card => {
+        card.classList.remove('selected');
+        if (card.dataset.model === settings.model) {
+          card.classList.add('selected');
+          console.log('Selected model card:', card.dataset.model);
+        }
+      });
+      
+      console.log('Model settings loaded successfully');
+    } catch (error) {
+      console.error('Error loading model settings:', error);
+    }
+  }
+  
+  async function saveModelSettings(selectedModel) {
+    try {
+      const result = await chrome.storage.local.get(['llmSettings']);
+      const settings = result.llmSettings || {};
+      settings.model = selectedModel;
+      
+      await chrome.storage.local.set({ llmSettings: settings });
+      console.log('Model settings saved:', settings);
+    } catch (error) {
+      console.error('Error saving model settings:', error);
+    }
+  }
+  
+  async function saveGeneratedProfile(googleScholarUrl, generatedProfile) {
+    try {
+      // Save to local storage
+      const localSettings = {
+        googleScholarUrl: googleScholarUrl,
+        researchInterests: generatedProfile,
+        updatedAt: new Date().toISOString(),
+        generatedAt: new Date().toISOString(),
+        isGenerated: true
+      };
+      await chrome.storage.local.set({ userSettings: localSettings });
+      
+      // Also try to save to backend
+      const backend = await BackendManager.getCurrentBackend();
+      if (backend) {
+        try {
+          const response = await makeApiRequestWithBackend('/user/settings', {
+            method: 'POST',
+            body: JSON.stringify({
+              google_scholar_url: googleScholarUrl,
+              research_interests: generatedProfile
+            })
+          }, backend);
+          
+          if (response.ok) {
+            console.log('Generated profile saved to backend');
           }
         } catch (error) {
-          console.log('Backend settings not available, using local storage');
+          console.log('Backend save failed, but local storage is updated');
         }
       }
       
-      // Fallback to local storage
-      const result = await chrome.storage.local.get(['userSettings']);
-      const settings = result.userSettings || {};
-      
-      if (googleScholarUrl) googleScholarUrl.value = settings.googleScholarUrl || '';
-      if (researchInterests) researchInterests.value = settings.researchInterests || '';
+      console.log('Generated profile saved to storage');
     } catch (error) {
-      console.error('Error loading settings:', error);
+      console.error('Error saving generated profile:', error);
     }
   }
 
   async function saveSettings(event) {
     event.preventDefault();
+    
+    console.log('Saving settings...');
     
     // Show loading state
     const submitBtn = event.target.querySelector('button[type="submit"]');
@@ -222,9 +353,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     try {
       const settings = {
-        google_scholar_url: googleScholarUrl.value.trim(),
+        google_scholar_url: googleScholarUrl.value.trim() || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en',
         research_interests: researchInterests.value.trim()
       };
+      
+      console.log('Settings to save:', settings);
 
       // Try to save to backend first
       const backend = await backendManager.detectBestBackend();
@@ -253,7 +386,15 @@ document.addEventListener('DOMContentLoaded', function() {
         researchInterests: settings.research_interests,
         updatedAt: new Date().toISOString()
       };
+      console.log('Saving to local storage:', localSettings);
       await chrome.storage.local.set({ userSettings: localSettings });
+      console.log('Settings saved to local storage successfully');
+      
+      // Also save current model selection if available
+      const currentModelResult = await chrome.storage.local.get(['llmSettings']);
+      if (currentModelResult.llmSettings && currentModelResult.llmSettings.model) {
+        console.log('Current model selection preserved:', currentModelResult.llmSettings.model);
+      }
       
       // Show success message
       alert('Settings saved successfully!');
@@ -265,6 +406,81 @@ document.addEventListener('DOMContentLoaded', function() {
       submitBtn.disabled = false;
       saveBtnText.style.display = 'inline';
       saveBtnLoading.style.display = 'none';
+    }
+  }
+  
+  async function generateResearchProfile() {
+    const generateBtnText = document.getElementById('generateBtnText');
+    const generateBtnLoading = document.getElementById('generateBtnLoading');
+    const generateProfileBtn = document.getElementById('generateProfileBtn');
+    
+    // Show loading state
+    generateBtnText.style.display = 'none';
+    generateBtnLoading.style.display = 'inline-block';
+    generateProfileBtn.disabled = true;
+    
+    try {
+      const googleScholarUrl = document.getElementById('googleScholarUrl').value.trim() || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const researchInterests = document.getElementById('researchInterests').value.trim();
+      
+      if (!googleScholarUrl) {
+        throw new Error('Please enter a Google Scholar Profile URL first');
+      }
+      
+      // Validate Google Scholar URL
+      if (!googleScholarUrl.includes('scholar.google.com') && !googleScholarUrl.includes('scholar.google.de')) {
+        throw new Error('Please enter a valid Google Scholar Profile URL');
+      }
+      
+      updateStatus('🔍 Generating research profile from Google Scholar...', false);
+      
+      // Get current backend
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        throw new Error('No healthy backend available');
+      }
+      
+      // Call backend to generate research profile
+      const response = await makeApiRequestWithBackend('/generate-research-profile', {
+        method: 'POST',
+        body: JSON.stringify({
+          googleScholarUrl: googleScholarUrl,
+          researchInterests: researchInterests
+        })
+      }, backend);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      // Update the research interests field with generated content
+      if (result.generatedProfile) {
+        document.getElementById('researchInterests').value = result.generatedProfile;
+        
+        // Save the generated profile to storage
+        await saveGeneratedProfile(googleScholarUrl, result.generatedProfile);
+        
+        updateStatus('✅ Research profile generated and saved successfully!', false);
+        console.log('Generated research profile:', result.generatedProfile);
+      } else {
+        updateStatus('⚠️ Profile generated but no content returned', false);
+      }
+      
+    } catch (error) {
+      console.error('Error generating research profile:', error);
+      updateStatus('Error generating research profile: ' + error.message, true);
+    } finally {
+      // Hide loading state
+      generateBtnText.style.display = 'inline';
+      generateBtnLoading.style.display = 'none';
+      generateProfileBtn.disabled = false;
     }
   }
 
@@ -292,8 +508,12 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Global function to view a paper (called from search results)
-  window.viewPaper = function(paperId) {
-    const url = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
+  window.viewPaper = async function(paperId) {
+    // Get current scholar URL from settings
+    const settings = await chrome.storage.local.get(['userSettings']);
+    const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+    
+    const url = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&scholar=' + encodeURIComponent(userScholarUrl);
     window.location.href = url;
   };
 
@@ -362,11 +582,17 @@ document.addEventListener('DOMContentLoaded', function() {
       // Use the existing handlePdfUpload function from the original fullpage.js
       const result = await handlePdfUpload(file);
       
-      // After analysis is complete, update the URL with the paper ID
+      // After analysis is complete, update the URL with the paper ID and scholar URL
       // so the page knows to display the analysis results
       if (result && result.paperId) {
         const currentUrl = new URL(window.location.href);
         currentUrl.searchParams.set('paperID', result.paperId);
+        
+        // Get current scholar URL from settings and add it to the URL
+        const settings = await chrome.storage.local.get(['userSettings']);
+        const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+        currentUrl.searchParams.set('scholar', userScholarUrl);
+        
         window.history.replaceState({}, '', currentUrl.toString());
         
         // Trigger a page reload to properly initialize the analysis view
@@ -398,6 +624,12 @@ document.addEventListener('DOMContentLoaded', function() {
   
   if (settingsForm) {
     settingsForm.addEventListener('submit', saveSettings);
+  }
+  
+  // Setup generate profile button
+  const generateProfileBtn = document.getElementById('generateProfileBtn');
+  if (generateProfileBtn) {
+    generateProfileBtn.addEventListener('click', generateResearchProfile);
   }
   
   // Setup upload functionality
@@ -569,11 +801,74 @@ document.addEventListener('DOMContentLoaded', function() {
       
       while (attempts < maxAttempts) {
         try {
-          // Use streaming endpoint for better user experience
-          const serverResponse = await makeStreamRequest(CONFIG.ANALYZE_STREAM_ENDPOINT, { 
+          // Get all settings in one call to ensure consistency, with retry for fresh data
+          let settings, llmSettings;
+          let retryCount = 0;
+          const maxRetries = 3;
+          
+          while (retryCount < maxRetries) {
+            settings = await chrome.storage.local.get(['userSettings', 'llmSettings']);
+            llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+            
+            // Check if we have the API key for the selected model
+            const selectedModel = llmSettings.model || 'gemini-2.5-flash';
+            const hasRequiredKey = (selectedModel.startsWith('claude-') && llmSettings.claudeKey && llmSettings.claudeKey.trim()) ||
+                                 (selectedModel.startsWith('gpt-') && llmSettings.openaiKey && llmSettings.openaiKey.trim()) ||
+                                 (selectedModel.startsWith('gemini-') && llmSettings.geminiKey && llmSettings.geminiKey.trim());
+            
+            console.log(`🔍 Fullpage: Retry ${retryCount + 1}/${maxRetries} - Model: ${selectedModel}, Has required key: ${hasRequiredKey}`);
+            console.log(`🔍 Fullpage: Current keys - Claude: ${llmSettings.claudeKey ? 'present' : 'missing'}, OpenAI: ${llmSettings.openaiKey ? 'present' : 'missing'}, Gemini: ${llmSettings.geminiKey ? 'present' : 'missing'}`);
+            
+            if (hasRequiredKey || retryCount === maxRetries - 1) {
+              break; // We have the key or this is our last attempt
+            }
+            
+            console.log(`🔍 Fullpage: API key not found, retrying... (${retryCount + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+            retryCount++;
+          }
+          
+          const researchInterests = settings.userSettings?.researchInterests || '';
+          const userScholarUrl = settings.userSettings?.googleScholarUrl || '';
+          const selectedModel = llmSettings.model || 'gemini-2.5-flash';
+          
+          // Debug logging to see what's loaded from storage
+          console.log('🔍 Fullpage: LLM Settings loaded from storage:', {
+            model: llmSettings.model,
+            geminiKey: llmSettings.geminiKey ? `${llmSettings.geminiKey.substring(0, 10)}...` : 'empty',
+            openaiKey: llmSettings.openaiKey ? `${llmSettings.openaiKey.substring(0, 10)}...` : 'empty',
+            claudeKey: llmSettings.claudeKey ? `${llmSettings.claudeKey.substring(0, 10)}...` : 'empty'
+          });
+          
+          // Prepare request body with only non-empty API keys
+          const requestBody = { 
             content,
-            file_content: content.file_content // Move file_content to top level for backend
-          }, (event) => {
+            file_content: content.file_content, // Move file_content to top level for backend
+            research_interests: researchInterests, // Include research interests for personalized analysis
+            user_scholar_url: userScholarUrl, // Include user's Google Scholar URL for analysis configuration
+            model: selectedModel // Include the selected model for analysis
+          };
+          
+          // Only add API keys if they have actual content
+          if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
+            requestBody.google_api_key = llmSettings.geminiKey;
+          }
+          if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
+            requestBody.openai_api_key = llmSettings.openaiKey;
+          }
+          if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
+            requestBody.claude_api_key = llmSettings.claudeKey;
+          }
+          
+          // Debug logging to see what's being sent
+          console.log('🔍 Fullpage: Request body API keys:', {
+            google_api_key: requestBody.google_api_key ? `${requestBody.google_api_key.substring(0, 10)}...` : 'undefined',
+            openai_api_key: requestBody.openai_api_key ? `${requestBody.openai_api_key.substring(0, 10)}...` : 'undefined',
+            claude_api_key: requestBody.claude_api_key ? `${requestBody.claude_api_key.substring(0, 10)}...` : 'undefined'
+          });
+          
+          // Use streaming endpoint for better user experience
+          const serverResponse = await makeStreamRequest(CONFIG.ANALYZE_STREAM_ENDPOINT, requestBody, (event) => {
             // Handle streaming updates with detailed progress messages
             if (event.status === 'progress' || event.status === 'extracting_pdf' || event.status === 'analyzing' || event.status === 'extracting_authors' || 
                 event.status === 'junior_start' || event.status === 'junior_done' || event.status === 'pdf_extracted' || event.status === 'authors_extracted') {
@@ -663,16 +958,16 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Convert file to base64 using Promise
       const base64Content = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        
+      const reader = new FileReader();
+      
         reader.onload = function(e) {
-          try {
-            updateStatus('Converting PDF to base64...');
-            
-            // Extract base64 content (remove data:application/pdf;base64, prefix)
-            const base64Content = e.target.result.split(',')[1];
-            
-            if (!base64Content) {
+        try {
+          updateStatus('Converting PDF to base64...');
+          
+          // Extract base64 content (remove data:application/pdf;base64, prefix)
+          const base64Content = e.target.result.split(',')[1];
+          
+          if (!base64Content) {
               reject(new Error('Failed to convert PDF to base64'));
               return;
             }
@@ -691,20 +986,20 @@ document.addEventListener('DOMContentLoaded', function() {
         // Read as data URL (which gives us base64)
         reader.readAsDataURL(file);
       });
-      
-      updateStatus('PDF processed successfully. Starting analysis...');
+          
+          updateStatus('PDF processed successfully. Starting analysis...');
 
-      const content = {
-        title: file.name.replace('.pdf', ''),
-        paperId: file.name.replace('.pdf', ''),
-        paperUrl: URL.createObjectURL(file),
-        isLocalFile: true,
-        filePath: file.name,
-        hasPdf: true,
+          const content = {
+            title: file.name.replace('.pdf', ''),
+            paperId: file.name.replace('.pdf', ''),
+            paperUrl: URL.createObjectURL(file),
+            isLocalFile: true,
+            filePath: file.name,
+            hasPdf: true,
         file_content: base64Content // Send as base64 string - backend expects 'file_content'
-      };
+          };
 
-      currentPdfContent = content;
+          currentPdfContent = content;
       const result = await analyzePaper(content);
       return result; // Return the result so we can get the paper ID
       
@@ -1244,8 +1539,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Add this async function to fetch analysis from backend by paperID
-  async function fetchAnalysisFromBackend(paperId) {
+  // Add this async function to fetch analysis from backend by paperID and scholar URL
+  async function fetchAnalysisFromBackend(paperId, requestedScholarUrl = null) {
     try {
       // Use smart backend detection to get the correct backend URL
       const backend = await backendManager.getCurrentBackend();
@@ -1254,7 +1549,11 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
       }
       
-      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
+      // Build URL with scholar parameter if specified
+      let url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
+      if (requestedScholarUrl) {
+        url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
+      }
       console.log('Trying to fetch analysis from backend:', url);
       
       const response = await fetch(url, {
@@ -1268,7 +1567,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Backend returned non-OK for analysis:', response.status, response.statusText);
         
         if (response.status === 404) {
-          console.log('Analysis not found on backend for paper:', paperId);
+          console.log('Analysis not found on backend for paper:', paperId, 'with model:', requestedModel);
           return null;
         } else if (response.status >= 500) {
           throw new Error(`Backend server error: ${response.status} - ${response.statusText}`);
@@ -1310,6 +1609,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const analysisResult = {
           timestamp: new Date().toISOString(),
           paperId: paperId,
+          model: requestedModel || data.ai_model || 'unknown',
           content: data.content || {  // Add default content structure if not provided
             title: data.content?.title || 'Unknown Title',
             paperContent: data.content?.paperContent || '',
@@ -1339,6 +1639,104 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // Add function to get all available analyses for a paper
+  async function getAllAnalysesForPaper(paperId) {
+    try {
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for fetching analyses');
+        return [];
+      }
+      
+      const url = `${backend.url}/storage/paper/${encodeURIComponent(paperId)}`;
+      console.log('Trying to fetch all analyses for paper:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.log('Backend returned non-OK for paper details:', response.status, response.statusText);
+        return [];
+      }
+      
+      const data = await response.json();
+      console.log('Received paper details from backend:', data);
+      
+      // Return analysis information if available
+      if (data.analysis) {
+        return [data.analysis];
+      }
+      
+      return [];
+    } catch (err) {
+      console.error('Error fetching all analyses for paper:', err);
+      return [];
+    }
+  }
+
+  // Add function to show analysis selector when multiple analyses are available
+  function showAnalysisSelector(paperId, currentScholarUrl) {
+    const selectorHtml = `
+      <div class="analysis-selector" style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;">
+        <div style="margin-bottom: 10px;">
+          <strong>Multiple analyses available for this paper:</strong>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="analysis-option" data-model="" style="padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; background: ${!currentModel ? '#007bff' : '#fff'}; color: ${!currentModel ? '#fff' : '#000'}; cursor: pointer;">
+            Latest Analysis
+          </button>
+          <button class="analysis-option" data-model="gemini-2.5-flash" style="padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; background: ${currentModel === 'gemini-2.5-flash' ? '#007bff' : '#fff'}; color: ${currentModel === 'gemini-2.5-flash' ? '#fff' : '#000'}; cursor: pointer;">
+            Gemini 2.5 Flash
+          </button>
+          <button class="analysis-option" data-model="gpt-4" style="padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; background: ${currentModel === 'gpt-4' ? '#007bff' : '#fff'}; color: ${currentModel === 'gpt-4' ? '#fff' : '#000'}; cursor: pointer;">
+            GPT-4
+          </button>
+          <button class="analysis-option" data-model="claude-3-5-sonnet" style="padding: 5px 10px; border: 1px solid #ccc; border-radius: 3px; background: ${currentModel === 'claude-3-5-sonnet' ? '#007bff' : '#fff'}; color: ${currentModel === 'claude-3-5-sonnet' ? '#fff' : '#000'}; cursor: pointer;">
+            Claude 3.5 Sonnet
+          </button>
+        </div>
+        <div style="margin-top: 10px; font-size: 12px; color: #666;">
+          Click to switch between different AI model analyses
+        </div>
+      </div>
+    `;
+    
+    // Insert the selector before the analysis content
+    const analysisContent = document.getElementById('analysisContent');
+    if (analysisContent) {
+      // Remove existing selector if present
+      const existingSelector = analysisContent.querySelector('.analysis-selector');
+      if (existingSelector) {
+        existingSelector.remove();
+      }
+      
+      // Insert new selector at the top
+      analysisContent.insertAdjacentHTML('afterbegin', selectorHtml);
+      
+      // Add event listeners to the buttons
+      const buttons = analysisContent.querySelectorAll('.analysis-option');
+      buttons.forEach(button => {
+        button.addEventListener('click', async function() {
+          const url = new URL(window.location);
+          
+          // Get user's Google Scholar URL from settings
+          const settings = await chrome.storage.local.get(['userSettings']);
+          const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+          
+          // Add scholar URL parameter
+          url.searchParams.set('scholar', encodeURIComponent(userScholarUrl));
+          
+          // Reload the page with the new parameters
+          window.location.href = url.toString();
+        });
+      });
+    }
+  }
+
   // Add helper function to get model name
   function getModelName(selectedModel) {
     // Gemini models
@@ -1360,21 +1758,87 @@ document.addEventListener('DOMContentLoaded', function() {
     return 'gemini-2.5-flash';
   }
 
-  // Check URL parameters to determine view mode
+  // --- Typewriter effect for SSRN Paper Summarizer title ---
+  function startTitleTypewriter() {
+    const titleElement = document.getElementById('mainTitle');
+    const cursorElement = document.querySelector('.cursor');
+    if (!titleElement || !cursorElement) return;
+    
+    const fullText = 'SSRN Paper Summarizer';
+    let currentIndex = 0;
+    titleElement.textContent = '';
+    cursorElement.style.display = 'inline-block';
+
+    function typeNextChar() {
+      if (currentIndex < fullText.length) {
+        titleElement.textContent = fullText.slice(0, currentIndex + 1);
+        currentIndex++;
+        setTimeout(typeNextChar, 80);
+      } else {
+        // Keep cursor blinking at the end
+        cursorElement.style.display = 'inline-block';
+      }
+    }
+    typeNextChar();
+  }
+
+  // --- Dynamic subtitle messages for homepage (unchanged) ---
+  const subtitleMessages = [
+    "Your paper pilot, ScholarWing",
+    "Intelligent analysis and insights",
+    "AI-powered research companion",
+    "Transform papers into insights",
+    "Your academic research assistant",
+    "Smart paper analysis at your fingertips"
+  ];
+
+  let currentSubtitleIndex = 0;
+  let subtitleInterval = null;
+
+  function updateSubtitle() {
+    const subtitleElement = document.getElementById('dynamicSubtitle');
+    if (subtitleElement && isHomepage) {
+      subtitleElement.style.opacity = '0';
+      setTimeout(() => {
+        subtitleElement.textContent = subtitleMessages[currentSubtitleIndex];
+        subtitleElement.style.opacity = '1';
+        currentSubtitleIndex = (currentSubtitleIndex + 1) % subtitleMessages.length;
+      }, 500);
+    }
+  }
+
+  function startSubtitleLoop() {
+    if (subtitleInterval) clearInterval(subtitleInterval);
+    updateSubtitle();
+    subtitleInterval = setInterval(updateSubtitle, 3000);
+  }
+
+  function stopSubtitleLoop() {
+    if (subtitleInterval) clearInterval(subtitleInterval);
+  }
+
+  // --- Main initialization ---
   (async function initializePage() {
     const urlParams = new URLSearchParams(window.location.search);
     viewMode = urlParams.get('view'); // Set global viewMode variable
     const paperUrl = urlParams.get('paperUrl');
     const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
+    const requestedScholarUrl = urlParams.get('scholar'); // Get requested scholar URL from URL
 
     // Check if we're on homepage (no paperID)
     if (!paperId) {
       isHomepage = true;
       document.body.classList.add('homepage-mode');
+      startSubtitleLoop(); // Start subtitle loop on homepage
+      startTitleTypewriter(); // Start typewriter effect for title
       
       // Load homepage data
       await loadHomepageStats();
       await loadSettings();
+      await loadModelSettings();
+      
+      // Set up model selection after everything is loaded
+      setupModelSelection();
       
       // Focus search input
       if (searchInput) {
@@ -1390,6 +1854,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Remove homepage mode to show paper analysis content
       document.body.classList.remove('homepage-mode');
       isHomepage = false;
+      stopSubtitleLoop(); // Stop subtitle loop when leaving homepage
       
       if (uploadSection) uploadSection.style.display = 'none';
       if (analyzeBtn) analyzeBtn.style.display = 'none';
@@ -1498,14 +1963,16 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStatus('Checking backend for existing analysis...');
         
         try {
-          const backendAnalysis = await fetchAnalysisFromBackend(paperId);
+          const backendAnalysis = await fetchAnalysisFromBackend(paperId, requestedScholarUrl);
           if (backendAnalysis) {
             console.log('Found analysis on backend:', backendAnalysis);
             analysis = backendAnalysis;
-            updateStatus('Successfully loaded analysis from backend');
+            const scholarInfo = requestedScholarUrl ? ` (Scholar: ${requestedScholarUrl})` : '';
+            updateStatus(`Successfully loaded analysis from backend${scholarInfo}`);
           } else {
             console.log('No analysis found on backend');
-            updateStatus('No analysis found for this paper.', true);
+            const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
+            updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
           }
         } catch (error) {
           console.error('Error fetching from backend:', error);
@@ -1579,10 +2046,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 analysis.content.title; // Even just having a title is enough for chat
               
               if (hasContent) {
-                currentPdfContent = analysis.content;
-                if (chatSection) {
-                  chatSection.style.display = 'block';
-                  console.log('Chat enabled: Paper content loaded from stored analysis');
+              currentPdfContent = analysis.content;
+              if (chatSection) {
+                chatSection.style.display = 'block';
+                console.log('Chat enabled: Paper content loaded from stored analysis');
                 }
               } else {
                 console.log('No suitable content found for chat:', analysis.content);
@@ -1597,9 +2064,15 @@ document.addEventListener('DOMContentLoaded', function() {
               if (paperMeta) {
                 const authors = (analysis.content.authors || []).join(', ');
                 const analyzed = analysis.timestamp ? new Date(analysis.timestamp).toLocaleDateString() : '';
-                let metaInfo = `Paper ID: ${analysis.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
+                const modelInfo = analysis.model ? ` | Model: ${analysis.model}` : '';
+                let metaInfo = `Paper ID: ${analysis.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}${modelInfo}`;
                 paperMeta.textContent = metaInfo;
               }
+            }
+            
+            // Show analysis selector if we have a paper ID (indicating multiple analyses might be available)
+            if (paperId) {
+              showAnalysisSelector(paperId, requestedScholarUrl);
             }
           }
         } catch (error) {
@@ -1677,5 +2150,203 @@ document.addEventListener('DOMContentLoaded', function() {
   } else {
     console.warn('sendBtn or chatInput not found');
   }
+  
+  // Set up model selection event listeners
+  function setupModelSelection() {
+    console.log('Setting up model selection...');
+    const modelCards = document.querySelectorAll('.model-card');
+    console.log('Found model cards:', modelCards.length);
+    
+    modelCards.forEach((card, index) => {
+      console.log(`Setting up card ${index}:`, card.dataset.model);
+      card.addEventListener('click', async function() {
+        console.log('Model card clicked:', this.dataset.model);
+        const selectedModel = this.dataset.model;
+        
+        // Check if API key is required and available
+        const needsApiKey = await checkApiKeyRequirement(selectedModel);
+        console.log('Needs API key:', needsApiKey);
+        
+        if (needsApiKey) {
+          // Show API key modal
+          showApiKeyModal(selectedModel);
+          return;
+        }
+        
+        // Remove selection from all cards
+        modelCards.forEach(c => c.classList.remove('selected'));
+        
+        // Add selection to clicked card
+        this.classList.add('selected');
+        
+        // Save the selection
+        await saveModelSettings(selectedModel);
+        
+        // Show a subtle success indicator
+        this.style.transform = 'scale(1.05)';
+        setTimeout(() => {
+          this.style.transform = '';
+        }, 200);
+        
+        console.log('Model selected:', selectedModel);
+      });
+    });
+  }
+  
+  // Call setup function after DOM is ready
+  // Note: setupModelSelection will be called after the page initializes
+  
+  // API Key validation functions
+  async function checkApiKeyRequirement(selectedModel) {
+    try {
+      const result = await chrome.storage.local.get(['llmSettings']);
+      const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      
+      // Check if user has configured appropriate API key for selected model
+      if (selectedModel.startsWith('gemini-') && !settings.geminiKey) {
+        return true; // Needs API key
+      } else if (selectedModel.startsWith('gpt-') && !settings.openaiKey) {
+        return true; // Needs API key
+      } else if (selectedModel.startsWith('claude-') && !settings.claudeKey) {
+        return true; // Needs API key
+      }
+      
+      return false; // No API key needed or already configured
+    } catch (error) {
+      console.error('Error checking API key requirement:', error);
+      return true; // Default to requiring API key on error
+    }
+  }
+  
+  function showApiKeyModal(selectedModel) {
+    const modal = document.getElementById('api-key-modal');
+    const message = document.getElementById('api-key-message');
+    const geminiSection = document.getElementById('gemini-key-section');
+    const openaiSection = document.getElementById('openai-key-section');
+    const claudeSection = document.getElementById('claude-key-section');
+    
+    // Hide all sections first
+    geminiSection.style.display = 'none';
+    openaiSection.style.display = 'none';
+    claudeSection.style.display = 'none';
+    
+    // Show appropriate section based on model
+    if (selectedModel.startsWith('gemini-')) {
+      message.textContent = 'To use Gemini models, you need to provide a Google AI API key.';
+      geminiSection.style.display = 'block';
+    } else if (selectedModel.startsWith('gpt-')) {
+      message.textContent = 'To use GPT models, you need to provide an OpenAI API key.';
+      openaiSection.style.display = 'block';
+    } else if (selectedModel.startsWith('claude-')) {
+      message.textContent = 'To use Claude models, you need to provide a Claude API key.';
+      claudeSection.style.display = 'block';
+    }
+    
+    // Store the selected model for later use
+    modal.dataset.selectedModel = selectedModel;
+    
+    // Show the modal
+    modal.style.display = 'flex';
+    
+    // Set up modal event listeners
+    setupApiKeyModalListeners();
+  }
+  
+  function setupApiKeyModalListeners() {
+    const modal = document.getElementById('api-key-modal');
+    const cancelBtn = document.getElementById('api-key-cancel-btn');
+    const saveBtn = document.getElementById('api-key-save-btn');
+    const geminiInput = document.getElementById('gemini-key-input');
+    const openaiInput = document.getElementById('openai-key-input');
+    const claudeInput = document.getElementById('claude-key-input');
+    
+    // Cancel button - close modal and revert selection
+    cancelBtn.onclick = () => {
+      modal.style.display = 'none';
+      // Revert the model selection
+      const modelCards = document.querySelectorAll('.model-card');
+      modelCards.forEach(c => c.classList.remove('selected'));
+      loadModelSettings(); // Reload the previously selected model
+    };
+    
+    // Save button - validate and save API key
+    saveBtn.onclick = async () => {
+      const selectedModel = modal.dataset.selectedModel;
+      let apiKey = '';
+      
+      // Get the appropriate API key based on model
+      if (selectedModel.startsWith('gemini-')) {
+        apiKey = geminiInput.value.trim();
+        if (!apiKey) {
+          alert('Please enter your Google AI API key to use Gemini models');
+          return;
+        }
+      } else if (selectedModel.startsWith('gpt-')) {
+        apiKey = openaiInput.value.trim();
+        if (!apiKey) {
+          alert('Please enter your OpenAI API key to use GPT models');
+          return;
+        }
+      } else if (selectedModel.startsWith('claude-')) {
+        apiKey = claudeInput.value.trim();
+        if (!apiKey) {
+          alert('Please enter your Claude API key to use Claude models');
+          return;
+        }
+      }
+      
+      try {
+        // Get existing settings
+        const result = await chrome.storage.local.get(['llmSettings']);
+        const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+        
+        // Update the appropriate API key
+        if (selectedModel.startsWith('gemini-')) {
+          settings.geminiKey = apiKey;
+        } else if (selectedModel.startsWith('gpt-')) {
+          settings.openaiKey = apiKey;
+        } else if (selectedModel.startsWith('claude-')) {
+          settings.claudeKey = apiKey;
+        }
+        
+        // Update the model
+        settings.model = selectedModel;
+        
+        // Save settings
+        await chrome.storage.local.set({ llmSettings: settings });
+        
+        // Close modal
+        modal.style.display = 'none';
+        
+        // Update the UI to show the selected model
+        const modelCards = document.querySelectorAll('.model-card');
+        modelCards.forEach(c => c.classList.remove('selected'));
+        const selectedCard = document.querySelector(`[data-model="${selectedModel}"]`);
+        if (selectedCard) {
+          selectedCard.classList.add('selected');
+        }
+        
+        // Show success indicator
+        if (selectedCard) {
+          selectedCard.style.transform = 'scale(1.05)';
+          setTimeout(() => {
+            selectedCard.style.transform = '';
+          }, 200);
+        }
+        
+        console.log('API key saved and model selected:', selectedModel);
+        
+        // Clear the input fields
+        geminiInput.value = '';
+        openaiInput.value = '';
+        claudeInput.value = '';
+        
+      } catch (error) {
+        console.error('Error saving API key:', error);
+        alert('Error saving API key. Please try again.');
+      }
+    };
+  }
+  
   })(); // End of initializePage async IIFE
 });
