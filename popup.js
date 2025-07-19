@@ -319,9 +319,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            chrome.tabs.create({
-              url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-            });
+            const fullpageUrl = await buildFullpageUrl(paperId);
+            chrome.tabs.create({ url: fullpageUrl });
           };
           showStatus('Analysis complete for this paper! Click "View Analysis" to see results.', 'success');
         }
@@ -1974,9 +1973,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.url) return;
         const paperId = await extractSsrnIdOrUrl(tab.url);
-        chrome.tabs.create({
-          url: chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId)
-        });
+        const fullpageUrl = await buildFullpageUrl(paperId);
+        chrome.tabs.create({ url: fullpageUrl });
       };
       
       sendResponse({ received: true });

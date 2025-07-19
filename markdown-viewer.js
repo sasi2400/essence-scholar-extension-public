@@ -42,11 +42,37 @@ document.addEventListener('DOMContentLoaded', async function() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
+    // Helper function to build fullpage URL with scholar parameters
+    async function buildFullpageUrl(paperId, additionalParams = {}) {
+        const baseUrl = chrome.runtime.getURL('fullpage.html');
+        const params = new URLSearchParams();
+        
+        if (paperId) {
+            params.set('paperID', paperId);
+        }
+        
+        // Get current scholar URL from settings
+        const settings = await chrome.storage.local.get(['userSettings']);
+        const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+        
+        // Add scholar parameter
+        params.set('scholar', currentScholarUrl);
+        
+        // Add any additional parameters
+        Object.entries(additionalParams).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+                params.set(key, value);
+            }
+        });
+        
+        return `${baseUrl}?${params.toString()}`;
+    }
+
     // Button event listeners
-    backBtn.addEventListener('click', function() {
+    backBtn.addEventListener('click', async function() {
         // Go back to fullpage analysis
         if (currentPaperId) {
-            const fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(currentPaperId);
+            const fullpageUrl = await buildFullpageUrl(currentPaperId);
             chrome.tabs.create({ url: fullpageUrl });
         } else {
             window.history.back();

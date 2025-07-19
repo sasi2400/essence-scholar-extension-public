@@ -1,5 +1,3 @@
-
-
 document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
@@ -147,10 +145,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add click handlers for navigation
     Array.from(searchResults.getElementsByClassName('search-result-item')).forEach(item => {
-      item.addEventListener('click', function() {
+      item.addEventListener('click', async function() {
         const paperId = this.getAttribute('data-paper-id');
         if (paperId) {
-          window.location.href = `fullpage.html?paperID=${encodeURIComponent(paperId)}`;
+          const fullpageUrl = await buildFullpageUrl(paperId);
+          window.location.href = fullpageUrl;
         }
       });
     });
@@ -513,7 +512,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const settings = await chrome.storage.local.get(['userSettings']);
     const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
     
-    const url = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&scholar=' + encodeURIComponent(userScholarUrl);
+            const url = await buildFullpageUrl(paperId);
     window.location.href = url;
   };
 
@@ -1242,9 +1241,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Create HTML for author analysis display
     let html = `
-      <hr style="margin: 30px 0; border: none; border-top: 2px solid #e9ecef;">
+      ${viewMode === 'authors' ? '' : '<hr style="margin: 30px 0; border: none; border-top: 2px solid #e9ecef;">'}
       <div class="author-analysis-container">
-        <h2>Author Analysis Results</h2>
+        <h2>${viewMode === 'authors' ? 'Author Profiles & Analysis' : 'Author Analysis Results'}</h2>
         
         <div class="summary-stats">
           <h3>Summary Statistics</h3>
@@ -1520,6 +1519,61 @@ document.addEventListener('DOMContentLoaded', function() {
     // Only render author analysis in authors view
     if (summaryDiv && viewMode === 'authors') {
       summaryDiv.innerHTML = html;
+      // In authors view, we want to show only author analysis, not paper analysis
+      return; // Exit early to prevent paper analysis from being displayed
+    }
+  }
+
+  // Helper function to generate consistent fullpage URLs with scholar parameter
+  async function buildFullpageUrl(paperId, additionalParams = {}) {
+    try {
+      // Get user settings to include scholar URL
+      const result = await chrome.storage.local.get(['userSettings']);
+      const settings = result.userSettings || {};
+      const userScholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      
+      // Build base URL with paperID and scholar
+      let url = chrome.runtime.getURL('fullpage.html') + 
+                '?paperID=' + encodeURIComponent(paperId) + 
+                '&scholar=' + encodeURIComponent(userScholarUrl);
+      
+      // Add any additional parameters
+      Object.keys(additionalParams).forEach(key => {
+        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
+      });
+      
+      return url;
+    } catch (error) {
+      console.error('Error building fullpage URL:', error);
+      // Fallback to basic URL without scholar
+      return chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
+    }
+  }
+
+  // Helper function to build URL for authors view
+  async function buildAuthorsViewUrl(paperId, additionalParams = {}) {
+    try {
+      // Get user settings to include scholar URL
+      const result = await chrome.storage.local.get(['userSettings']);
+      const settings = result.userSettings || {};
+      const userScholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      
+      // Build base URL with paperID, scholar, and view=authors
+      let url = chrome.runtime.getURL('fullpage.html') + 
+                '?paperID=' + encodeURIComponent(paperId) + 
+                '&scholar=' + encodeURIComponent(userScholarUrl) +
+                '&view=authors';
+      
+      // Add any additional parameters
+      Object.keys(additionalParams).forEach(key => {
+        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
+      });
+      
+      return url;
+    } catch (error) {
+      console.error('Error building authors view URL:', error);
+      // Fallback to basic URL with view=authors
+      return chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&view=authors';
     }
   }
 
@@ -1567,7 +1621,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Backend returned non-OK for analysis:', response.status, response.statusText);
         
         if (response.status === 404) {
-          console.log('Analysis not found on backend for paper:', paperId, 'with model:', requestedModel);
+          console.log('Analysis not found on backend for paper:', paperId);
           return null;
         } else if (response.status >= 500) {
           throw new Error(`Backend server error: ${response.status} - ${response.statusText}`);
@@ -1584,13 +1638,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const storageKey = `analysis_${paperId}`;
         
         // Extract summary from the response data
+        // Backend returns analysis data in flat structure with direct 'summary' field
         let summary = '';
-        if (typeof data === 'object') {
-          if (data.summary && typeof data.summary === 'string') {
+        if (typeof data === 'object' && data.summary && typeof data.summary === 'string') {
             summary = data.summary;
-          } else if (data.data && data.data.summary && typeof data.data.summary === 'string') {
-            summary = data.data.summary;
-          }
+          console.log('Found summary in backend response, length:', summary.length);
+        } else {
+          console.log('No summary found in backend response. Available keys:', Object.keys(data));
         }
         
         // Clean up summary (only remove script tags, preserve markdown)
@@ -1609,7 +1663,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const analysisResult = {
           timestamp: new Date().toISOString(),
           paperId: paperId,
-          model: requestedModel || data.ai_model || 'unknown',
+          model: data.ai_model || data.model || 'unknown',
           content: data.content || {  // Add default content structure if not provided
             title: data.content?.title || 'Unknown Title',
             paperContent: data.content?.paperContent || '',
@@ -1621,7 +1675,16 @@ document.addEventListener('DOMContentLoaded', function() {
           summary: summary,  // Use cleaned summary
           data: {
             summary: summary,  // Store cleaned summary in data object as well
-            author_data: data.author_data || null  // Handle missing author data
+            author_data: data.author_data || null,  // Handle missing author data
+            // Include additional author datapoints for easy access (directly from backend response)
+            authors: data.authors || null,
+            author_summary: data.author_summary || null,
+            total_authors: data.total_authors || 0,
+            total_citations: data.total_citations || 0,
+            total_ft50_publications: data.total_ft50_publications || 0,
+            max_h_index: data.max_h_index || 0,
+            unique_ft50_journals: data.unique_ft50_journals || [],
+            research_areas: data.research_areas || []
           },
           autoAnalyzed: true
         };
@@ -1825,7 +1888,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
     const requestedScholarUrl = urlParams.get('scholar'); // Get requested scholar URL from URL
 
-    // Check if we're on homepage (no paperID)
+    // Scenario 1: Homepage mode (no paperID)
     if (!paperId) {
       isHomepage = true;
       document.body.classList.add('homepage-mode');
@@ -1849,35 +1912,61 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    // If we have a paperID, we're viewing an existing analysis - ensure we're not in homepage mode
-    if (paperId) {
-      // Remove homepage mode to show paper analysis content
+    // We have a paperID - ensure we're not in homepage mode
       document.body.classList.remove('homepage-mode');
       isHomepage = false;
       stopSubtitleLoop(); // Stop subtitle loop when leaving homepage
       
       if (uploadSection) uploadSection.style.display = 'none';
       if (analyzeBtn) analyzeBtn.style.display = 'none';
-      updateStatus(`Loading analysis for paper ID: ${paperId}...`);
+
+    // Scenario 2: Authors view
+    if (viewMode === 'authors') {
+      console.log('Loading authors view for paper:', paperId);
+      updateStatus(`Loading author data for paper ID: ${paperId}...`);
+      
+      try {
+        const authorData = await fetchAuthorDataFromBackend(paperId, requestedScholarUrl);
+        if (authorData && authorData.data?.author_data) {
+          console.log('Successfully loaded author data');
+          clearStatus();
+          displayAuthorAnalysis(authorData.data.author_data);
+          setupAuthorsViewUI(authorData);
+          setupButtonEventListeners(); // Set up event listeners for authors view
+        } else {
+          updateStatus('No author analysis data available for this paper.', true);
+        }
+      } catch (error) {
+        console.error('Error loading author data:', error);
+        updateStatus(`Error loading author data: ${error.message}`, true);
+      }
+      return;
     }
 
-    // Use paperID for storage key
-    const storageKey = `analysis_${paperId}`;
-    console.log('Looking up analysis for paperID:', paperId, 'with key:', storageKey);
-
-  // Initialize the page based on URL parameters
-  (async () => {
-    let analysis = null;
+    // Scenario 3: Analysis view (paperID + optional scholar URL)
+    console.log('Loading analysis view for paper:', paperId, 'with scholar:', requestedScholarUrl);
+    updateStatus(`Loading analysis for paper ID: ${paperId}...`);
     
-    // First try to load from local storage
-    const result = await chrome.storage.local.get([storageKey]);
-    analysis = result[storageKey];
+    try {
+      // Try to fetch analysis from backend using paperID and scholar URL
+      const analysis = await fetchAnalysisFromBackend(paperId, requestedScholarUrl);
+      if (analysis && analysis.summary) {
+        console.log('Successfully loaded analysis from backend');
+        clearStatus();
+        displayAnalysisResults(analysis);
+        setupAnalysisViewUI(analysis);
+        setupButtonEventListeners(); // Set up event listeners for analysis view
+      } else {
+        const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
+        updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
+      }
+    } catch (error) {
+      console.error('Error loading analysis:', error);
+      updateStatus(`Error loading analysis: ${error.message}`, true);
+    }
 
-    if (viewMode === 'authors' && analysis && analysis.data?.author_data) {
-      displayAuthorAnalysis(analysis.data.author_data);
-      if (summaryDiv) summaryDiv.style.display = 'block'; // Ensure visible for author analysis
-      if (chatSection) chatSection.style.display = 'none';
-      // Hide status, but show header with only backBtn
+  // Helper function to setup Authors view UI
+  function setupAuthorsViewUI(authorData) {
       const header = document.querySelector('.header');
       const statusDiv = document.getElementById('status');
       const analysisContent = document.getElementById('analysisContent');
@@ -1886,177 +1975,108 @@ document.addEventListener('DOMContentLoaded', function() {
       const analyzeBtn = document.getElementById('analyzeBtn');
       const clearBtn = document.getElementById('clearBtn');
       const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
+      
       if (statusDiv) statusDiv.style.display = 'none';
       if (analysisContent) analysisContent.style.display = 'block';
       if (paperInfo) paperInfo.style.display = 'block';
+    if (summaryDiv) summaryDiv.style.display = 'block';
+    if (chatSection) chatSection.style.display = 'none';
       if (header) header.style.display = 'flex';
-      if (backBtn) backBtn.style.display = 'inline-block';
-      if (analyzeBtn) analyzeBtn.style.display = 'none';
-      if (clearBtn) clearBtn.style.display = 'none';
+    if (backBtn) {
+      backBtn.style.display = 'inline-block';
+      backBtn.textContent = 'Back to Analysis';
+    }
+    if (analyzeBtn) analyzeBtn.style.display = 'none'; // Hide redundant button
+    if (clearBtn) {
+      clearBtn.style.display = 'inline-block';
+      clearBtn.textContent = 'Go to Homepage';
+    }
       if (viewAuthorsBtn) viewAuthorsBtn.style.display = 'none';
+      
       // Set paper title and meta if available
-      if (analysis.data.content) {
+    if (authorData.content) {
         const paperTitle = document.getElementById('paperTitle');
         const paperMeta = document.getElementById('paperMeta');
-        if (paperTitle) paperTitle.textContent = analysis.data.content.title || '';
+      if (paperTitle) paperTitle.textContent = authorData.content.title || '';
         if (paperMeta) {
-          const authors = (analysis.data.content.authors || []).join(', ');
-          const analyzed = analysis.timestamp ? new Date(analysis.timestamp).toLocaleDateString() : '';
-          const metaInfo = `Paper ID: ${analysis.data.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
+        const authors = (authorData.content.authors || []).join(', ');
+        const analyzed = authorData.timestamp ? new Date(authorData.timestamp).toLocaleDateString() : '';
+        const metaInfo = `Paper ID: ${authorData.content.paperId || ''} | Authors: ${authors} | Analyzed: ${analyzed}`;
           paperMeta.textContent = metaInfo;
         }
       }
-      return;
     }
+
+  // Helper function to display analysis results
+  function displayAnalysisResults(analysis) {
+    let summary = '';
     
+    // Handle both backend response format (flat) and stored format (nested)
     if (analysis) {
-      console.log('Found analysis in local storage:', analysis);
-    } else {
-      console.log('No analysis found in local storage, checking if analysis is in progress...');
-      
-      // Check if analysis is currently in progress
-      const status = await getAnalysisStatus(paperId);
-      if (status && status.status === 'in_progress') {
-        console.log('Analysis is in progress, waiting for completion...');
-        updateStatus('Analysis in progress, please wait...');
-        
-        // Wait for analysis to complete (poll every 2 seconds)
-        let waitAttempts = 0;
-        const maxWaitAttempts = 60; // Wait up to 2 minutes
-        
-        while (waitAttempts < maxWaitAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-          waitAttempts++;
-          
-          // Check if analysis is complete by looking for stored results
-          const updatedResult = await chrome.storage.local.get([storageKey]);
-          if (updatedResult[storageKey]) {
-            console.log('Analysis completed, found results in storage');
-            analysis = updatedResult[storageKey];
-            updateStatus('Analysis completed, loading results...');
-            break;
-          }
-          
-          // Check status
-          const updatedStatus = await getAnalysisStatus(paperId);
-          if (updatedStatus && updatedStatus.status === 'error') {
-            console.log('Analysis failed with error:', updatedStatus.errorMessage);
-            updateStatus(`Analysis failed: ${updatedStatus.errorMessage || 'Unknown error'}`, true);
-            break;
-          } else if (!updatedStatus || updatedStatus.status !== 'in_progress') {
-            console.log('Analysis status changed unexpectedly:', updatedStatus);
-            break;
-          }
-          
-          // Update status to show we're still waiting
-          updateStatus(`Analysis in progress, please wait... (${waitAttempts * 2}s)`);
-        }
-        
-        if (waitAttempts >= maxWaitAttempts && !analysis) {
-          console.log('Timeout waiting for analysis to complete');
-          updateStatus('Analysis is taking longer than expected. Please try refreshing the page.', true);
-          await clearStaleAnalysisStatus();
-        }
-      } else {
-        // No analysis in progress, try to fetch from backend as fallback
-        console.log('No analysis in progress, checking backend for existing analysis...');
-        updateStatus('Checking backend for existing analysis...');
-        
-        try {
-          const backendAnalysis = await fetchAnalysisFromBackend(paperId, requestedScholarUrl);
-          if (backendAnalysis) {
-            console.log('Found analysis on backend:', backendAnalysis);
-            analysis = backendAnalysis;
-            const scholarInfo = requestedScholarUrl ? ` (Scholar: ${requestedScholarUrl})` : '';
-            updateStatus(`Successfully loaded analysis from backend${scholarInfo}`);
-          } else {
-            console.log('No analysis found on backend');
-            const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
-            updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
-          }
-        } catch (error) {
-          console.error('Error fetching from backend:', error);
-          updateStatus(`Error connecting to backend: ${error.message}`, true);
-        }
+      if (analysis.data && typeof analysis.data === 'object' && analysis.data.summary) {
+        // Nested format (from local storage)
+        summary = analysis.data.summary;
+        console.log('Using nested summary from analysis.data.summary');
+      } else if (analysis.summary) {
+        // Flat format (from backend) or fallback
+        summary = analysis.summary;
+        console.log('Using direct summary from analysis.summary');
       }
     }
     
-    console.log('Final analysis data to display:', analysis);
-    
-    if (analysis) {
-      // Clear any existing status messages
-      clearStatus();
+    if (summary && typeof summary === 'string' && summary.trim()) {
+      // Remove script tags for security, preserve markdown content
+      summary = summary.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      const html = markdownToHtml(summary);
       
-      // Check if the analysis contains an error
-      if (analysis.summary === 'Error generating analysis' || analysis.error) {
-        console.log('Found error state in cached analysis, clearing and retrying...');
-        await chrome.storage.local.remove([storageKey]);
-        await clearStaleAnalysisStatus();
-        analysis = null;
-        // Show upload section if analysis is cleared due to error
-        if (uploadSection) {
-          uploadSection.style.display = 'block';
+      if (html && summaryDiv) {
+        summaryDiv.innerHTML = html;
+        summaryDiv.style.display = 'block';
+        console.log('Summary displayed successfully, length:', summary.length);
         }
-        updateStatus('Previous analysis had errors and was cleared. Please try uploading the paper again.', true);
-        return;
       } else {
-        // Show appropriate status message first
-        if (analysis.autoAnalyzed) {
-          updateStatus(`DONE: PDF automatically analyzed at ${new Date(analysis.timestamp).toLocaleString()}`);
-          updateStatus('Analysis completed automatically when PDF was loaded');
-        } else {
-          updateStatus(`Loaded analysis for paper ID: ${paperId} from ${new Date(analysis.timestamp).toLocaleString()}`);
-        }
-      }
-      
-      // Get summary from either analysis.summary or analysis.data.summary
-      let summary = '';
-      if (analysis && analysis.data && typeof analysis.data === 'object') {
-        summary = analysis.data.summary || analysis.summary || '';
-      } else if (analysis) {
-        summary = analysis.summary || '';
-      }
-      
-      // Display the summary if available and valid
-      if (summary && typeof summary === 'string' && summary.trim()) {
-        try {
-          // Only remove script tags for security, preserve markdown content
-          summary = summary
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-            
-          const html = markdownToHtml(summary);
-          if (html) {
-            // Show the analysis content structure
-            if (analysisContent) {
-              analysisContent.style.display = 'block';
-            }
-            
-            // Display the summary content
-            if (summaryDiv) {
-              summaryDiv.innerHTML = html;
-              summaryDiv.style.display = 'block';
-            }
-            
-            // Enable chat section if we have content and not in authors view
-            if (analysis.content && viewMode !== 'authors') {
-              // Check for various content fields that might contain the paper data
+      console.log('No valid summary found to display');
+    }
+  }
+
+  // Helper function to setup Analysis view UI
+  function setupAnalysisViewUI(analysis) {
+    const analysisContent = document.getElementById('analysisContent');
+    const paperInfo = document.getElementById('paperInfo');
+    const paperTitle = document.getElementById('paperTitle');
+    const paperMeta = document.getElementById('paperMeta');
+    const header = document.querySelector('.header');
+    const backBtn = document.getElementById('backBtn');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    
+    // Show analysis content structure
+    if (analysisContent) analysisContent.style.display = 'block';
+    if (paperInfo) paperInfo.style.display = 'block';
+    if (header) header.style.display = 'flex';
+    
+    // Configure buttons for analysis view
+    if (backBtn) backBtn.style.display = 'none'; // No back button for analysis view
+    if (analyzeBtn) analyzeBtn.style.display = 'none'; // Hide redundant button
+    if (clearBtn) {
+      clearBtn.style.display = 'inline-block';
+      clearBtn.textContent = 'Go to Homepage';
+    }
+    
+    // Enable chat section if we have content
+    if (analysis.content) {
               const hasContent = analysis.content.paperContent || 
                                 analysis.content.abstract || 
                                 analysis.content.file_content ||
-                                analysis.content.title; // Even just having a title is enough for chat
+                        analysis.content.title;
               
               if (hasContent) {
               currentPdfContent = analysis.content;
-              if (chatSection) {
-                chatSection.style.display = 'block';
-                console.log('Chat enabled: Paper content loaded from stored analysis');
-                }
-              } else {
-                console.log('No suitable content found for chat:', analysis.content);
-              }
-            }
-            
-            // Set paper information if available
+        if (chatSection) chatSection.style.display = 'block';
+      }
+    }
+    
+    // Set paper information
             if (analysis.content) {
               if (paperTitle && analysis.content.title) {
                 paperTitle.textContent = analysis.content.title;
@@ -2070,86 +2090,132 @@ document.addEventListener('DOMContentLoaded', function() {
               }
             }
             
-            // Show analysis selector if we have a paper ID (indicating multiple analyses might be available)
-            if (paperId) {
-              showAnalysisSelector(paperId, requestedScholarUrl);
-            }
-          }
-        } catch (error) {
-          console.error('Error rendering summary:', error);
-          updateStatus('Error displaying analysis summary', true);
-        }
+    // Show View Author Analysis button if author data is available
+    // Handle both backend format (flat) and stored format (nested)
+    const hasAuthorData = (analysis.data && analysis.data.author_data) || analysis.author_data;
+    if (hasAuthorData && viewAuthorsBtn) {
+      viewAuthorsBtn.style.display = 'inline-block';
+      viewAuthorsBtn.style.backgroundColor = '#4CAF50';
       }
     }
-  })();
 
-  // Set up event listeners for buttons
-  if (viewAuthorsBtn) {
-    viewAuthorsBtn.addEventListener('click', function() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const paperId = urlParams.get('paperID');
-      if (paperId) {
-        const authorsUrl = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&view=authors';
-        window.location.href = authorsUrl;
-      }
-    });
-  }
-
-  if (backBtn) {
-    backBtn.addEventListener('click', function() {
-      const urlParams = new URLSearchParams(window.location.search);
-      // Use global viewMode variable (no need to redeclare)
-      const paperId = urlParams.get('paperID');
-      
-      if (viewMode === 'authors' && paperId) {
-        // Go back to main analysis view
-        const mainUrl = chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
-        window.location.href = mainUrl;
-      } else {
-        // Go back to extension popup or previous page
-        window.history.back();
-      }
-    });
-  }
-
-  if (clearBtn) {
-    clearBtn.addEventListener('click', async function() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const paperId = urlParams.get('paperID');
-      if (paperId && confirm('Are you sure you want to clear this analysis? This action cannot be undone.')) {
-        const storageKey = `analysis_${paperId}`;
-        await chrome.storage.local.remove([storageKey]);
-        await setAnalysisStatus(paperId, 'not_started');
-        updateStatus('Analysis cleared successfully.', false);
-        // Redirect to main fullpage interface
-        window.location.href = chrome.runtime.getURL('fullpage.html');
-      }
-    });
-  }
-
-  // Set up chat functionality event listeners
-  if (sendBtn && chatInput) {
-    sendBtn.addEventListener('click', async function() {
-      const message = chatInput.value.trim();
-      if (message) {
-        chatInput.value = '';
-        await handleChat(message);
-      }
-    });
+  // Function to set up all event listeners after view setup is complete
+  function setupButtonEventListeners() {
+    console.log('🔧 Setting up button event listeners for view mode:', viewMode);
+    const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
+    const backBtn = document.getElementById('backBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatInput = document.getElementById('chatInput');
     
-    chatInput.addEventListener('keypress', async function(event) {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
+    console.log('🔍 Button elements found:', {
+      viewAuthorsBtn: !!viewAuthorsBtn,
+      backBtn: !!backBtn,
+      clearBtn: !!clearBtn,
+      sendBtn: !!sendBtn,
+      chatInput: !!chatInput
+    });
+
+    // Debug: Check button visibility and display
+    if (backBtn) {
+      console.log('📍 Back button display:', backBtn.style.display, 'visible:', backBtn.offsetWidth > 0 && backBtn.offsetHeight > 0);
+    }
+    if (clearBtn) {
+      console.log('📍 Clear button display:', clearBtn.style.display, 'visible:', clearBtn.offsetWidth > 0 && clearBtn.offsetHeight > 0);
+    }
+
+    // Button event listeners
+    if (viewAuthorsBtn) {
+      viewAuthorsBtn.addEventListener('click', async function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paperId = urlParams.get('paperID');
+        if (paperId) {
+          const authorsUrl = await buildFullpageUrl(paperId, { view: 'authors' });
+          window.location.href = authorsUrl;
+        }
+      });
+    }
+
+    if (backBtn) {
+      console.log('Setting up back button event listener');
+      backBtn.addEventListener('click', async function() {
+        console.log('Back button clicked! Current view mode:', viewMode);
+        const urlParams = new URLSearchParams(window.location.search);
+        const paperId = urlParams.get('paperID');
+        
+        // Back button is only shown in authors view, so always go back to analysis view
+        if (viewMode === 'authors' && paperId) {
+          console.log('Navigating back to analysis view for paper:', paperId);
+          const mainUrl = await buildFullpageUrl(paperId);
+          window.location.href = mainUrl;
+        } else {
+          console.warn('Back button clicked outside of authors view');
+          // Fallback: go to homepage
+          window.location.href = chrome.runtime.getURL('fullpage.html');
+        }
+      });
+    }
+
+    if (clearBtn) {
+      console.log('Setting up clear/homepage button event listener');
+      clearBtn.addEventListener('click', async function() {
+        console.log('Clear/Homepage button clicked');
+        // "Go to Homepage" - simply redirect to fullpage without parameters
+        window.location.href = chrome.runtime.getURL('fullpage.html');
+      });
+    }
+
+    // Chat functionality event listeners
+    if (sendBtn && chatInput) {
+      sendBtn.addEventListener('click', async function() {
         const message = chatInput.value.trim();
         if (message) {
           chatInput.value = '';
           await handleChat(message);
         }
-      }
-    });
-  } else {
-    console.warn('sendBtn or chatInput not found');
+      });
+      
+      chatInput.addEventListener('keypress', async function(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          const message = chatInput.value.trim();
+          if (message) {
+            chatInput.value = '';
+            await handleChat(message);
+          }
+        }
+      });
+    } else {
+      console.warn('sendBtn or chatInput not found');
+    }
   }
+
+  // Global debug function to test buttons from console
+  window.testButtons = function() {
+    console.log('🧪 Testing button functionality...');
+    console.log('Current view mode:', viewMode);
+    
+    const backBtn = document.getElementById('backBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    
+    if (backBtn && backBtn.style.display !== 'none') {
+      console.log('🔙 Back button is visible, testing click...');
+      backBtn.click();
+    } else {
+      console.log('🔙 Back button is hidden or not found');
+    }
+    
+    setTimeout(() => {
+      if (clearBtn && clearBtn.style.display !== 'none') {
+        console.log('🏠 Clear/Homepage button is visible, testing click...');
+        clearBtn.click();
+      } else {
+        console.log('🏠 Clear/Homepage button is hidden or not found');
+      }
+    }, 1000);
+  };
+
+
   
   // Set up model selection event listeners
   function setupModelSelection() {
@@ -2348,5 +2414,113 @@ document.addEventListener('DOMContentLoaded', function() {
     };
   }
   
+  // Add function to fetch author data using the new author endpoints
+  async function fetchAuthorDataFromBackend(paperId, requestedScholarUrl = null) {
+    try {
+      // Use smart backend detection to get the correct backend URL
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for fetching author data');
+        return null;
+      }
+      
+      // Build URL with scholar parameter if specified
+      let url = `${backend.url}${CONFIG.AUTHOR_DATA_ENDPOINT}/${encodeURIComponent(paperId)}`;
+      if (requestedScholarUrl) {
+        url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
+      }
+      console.log('Trying to fetch author data from backend:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.log('Backend returned non-OK for author data:', response.status, response.statusText);
+        
+        if (response.status === 404) {
+          console.log('Author data not found on backend for paper:', paperId);
+          return null;
+        } else if (response.status >= 500) {
+          throw new Error(`Backend server error: ${response.status} - ${response.statusText}`);
+        } else {
+          throw new Error(`Backend error: ${response.status} - ${response.statusText}`);
+        }
+      }
+      
+      const data = await response.json();
+      console.log('Received author data from backend:', data);
+      
+      if (data && data.author_data) {
+        // Store in local storage for future use
+        const storageKey = `analysis_${paperId}`;
+        
+        const authorDataResult = {
+          timestamp: new Date().toISOString(),
+          paperId: paperId,
+          content: data.paper_metadata || {
+            title: 'Unknown Title',
+            paperContent: '',
+            paperUrl: '',
+            paperId: paperId,
+            abstract: '',
+            authors: []
+          },
+          data: {
+            author_data: data.author_data
+          },
+          autoAnalyzed: true
+        };
+        
+        console.log('Storing author data result:', authorDataResult);
+        const storageData = {};
+        storageData[storageKey] = authorDataResult;
+        await chrome.storage.local.set(storageData);
+        return authorDataResult;
+      }
+      return null;
+    } catch (err) {
+      console.error('Error fetching author data from backend:', err);
+      return null;
+    }
+  }
+
+  // Add function to get all author data configurations for a paper
+  async function getAllAuthorDataConfigurations(paperId) {
+    try {
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for fetching author configurations');
+        return [];
+      }
+      
+      const url = `${backend.url}${CONFIG.ALL_AUTHOR_DATA_ENDPOINT}/${encodeURIComponent(paperId)}`;
+      console.log('Trying to fetch all author configurations for paper:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.log('Backend returned non-OK for author configurations:', response.status, response.statusText);
+        return [];
+      }
+      
+      const data = await response.json();
+      console.log('Received author configurations from backend:', data);
+      
+      return data.configurations || [];
+    } catch (err) {
+      console.error('Error fetching author configurations:', err);
+      return [];
+    }
+  }
+
   })(); // End of initializePage async IIFE
 });

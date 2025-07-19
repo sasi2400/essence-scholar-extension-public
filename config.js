@@ -9,7 +9,7 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-3-1-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-3-2-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 3,
       enabled: true
@@ -26,6 +26,9 @@ const CONFIG = {
   HEALTH_ENDPOINT: '/health',
   VERSION_ENDPOINT: '/version',
   ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
+  // New author data endpoints
+  AUTHOR_DATA_ENDPOINT: '/authors',
+  ALL_AUTHOR_DATA_ENDPOINT: '/authors/all',
   // SSE streaming endpoint for progressive analysis
   ANALYZE_STREAM_ENDPOINT: '/analyze-stream',
   

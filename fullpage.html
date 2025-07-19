@@ -643,6 +643,7 @@
     }
     #analyzeBtn {
       background-color: #4CAF50;
+      display: none; /* Hidden by default - redundant */
     }
     #analyzeBtn:hover {
       background-color: #45a049;
@@ -650,16 +651,17 @@
     }
     #backBtn {
       background-color: #6c757d;
+      display: none; /* Hidden by default - only shown in authors view */
     }
     #backBtn:hover {
       background-color: #5a6268;
       transform: translateY(-1px);
     }
     #clearBtn {
-      background-color: #dc3545;
+      background-color: #28a745; /* Changed to green for "Go to Homepage" */
     }
     #clearBtn:hover {
-      background-color: #c82333;
+      background-color: #218838;
       transform: translateY(-1px);
     }
     .summary {
@@ -1174,9 +1176,9 @@
     <div class="header">
       <h1>SSRN Paper Summarizer</h1>
       <div class="button-group">
-        <button id="analyzeBtn" class="button">Analyze New Paper</button>
-        <button id="backBtn" class="button">Back</button>
-        <button id="clearBtn" class="button">Clear</button>
+        <button id="analyzeBtn" class="button" style="display: none;">Analyze New Paper</button>
+        <button id="backBtn" class="button" style="display: none;">Back to Analysis</button>
+        <button id="clearBtn" class="button">Go to Homepage</button>
         <button id="viewAuthorsBtn" class="button" style="background-color: #9C27B0;">View Author Analysis</button>
       </div>
     </div>
