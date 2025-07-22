@@ -6,6 +6,29 @@ document.addEventListener('DOMContentLoaded', function() {
   let viewMode = null; // Will be set from URL parameters
   let isHomepage = false; // Track if we're on homepage
   
+  // Helper functions defined early for accessibility
+  function buildAnalysisUrl(analysisId, additionalParams = {}) {
+    try {
+      const baseUrl = chrome.runtime.getURL('fullpage.html');
+      let url = `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
+      
+      // Add any additional parameters
+      Object.keys(additionalParams).forEach(key => {
+        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
+      });
+      
+      return url;
+    } catch (error) {
+      console.error('Error building analysis URL:', error);
+      const baseUrl = chrome.runtime.getURL('fullpage.html');
+      return `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
+    }
+  }
+  
+  function getHomepageUrl() {
+    return chrome.runtime.getURL('fullpage.html');
+  }
+  
   console.log('Fullpage loaded: DOMContentLoaded event fired');
   
   // Debug function to test button functionality - accessible from console
@@ -194,12 +217,16 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       const paperId = paper.paper_id || paper.paperId || '';
       const hasAnalysis = paper.analysis_count > 0;
+      const analysisId = paper.latest_analysis_id || null; // Get analysis_id from backend
       
       return `
-        <div class="search-result-item" data-paper-id="${paperId}">
+        <div class="search-result-item ${hasAnalysis ? 'has-analysis' : 'no-analysis'}" 
+             data-paper-id="${paperId}" 
+             data-analysis-id="${analysisId || ''}"
+             data-has-analysis="${hasAnalysis}">
           <div class="search-result-title">${title}</div>
           <div class="search-result-meta">
-            Paper ID: ${paperId} ${hasAnalysis ? `• Analyzed on ${new Date(paper.updated_at).toLocaleDateString()}` : '• Not analyzed'}
+            Paper ID: ${paperId} ${hasAnalysis ? `• <span style="color: #28a745; font-weight: 600;">✅ Analyzed on ${new Date(paper.updated_at).toLocaleDateString()}</span>` : '• <span style="color: #6c757d;">📄 Not analyzed</span>'}
           </div>
           <div class="search-result-authors">${authors ? authors : '<span style=\'color:#bbb\'>No authors found</span>'}</div>
         </div>
@@ -211,15 +238,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add click handlers for navigation
     Array.from(searchResults.getElementsByClassName('search-result-item')).forEach(item => {
-      item.addEventListener('click', async function() {
+      item.addEventListener('click', async function(event) {
+        // Prevent any default behavior and stop event bubbling
+        event.preventDefault();
+        event.stopPropagation();
+        
+        console.log('🔍 Search result clicked!');
         const paperId = this.getAttribute('data-paper-id');
-        if (paperId) {
-          // Generate analysisId for navigation
-          const settings = await chrome.storage.local.get(['userSettings']);
-          const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-          const analysisId = await generateAnalysisId(paperId, userScholarUrl);
-          const fullpageUrl = buildAnalysisUrl(analysisId);
-          window.location.href = fullpageUrl;
+        const analysisId = this.getAttribute('data-analysis-id');
+        const hasAnalysis = this.getAttribute('data-has-analysis') === 'true';
+        
+        console.log('🔍 Paper ID:', paperId);
+        console.log('🔍 Analysis ID from backend:', analysisId);
+        console.log('🔍 Has analysis:', hasAnalysis);
+        
+        if (hasAnalysis && analysisId) {
+          try {
+            // Use the analysis_id directly from the backend
+            console.log('🔍 Using analysis_id from backend for navigation');
+            const fullpageUrl = buildAnalysisUrl(analysisId);
+            console.log('🔍 Navigating to:', fullpageUrl);
+            window.location.href = fullpageUrl;
+          } catch (error) {
+            console.error('🔍 Error in backend analysis_id navigation:', error);
+          }
+        } else if (paperId) {
+          // Fallback: generate analysis_id if not available from backend
+          try {
+            console.log('🔍 Fallback: generating analysis_id from paper_id');
+            const settings = await chrome.storage.local.get(['userSettings']);
+            const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+            const generatedAnalysisId = await generateAnalysisId(paperId, userScholarUrl);
+            console.log('🔍 Generated analysis ID:', generatedAnalysisId);
+            
+            const fullpageUrl = buildAnalysisUrl(generatedAnalysisId);
+            console.log('🔍 Built URL:', fullpageUrl);
+            window.location.href = fullpageUrl;
+          } catch (error) {
+            console.error('🔍 Error in fallback analysis ID generation:', error);
+          }
+        } else {
+          console.log('🔍 No paper ID found');
         }
       });
     });
@@ -798,10 +857,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function getAnalysisIdFromUrl() {
     return getUrlParams().get('analysisID');
-  }
-
-  function getHomepageUrl() {
-    return chrome.runtime.getURL('fullpage.html');
   }
 
   function navigateToHomepage() {
@@ -2886,22 +2941,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Helper function to build URLs with analysisId (new approach)
-  function buildAnalysisUrl(analysisId, additionalParams = {}) {
-    try {
-      let url = getHomepageUrl() + '?analysisID=' + encodeURIComponent(analysisId);
-      
-      // Add any additional parameters
-      Object.keys(additionalParams).forEach(key => {
-        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
-      });
-      
-      return url;
-    } catch (error) {
-      console.error('Error building analysis URL:', error);
-      return getHomepageUrl() + '?analysisID=' + encodeURIComponent(analysisId);
-    }
-  }
 
   // Helper function to get current analysis ID from URL or generate it from paperId + scholar
   async function getCurrentAnalysisId() {
