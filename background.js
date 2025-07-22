@@ -246,14 +246,21 @@ async function pollAnalysisStatus(paperId) {
   console.log('[BG] Polling analysis status for paper:', paperId, 'using backend:', monitorInfo.backend.url);
   
   try {
-    const statusUrl = `${monitorInfo.backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
+    // Generate analysis_id from paperId and scholar URL
+    const settings = await chrome.storage.local.get(['userSettings']);
+    const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+    const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+    
+    console.log('[BG] Generated analysisId for polling:', analysisId);
+    
+    const statusUrl = `${monitorInfo.backend.url}/analysis-status/${encodeURIComponent(analysisId)}`;
     const response = await fetch(statusUrl);
     
     console.log('[BG] Status response:', response.status, response.statusText);
     
     if (!response.ok) {
       if (response.status === 404) {
-        console.log('[BG] Analysis status not found for paper:', paperId);
+        console.log('[BG] Analysis status not found for analysis:', analysisId);
         return;
       }
       throw new Error(`Status check failed: ${response.status}`);
@@ -756,8 +763,11 @@ async function triggerPDFAnalysis(tabId) {
       chrome.action.setBadgeText({ text: '...' });
       chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
 
-      // Get LLM settings
+      // Get LLM settings and user settings
       const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+      const userSettings = (await chrome.storage.local.get(['userSettings'])).userSettings || {};
+      const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const researchInterests = userSettings.researchInterests || '';
       
       // Use global backend instead of per-tab
       let backend = await BackendManager.getCurrentBackend();
@@ -770,6 +780,9 @@ async function triggerPDFAnalysis(tabId) {
           body: JSON.stringify({
             content: paperContent || { paperUrl },
             model: llmSettings.model,
+            user_scholar_url: userScholarUrl,
+            research_interests: researchInterests,
+            google_api_key: llmSettings.geminiKey || undefined,
             openai_api_key: llmSettings.openaiKey || undefined,
             claude_api_key: llmSettings.claudeKey || undefined
           })
@@ -784,6 +797,8 @@ async function triggerPDFAnalysis(tabId) {
           body: JSON.stringify({
             content: paperContent || { paperUrl },
             model: llmSettings.model,
+            user_scholar_url: userScholarUrl,
+            research_interests: researchInterests,
             google_api_key: llmSettings.geminiKey || undefined,
             openai_api_key: llmSettings.openaiKey || undefined,
             claude_api_key: llmSettings.claudeKey || undefined
@@ -803,11 +818,15 @@ async function triggerPDFAnalysis(tabId) {
 
       console.log('Background: Analysis completed successfully, storing results for paper:', paperId);
 
+      // Generate consistent analysis_id using the same logic as backend
+      const generatedAnalysisId = await generateAnalysisId(paperId, userScholarUrl);
+
       // Store the full analysis result in the same format that fullpage expects
       const storageKey = `analysis_${paperId}`;
       const analysisResult = {
         timestamp: new Date().toISOString(),
         paperId: paperId,
+        analysisId: data.analysis_id || generatedAnalysisId, // Use backend analysis_id or generate consistent one
         content: paperContent || { 
           paperUrl: paperUrl,
           paperId: paperId,
@@ -1164,3 +1183,14 @@ chrome.runtime.onConnect.addListener((port) => {
     // Clean up any resources if needed
   });
 }); 
+
+// Function to generate analysis_id consistently with backend
+async function generateAnalysisId(paperId, userScholarUrl) {
+  const combined = `${paperId}_${userScholarUrl}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(combined);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex.substring(0, 32);
+} 

@@ -42,7 +42,56 @@ document.addEventListener('DOMContentLoaded', async function() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    // Helper function to build fullpage URL with scholar parameters
+    // Helper function to generate analysis_id consistently with backend
+    async function generateAnalysisId(paperId, userScholarUrl) {
+        const combined = `${paperId}_${userScholarUrl}`;
+        const encoder = new TextEncoder();
+        const data = encoder.encode(combined);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        return hashHex.substring(0, 32);
+    }
+
+    // Helper function to build fullpage URL with analysisID (new approach)
+    function buildAnalysisUrl(analysisId, additionalParams = {}) {
+        const baseUrl = chrome.runtime.getURL('fullpage.html');
+        const params = new URLSearchParams();
+        
+        if (analysisId) {
+            params.set('analysisID', analysisId);
+        }
+        
+        // Add any additional parameters
+        Object.entries(additionalParams).forEach(([key, value]) => {
+            if (value !== undefined && value !== null) {
+                params.set(key, value);
+            }
+        });
+        
+        return `${baseUrl}?${params.toString()}`;
+    }
+
+    // Helper function to build fullpage URL using analysisID (preferred method)
+    async function buildFullpageUrlWithAnalysisId(paperId, additionalParams = {}) {
+        try {
+            // Get current scholar URL from settings
+            const settings = await chrome.storage.local.get(['userSettings']);
+            const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+            
+            // Generate analysisId
+            const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+            
+            // Use the new analysisID approach
+            return buildAnalysisUrl(analysisId, additionalParams);
+        } catch (error) {
+            console.error('Error building analysisID URL, falling back to legacy:', error);
+            // Fallback to legacy method
+            return await buildFullpageUrl(paperId, additionalParams);
+        }
+    }
+
+    // Legacy function - kept for backward compatibility
     async function buildFullpageUrl(paperId, additionalParams = {}) {
         const baseUrl = chrome.runtime.getURL('fullpage.html');
         const params = new URLSearchParams();
@@ -72,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     backBtn.addEventListener('click', async function() {
         // Go back to fullpage analysis
         if (currentPaperId) {
-            const fullpageUrl = await buildFullpageUrl(currentPaperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(currentPaperId);
             chrome.tabs.create({ url: fullpageUrl });
         } else {
             window.history.back();

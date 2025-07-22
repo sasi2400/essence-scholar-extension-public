@@ -2,7 +2,26 @@ document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
   
-  // Helper function to build fullpage URL with scholar parameters
+  // Helper function to build fullpage URL with analysisID (new approach)
+  function buildAnalysisUrl(analysisId, additionalParams = {}) {
+    const baseUrl = chrome.runtime.getURL('fullpage.html');
+    const params = new URLSearchParams();
+    
+    if (analysisId) {
+      params.set('analysisID', analysisId);
+    }
+    
+    // Add any additional parameters
+    Object.entries(additionalParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        params.set(key, value);
+      }
+    });
+    
+    return `${baseUrl}?${params.toString()}`;
+  }
+
+  // Legacy function - kept for backward compatibility
   async function buildFullpageUrl(paperId, additionalParams = {}) {
     const baseUrl = chrome.runtime.getURL('fullpage.html');
     const params = new URLSearchParams();
@@ -26,6 +45,25 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     return `${baseUrl}?${params.toString()}`;
+  }
+
+  // Helper function to build fullpage URL using analysisID (preferred method)
+  async function buildFullpageUrlWithAnalysisId(paperId, additionalParams = {}) {
+    try {
+      // Get current scholar URL from settings
+      const settings = await chrome.storage.local.get(['userSettings']);
+      const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      
+      // Generate analysisId
+      const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+      
+      // Use the new analysisID approach
+      return buildAnalysisUrl(analysisId, additionalParams);
+    } catch (error) {
+      console.error('Error building analysisID URL, falling back to legacy:', error);
+      // Fallback to legacy method
+      return await buildFullpageUrl(paperId, additionalParams);
+    }
   }
   
   async function setAnalysisStatus(paperId, status, errorMessage = null) {
@@ -83,13 +121,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
       if (!status) {
         // No local status, check backend
-        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
         if (backendHasAnalysis) {
           showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           return;
@@ -111,13 +149,13 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Found stale in_progress status, clearing...');
         await clearStaleAnalysisStatus();
         // Check backend before showing timeout error
-        const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+        const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
         if (backendHasAnalysis) {
           showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           return;
@@ -138,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
         } else {
@@ -154,13 +192,13 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Analysis in progress, starting monitoring...');
         if (status && status.status === 'in_progress') {
           // Only show in progress if there is a previous status or backend analysis
-          const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+          const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
           if (backendHasAnalysis) {
             showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
             setButtonState('View Analysis', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
-              const fullpageUrl = await buildFullpageUrl(paperId);
+              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             return;
@@ -200,14 +238,14 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Current status check result:', currentStatus);
             
             // First check if analysis is available on backend
-            const backendHasAnalysis = await checkAnalysisOnBackend(paperId);
+            const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
             if (backendHasAnalysis) {
               clearInterval(monitorInterval);
               showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
               setButtonState('View Analysis', false, false);
               analyzeBtn.style.backgroundColor = '#4CAF50';
               analyzeBtn.onclick = async () => {
-                const fullpageUrl = await buildFullpageUrl(paperId);
+                const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
                 chrome.tabs.create({ url: fullpageUrl });
               };
               return;
@@ -230,18 +268,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 setButtonState('View Analysis', false, false);
                 analyzeBtn.style.backgroundColor = '#4CAF50';
                 analyzeBtn.onclick = async () => {
-                  const fullpageUrl = await buildFullpageUrl(paperId);
+                  const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
                   chrome.tabs.create({ url: fullpageUrl });
                 };
               } else {
                 // If local storage says complete but no results, check backend one more time
-                const backendRecheck = await checkAnalysisOnBackend(paperId);
+                const backendRecheck = await hasAnalysisOnBackend(paperId);
                 if (backendRecheck) {
                   showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
                   setButtonState('View Analysis', false, false);
                   analyzeBtn.style.backgroundColor = '#4CAF50';
                   analyzeBtn.onclick = async () => {
-                    const fullpageUrl = await buildFullpageUrl(paperId);
+                    const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
                     chrome.tabs.create({ url: fullpageUrl });
                   };
                 } else {
@@ -319,7 +357,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           showStatus('Analysis complete for this paper! Click "View Analysis" to see results.', 'success');
@@ -494,7 +532,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           
@@ -534,7 +572,7 @@ document.addEventListener('DOMContentLoaded', function() {
               const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
               if (!tab || !tab.url) return;
               const paperId = await extractSsrnIdOrUrl(tab.url);
-              const fullpageUrl = await buildFullpageUrl(paperId);
+              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             
@@ -1332,11 +1370,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             }
           });
           const unifiedId = await extractSsrnIdOrUrl(tab.url);
-          let fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
           if (unifiedId) {
-            fullpageUrl += `&paperID=${encodeURIComponent(unifiedId)}`;
-          }
+            // Use analysisID approach for author view
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(unifiedId, { view: 'authors' });
           chrome.tabs.create({ url: fullpageUrl });
+          } else {
+            // Fallback to basic author view
+            const fullpageUrl = chrome.runtime.getURL('fullpage.html') + '?view=authors';
+            chrome.tabs.create({ url: fullpageUrl });
+          }
         };
       } catch (error) {
         console.error('Error calling author analysis backend:', error);
@@ -1439,7 +1481,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           setButtonState('View Analysis', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrl(paperId);
+            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
         showStatus('Analysis exists for this paper! Click "View Analysis" or "Analyze Authors".', 'success');
@@ -1491,7 +1533,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         setButtonState('View Analysis', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
-          const fullpageUrl = await buildFullpageUrl(paperId);
+          const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
           chrome.tabs.create({ url: fullpageUrl });
         };
         // Clear analyzing state if analysis is done
@@ -1551,13 +1593,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             const settings = await chrome.storage.local.get(['llmSettings', 'userSettings']);
             const selectedModel = settings.llmSettings?.model || 'gemini-2.5-flash';
             const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+            const researchInterests = settings.userSettings?.researchInterests || '';
             const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
             
             // Create base payload
             const basePayload = {
               content: { paperUrl: tab.url },
               model: selectedModel,
-              user_scholar_url: userScholarUrl
+              user_scholar_url: userScholarUrl,
+              research_interests: researchInterests
             };
             
             // Add file content if available
@@ -1595,7 +1639,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             setButtonState('View Analysis', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
-              const fullpageUrl = await buildFullpageUrl(paperId);
+              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             
@@ -1743,7 +1787,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.url) return;
         const paperId = await extractSsrnIdOrUrl(tab.url);
-        const fullpageUrl = await buildFullpageUrl(paperId);
+        const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
         chrome.tabs.create({ url: fullpageUrl });
       };
       
@@ -1873,7 +1917,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) return;
       const paperId = await extractSsrnIdOrUrl(tab.url);
-      const fullpageUrl = await buildFullpageUrl(paperId);
+      const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
       chrome.tabs.create({ url: fullpageUrl });
     };
 
@@ -1886,9 +1930,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   }
 
   // Function to check if analysis exists on backend
-  async function checkAnalysisOnBackend(paperId) {
+  async function checkAnalysisOnBackend(analysisId) {
     try {
-      console.log('Checking backend for analysis of paper:', paperId);
+      console.log('Checking backend for analysis with ID:', analysisId);
       
       // Use smart backend detection to get the correct backend
       const backend = await backendManager.getCurrentBackend();
@@ -1897,7 +1941,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return false;
       }
       
-      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
+      const url = `${backend.url}/analysis/${encodeURIComponent(analysisId)}`;
       console.log('Checking analysis endpoint:', url);
       
       const response = await fetch(url, {
@@ -1907,46 +1951,14 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         }
       });
       
+      console.log('[DEBUG] Analysis response:', response.status, response.statusText);
+      
       if (response.ok) {
         const data = await response.json();
-        console.log('Backend has analysis data:', data);
-        
-        // Store the analysis data in local storage for immediate use
-        if (data && data.summary) {
-          // Check if the analysis contains an error state
-          if (data.summary === 'Error generating analysis' || !data.summary.trim()) {
-            console.log('Backend returned error analysis or empty summary:', data.summary);
-            return false;
-          }
-          
-          const storageKey = `analysis_${paperId}`;
-          const analysisResult = {
-            timestamp: new Date().toISOString(),
-            paperId: paperId,
-            content: data.content || {
-              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
-              paperId: paperId,
-              title: 'Paper Analysis',
-              abstract: 'Analysis loaded from backend',
-              paperContent: 'Content processed by backend'
-            },
-            summary: data.summary,
-            data: data,
-            autoAnalyzed: true
-          };
-          
-          const storageData = {};
-          storageData[storageKey] = analysisResult;
-          await chrome.storage.local.set(storageData);
-          console.log('Stored analysis data from backend');
-          
-          // Update status to complete
-          await setAnalysisStatus(paperId, 'complete');
-        }
-        
-        return true;
+        console.log('Found analysis on backend:', data.analysis_id || analysisId);
+        return data;
       } else if (response.status === 404) {
-        console.log('No analysis found on backend for paper:', paperId);
+        console.log('Analysis not found on backend');
         return false;
       } else {
         console.log('Backend returned error for analysis check:', response.status);
@@ -1958,14 +1970,39 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
+  // Backward-compatible wrapper for UI checks - returns boolean
+  async function hasAnalysisOnBackend(paperId) {
+    try {
+      // Generate analysis_id from paperId and current scholar URL
+      const settings = await chrome.storage.local.get(['userSettings']);
+      const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+      
+      console.log('[UI] Generated analysisId for UI check:', analysisId);
+      
+      const result = await checkAnalysisOnBackend(analysisId);
+      return !!result; // Convert to boolean
+    } catch (error) {
+      console.error('Error in hasAnalysisOnBackend:', error);
+      return false;
+    }
+  }
+
   // Function to check analysis status first, then completed analysis if needed
   async function checkAnalysisStatusAndCompletion(paperId, backend) {
     try {
       console.log('Checking analysis status first for paper:', paperId);
       console.log('[DEBUG] checkAnalysisStatusAndCompletion using backend:', backend?.name, backend?.url);
       
-      // First check if analysis is in progress
-      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
+      // Generate analysis_id from paperId and current scholar URL
+      const settings = await chrome.storage.local.get(['userSettings']);
+      const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+      
+      console.log('[DEBUG] Generated analysisId for status check:', analysisId);
+      
+      // First check if analysis is in progress using analysis_id
+      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(analysisId)}`;
       console.log('Checking status endpoint:', statusUrl);
       
       const statusResponse = await fetch(statusUrl, {
@@ -1979,27 +2016,57 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
-        console.log('Backend status data:', statusData);
+        console.log('[DEBUG] Status data:', statusData);
         
-        if (statusData.status === 'in_progress') {
-          console.log('Analysis is in progress');
-          return { inProgress: true, hasCompleted: false };
-        } else if (statusData.status === 'complete') {
-          console.log('Analysis status shows complete, checking for results');
-          const hasCompleted = await checkAnalysisOnBackend(paperId);
-          return { inProgress: false, hasCompleted };
-        } else if (statusData.status === 'error') {
-          console.log('Analysis status shows error');
-          return { inProgress: false, hasCompleted: false, error: statusData.errorMessage };
+        if (statusData.status === 'complete') {
+          console.log('Analysis is complete, attempting to fetch full analysis');
+          // If complete, try to get the full analysis using analysis_id
+          const fullAnalysis = await checkAnalysisOnBackend(analysisId);  // Use analysisId here too
+          if (fullAnalysis) {
+            return {
+              inProgress: false,
+              hasCompleted: true,
+              analysisData: fullAnalysis
+            };
+          } else {
+            return {
+              inProgress: false,
+              hasCompleted: false
+            };
+          }
+        } else if (statusData.status === 'in_progress' || statusData.status === 'pending') {
+          console.log('Analysis is in progress:', statusData);
+          return {
+            inProgress: true,
+            hasCompleted: false,
+            data: statusData
+          };
+        } else if (statusData.status === 'not_found') {
+          console.log('Analysis not found');
+          return {
+            inProgress: false,
+            hasCompleted: false
+          };
+        } else {
+          console.log('Unknown status:', statusData);
+          return {
+            inProgress: false,
+            hasCompleted: false
+          };
         }
       } else if (statusResponse.status === 404) {
-        console.log('No status found, checking for completed analysis');
-        // No status entry, check if completed analysis exists
-        const hasCompleted = await checkAnalysisOnBackend(paperId);
-        return { inProgress: false, hasCompleted };
+        console.log('Analysis status not found, analysis has not been started');
+        return {
+          inProgress: false,
+          hasCompleted: false
+        };
+      } else {
+        console.log('Backend returned error for status check:', statusResponse.status);
+        return {
+          inProgress: false,
+          hasCompleted: false
+        };
       }
-      
-      return { inProgress: false, hasCompleted: false };
     } catch (error) {
       console.error('Error checking analysis status and completion:', error);
       return { inProgress: false, hasCompleted: false };
@@ -2090,10 +2157,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             console.log('Backend returned error analysis or empty summary:', data.summary);
             return false;
           }
+          
+          // Generate consistent analysis_id using the same logic as backend
+          const settings = await chrome.storage.local.get(['userSettings']);
+          const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+          const generatedAnalysisId = await generateAnalysisId(paperId, userScholarUrl);
+          
           const storageKey = `analysis_${paperId}`;
           const analysisResult = {
             timestamp: new Date().toISOString(),
             paperId: paperId,
+            analysisId: data.analysis_id || generatedAnalysisId, // Use backend analysis_id or generate consistent one
             content: data.content || {
               paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
               paperId: paperId,
@@ -2308,4 +2382,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   setTimeout(() => {
     checkForUpdates();
   }, 2000); // Check for updates 2 seconds after popup loads
+
+  // Function to generate analysis_id consistently with backend
+  async function generateAnalysisId(paperId, userScholarUrl) {
+    const combined = `${paperId}_${userScholarUrl}`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(combined);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex.substring(0, 32);
+  }
 });

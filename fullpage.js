@@ -8,6 +8,72 @@ document.addEventListener('DOMContentLoaded', function() {
   
   console.log('Fullpage loaded: DOMContentLoaded event fired');
   
+  // Debug function to test button functionality - accessible from console
+  window.debugButtons = function() {
+    console.log('🔧 DEBUG: Testing button functionality');
+    const clearBtn = document.getElementById('clearBtn');
+    const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
+    
+    console.log('Button elements:', {
+      clearBtn: clearBtn,
+      viewAuthorsBtn: viewAuthorsBtn,
+      clearBtnVisible: clearBtn ? (clearBtn.offsetWidth > 0 && clearBtn.offsetHeight > 0) : false,
+      viewAuthorsBtnVisible: viewAuthorsBtn ? (viewAuthorsBtn.offsetWidth > 0 && viewAuthorsBtn.offsetHeight > 0) : false,
+      clearBtnStyles: clearBtn ? window.getComputedStyle(clearBtn) : null,
+      viewAuthorsBtnStyles: viewAuthorsBtn ? window.getComputedStyle(viewAuthorsBtn) : null
+    });
+    
+    if (clearBtn) {
+      console.log('Testing clearBtn click...');
+      clearBtn.click();
+    }
+  };
+  
+  // Manual fix function to force setup UI and listeners
+  window.forceFixButtons = async function() {
+    console.log('🔧 FORCE FIX: Manually setting up buttons');
+    await setupBasicErrorUI();
+    setupButtonEventListeners();
+    console.log('🔧 FORCE FIX: Complete. Test buttons now.');
+  };
+  
+  // Fallback function for viewAuthorsBtn onclick (called directly from HTML)
+  window.handleViewAuthorsClick = async function() {
+    console.log('🎯 View Authors button clicked via HTML onclick fallback');
+    const analysisId = await getCurrentAnalysisId();
+    console.log('🎯 Analysis ID from URL:', analysisId);
+    
+    if (analysisId) {
+      try {
+        const authorsUrl = buildAnalysisUrl(analysisId, { view: 'authors' });
+        console.log('🎯 Redirecting to authors view:', authorsUrl);
+        window.location.href = authorsUrl;
+      } catch (error) {
+        console.error('❌ Error building authors URL:', error);
+        alert('Error navigating to authors view: ' + error.message);
+      }
+    } else {
+      console.warn('⚠️  No analysis ID found, redirecting to homepage');
+      navigateToHomepage();
+    }
+  };
+  
+  // Fallback function for backBtn onclick (called directly from HTML)
+  window.handleBackClick = async function() {
+    console.log('🎯 Back button clicked via HTML onclick fallback');
+    const analysisId = await getCurrentAnalysisId();
+    
+    // Back button is only shown in authors view, so always go back to analysis view
+    if (viewMode === 'authors' && analysisId) {
+      console.log('Navigating back to analysis view with analysisId:', analysisId);
+      const mainUrl = buildAnalysisUrl(analysisId);
+      window.location.href = mainUrl;
+    } else {
+      console.warn('Back button clicked outside of authors view, going to homepage');
+      navigateToHomepage();
+    }
+  };
+  
   if (typeof CONFIG !== 'undefined') {
     console.log('Available backends:', Object.keys(CONFIG.BACKENDS));
   }
@@ -127,13 +193,13 @@ document.addEventListener('DOMContentLoaded', function() {
         authors = paper.authors;
       }
       const paperId = paper.paper_id || paper.paperId || '';
-      const hasAnalysis = paper.analysis !== null && paper.analysis !== undefined;
+      const hasAnalysis = paper.analysis_count > 0;
       
       return `
         <div class="search-result-item" data-paper-id="${paperId}">
           <div class="search-result-title">${title}</div>
           <div class="search-result-meta">
-            Paper ID: ${paperId} ${hasAnalysis ? '• Analyzed' : '• Not analyzed'}
+            Paper ID: ${paperId} ${hasAnalysis ? `• Analyzed on ${new Date(paper.updated_at).toLocaleDateString()}` : '• Not analyzed'}
           </div>
           <div class="search-result-authors">${authors ? authors : '<span style=\'color:#bbb\'>No authors found</span>'}</div>
         </div>
@@ -148,7 +214,11 @@ document.addEventListener('DOMContentLoaded', function() {
       item.addEventListener('click', async function() {
         const paperId = this.getAttribute('data-paper-id');
         if (paperId) {
-          const fullpageUrl = await buildFullpageUrl(paperId);
+          // Generate analysisId for navigation
+          const settings = await chrome.storage.local.get(['userSettings']);
+          const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+          const analysisId = await generateAnalysisId(paperId, userScholarUrl);
+          const fullpageUrl = buildAnalysisUrl(analysisId);
           window.location.href = fullpageUrl;
         }
       });
@@ -191,8 +261,12 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Local settings found:', localSettings);
       
       if (googleScholarUrl) {
-        googleScholarUrl.value = localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-        console.log('Set Google Scholar URL:', localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en');
+        const scholarUrl = localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+        googleScholarUrl.value = scholarUrl;
+        console.log('📚 Loaded Scholar URL from storage:', localSettings.googleScholarUrl);
+        console.log('📚 Set Google Scholar URL input to:', scholarUrl);
+        // Cache the scholar URL for sync access
+        window.localScholarUrlCache = scholarUrl;
       } else {
         console.warn('Google Scholar URL element not found');
       }
@@ -385,9 +459,10 @@ document.addEventListener('DOMContentLoaded', function() {
         researchInterests: settings.research_interests,
         updatedAt: new Date().toISOString()
       };
-      console.log('Saving to local storage:', localSettings);
+      console.log('📚 Saving to local storage:', localSettings);
       await chrome.storage.local.set({ userSettings: localSettings });
-      console.log('Settings saved to local storage successfully');
+      console.log('📚 Settings saved to local storage successfully');
+      console.log('📚 Scholar URL saved as:', localSettings.googleScholarUrl);
       
       // Also save current model selection if available
       const currentModelResult = await chrome.storage.local.get(['llmSettings']);
@@ -512,7 +587,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const settings = await chrome.storage.local.get(['userSettings']);
     const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
     
-            const url = await buildFullpageUrl(paperId);
+    // Generate analysisId and navigate using new approach
+    const analysisId = await generateAnalysisId(paperId, userScholarUrl);
+    const url = buildAnalysisUrl(analysisId);
     window.location.href = url;
   };
 
@@ -566,44 +643,49 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     
+    // Capture original content before try block
+    const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
+    const originalContent = uploadPlaceholder?.innerHTML;
+    
     try {
-      // Show loading state
-      const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
-      const originalContent = uploadPlaceholder.innerHTML;
+      // Process the file immediately but show waiting UI
+      // This avoids storage serialization issues
+      
+      // Show immediate loading state
       uploadPlaceholder.innerHTML = `
         <div class="loading" style="margin: 20px auto;"></div>
         <p>Processing PDF...</p>
       `;
       
-      // Switch to analysis view by hiding homepage content
+      // Switch to analysis view
       document.body.classList.remove('homepage-mode');
       
-      // Use the existing handlePdfUpload function from the original fullpage.js
+      // Process the file using existing function
       const result = await handlePdfUpload(file);
       
-      // After analysis is complete, update the URL with the paper ID and scholar URL
-      // so the page knows to display the analysis results
-      if (result && result.paperId) {
-        const currentUrl = new URL(window.location.href);
-        currentUrl.searchParams.set('paperID', result.paperId);
+      // After analysis is complete, redirect to the analysis view
+      if (result && result.analysisId) {
+        console.log('✅ Analysis complete, redirecting to results');
         
-        // Get current scholar URL from settings and add it to the URL
-        const settings = await chrome.storage.local.get(['userSettings']);
-        const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-        currentUrl.searchParams.set('scholar', userScholarUrl);
+        // Build final URL with analysisID directly
+        const finalUrl = getHomepageUrl() + '?analysisID=' + encodeURIComponent(result.analysisId);
         
-        window.history.replaceState({}, '', currentUrl.toString());
-        
-        // Trigger a page reload to properly initialize the analysis view
-        window.location.reload();
+        console.log('🎯 Redirecting to analysis results:', finalUrl);
+        window.location.href = finalUrl;
+      } else {
+        throw new Error('Analysis failed - no analysis ID returned');
       }
     } catch (error) {
       console.error('Error uploading PDF:', error);
       alert('Error uploading PDF: ' + error.message);
       
-      // Restore original content and homepage mode
-      const uploadPlaceholder = uploadArea.querySelector('.upload-placeholder');
-      uploadPlaceholder.innerHTML = originalContent;
+      // Restore original upload UI
+      const uploadPlaceholder = uploadArea?.querySelector('.upload-placeholder');
+      if (uploadPlaceholder && originalContent) {
+        uploadPlaceholder.innerHTML = originalContent;
+      }
+      
+      // Restore homepage mode
       document.body.classList.add('homepage-mode');
     }
   }
@@ -684,9 +766,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // DOM Elements - Analysis View (consolidated from multiple locations)
   // analyzeBtn removed - analysis handled via homepage upload
   const backBtn = document.getElementById('backBtn');
   const clearBtn = document.getElementById('clearBtn');
+  const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
   const statusDiv = document.getElementById('status');
   const summaryDiv = document.getElementById('summary');
   const uploadSection = document.getElementById('uploadSection');
@@ -696,15 +780,35 @@ document.addEventListener('DOMContentLoaded', function() {
   const chatMessages = document.getElementById('chatMessages');
   const chatInput = document.getElementById('chatInput');
   const sendBtn = document.getElementById('sendBtn');
-  const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
-  
-  // New content structure elements
   const analysisContent = document.getElementById('analysisContent');
   const paperInfo = document.getElementById('paperInfo');
   const paperTitle = document.getElementById('paperTitle');
   const paperMeta = document.getElementById('paperMeta');
 
   let currentPdfContent = null;
+
+  // Helper functions to avoid code duplication
+  function getUrlParams() {
+    return new URLSearchParams(window.location.search);
+  }
+
+  function getPaperIdFromUrl() {
+    return getUrlParams().get('paperID');
+  }
+
+  function getAnalysisIdFromUrl() {
+    return getUrlParams().get('analysisID');
+  }
+
+  function getHomepageUrl() {
+    return chrome.runtime.getURL('fullpage.html');
+  }
+
+  function navigateToHomepage() {
+    window.location.replace(getHomepageUrl());
+  }
+
+  // Note: Removed complex waiting state functions - now using inline processing
 
 
 
@@ -990,13 +1094,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
           const content = {
             title: file.name.replace('.pdf', ''),
-            paperId: file.name.replace('.pdf', ''),
-            paperUrl: URL.createObjectURL(file),
+            paperUrl: '',      // Don't use blob URL for ID generation
             isLocalFile: true,
             filePath: file.name,
+            fileName: file.name,
+            fileSize: file.size,
             hasPdf: true,
-        file_content: base64Content // Send as base64 string - backend expects 'file_content'
+            file_content: base64Content // Send as base64 string - backend expects 'file_content'
           };
+          
+          // Generate consistent paper ID using the same logic as popup for file:// URLs
+          const paperId = await SharedIdGenerator.generatePaperId(content);
+          content.paperId = paperId;
 
           currentPdfContent = content;
       const result = await analyzePaper(content);
@@ -1005,10 +1114,7 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error handling PDF upload:', error);
       updateStatus(`Error uploading PDF: ${error.message}`, true);
-      // Show upload section again on error
-      if (uploadSection) {
-        uploadSection.style.display = 'block';
-      }
+      // Keep upload section hidden on error - user can use "Go to Homepage" to try again
       return null;
     }
   }
@@ -1085,10 +1191,16 @@ document.addEventListener('DOMContentLoaded', function() {
       // Store the content for chat functionality
       currentPdfContent = content;
       
+      // Generate consistent analysis_id using the same logic as backend
+      const settings = await chrome.storage.local.get(['userSettings']);
+      const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const generatedAnalysisId = await generateAnalysisId(paperId, userScholarUrl);
+      
       // When storing analysis results:
       const analysisResult = {
         timestamp: new Date().toISOString(),
         paperId: paperId,
+        analysisId: data.analysis_id || generatedAnalysisId, // Use backend analysis_id or generate consistent one
         content: content,  // Store the full content
         summary: data.summary,
         data: data  // Store the entire data object
@@ -1110,17 +1222,17 @@ document.addEventListener('DOMContentLoaded', function() {
         displayAuthorAnalysis(data.author_data);
       }
       
-      // Return the paper ID so the calling function can update the URL
-      return { paperId: paperId };
+      // Return both paperId and analysisId for URL construction
+      return { 
+        paperId: paperId,
+        analysisId: data.analysis_id || generatedAnalysisId
+      };
       
     } catch (error) {
       console.error('Error analyzing paper:', error);
       updateStatus(`Analysis failed: ${error.message}`, true);
       
-      // Show upload section again on error
-      if (uploadSection) {
-        uploadSection.style.display = 'block';
-      }
+      // Keep upload section hidden on error - user can use "Go to Homepage" to try again
       
       // Update analysis status to error and clear any cached error state
       if (paperId) {
@@ -1521,7 +1633,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const userScholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
       
       // Build base URL with paperID and scholar
-      let url = chrome.runtime.getURL('fullpage.html') + 
+      let url = getHomepageUrl() + 
                 '?paperID=' + encodeURIComponent(paperId) + 
                 '&scholar=' + encodeURIComponent(userScholarUrl);
       
@@ -1534,7 +1646,7 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error building fullpage URL:', error);
       // Fallback to basic URL without scholar
-      return chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId);
+      return getHomepageUrl() + '?paperID=' + encodeURIComponent(paperId);
     }
   }
 
@@ -1547,7 +1659,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const userScholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
       
       // Build base URL with paperID, scholar, and view=authors
-      let url = chrome.runtime.getURL('fullpage.html') + 
+      let url = getHomepageUrl() + 
                 '?paperID=' + encodeURIComponent(paperId) + 
                 '&scholar=' + encodeURIComponent(userScholarUrl) +
                 '&view=authors';
@@ -1561,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error building authors view URL:', error);
       // Fallback to basic URL with view=authors
-      return chrome.runtime.getURL('fullpage.html') + '?paperID=' + encodeURIComponent(paperId) + '&view=authors';
+      return getHomepageUrl() + '?paperID=' + encodeURIComponent(paperId) + '&view=authors';
     }
   }
 
@@ -1591,12 +1703,34 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
       }
       
-      // Build URL with scholar parameter if specified
+      // If we have a scholar URL, try using the generated analysis_id first for better efficiency
+      if (requestedScholarUrl) {
+        try {
+          const generatedAnalysisId = await generateAnalysisId(paperId, requestedScholarUrl);
+          const analysisIdUrl = `${backend.url}/analysis/${encodeURIComponent(generatedAnalysisId)}`;
+          console.log('Trying to fetch analysis by generated analysis_id:', analysisIdUrl);
+          
+          const analysisIdResponse = await fetch(analysisIdUrl, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          if (analysisIdResponse.ok) {
+            const data = await analysisIdResponse.json();
+            console.log('Successfully fetched analysis using generated analysis_id:', data);
+            return data;
+          }
+        } catch (error) {
+          console.log('Failed to fetch by generated analysis_id, falling back to paper_id + scholar param:', error);
+        }
+      }
+      
+      // Fallback to original method: paper_id with scholar parameter
       let url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
       if (requestedScholarUrl) {
         url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
       }
-      console.log('Trying to fetch analysis from backend:', url);
+      console.log('Trying to fetch analysis from backend (fallback):', url);
       
       const response = await fetch(url, {
         method: 'GET',
@@ -1648,9 +1782,14 @@ document.addEventListener('DOMContentLoaded', function() {
           return null;
         }
         
+        // Generate consistent analysis_id for storage
+        const generatedAnalysisId = requestedScholarUrl ? 
+          await generateAnalysisId(paperId, requestedScholarUrl) : paperId;
+        
         const analysisResult = {
           timestamp: new Date().toISOString(),
           paperId: paperId,
+          analysisId: data.analysis_id || generatedAnalysisId,
           model: data.ai_model || data.model || 'unknown',
           content: data.content || {  // Add default content structure if not provided
             title: data.content?.title || 'Unknown Title',
@@ -1870,14 +2009,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // --- Main initialization ---
   (async function initializePage() {
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = getUrlParams();
     viewMode = urlParams.get('view'); // Set global viewMode variable
     const paperUrl = urlParams.get('paperUrl');
-    const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
-    const requestedScholarUrl = urlParams.get('scholar'); // Get requested scholar URL from URL
+    const analysisId = urlParams.get('analysisID'); // Get analysisID directly from URL
+    const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID'); // Fallback for legacy URLs
+    const requestedScholarUrl = urlParams.get('scholar'); // Get requested scholar URL from URL (legacy support)
+    // Note: Processing now happens inline during upload, no separate waiting state needed
 
-    // Scenario 1: Homepage mode (no paperID)
-    if (!paperId) {
+    // Scenario 1: Homepage mode (no paperID and no analysisID)
+    if (!paperId && !analysisId) {
       isHomepage = true;
       document.body.classList.add('homepage-mode');
       startSubtitleLoop(); // Start subtitle loop on homepage
@@ -1907,14 +2048,30 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (uploadSection) uploadSection.style.display = 'none';
       // analyzeBtn removed
+      
+      // Always set up button listeners when not in homepage mode
+      // This ensures buttons work even on error states
+      setupButtonEventListeners();
 
     // Scenario 2: Authors view
     if (viewMode === 'authors') {
-      console.log('Loading authors view for paper:', paperId);
-      updateStatus(`Loading author data for paper ID: ${paperId}...`);
+      let authorsAnalysisId = analysisId;
+      
+      // If we don't have analysisId but have paperId, generate analysisId
+      if (!authorsAnalysisId && paperId) {
+        let authorsScholar = requestedScholarUrl;
+        if (!authorsScholar) {
+          const res = await chrome.storage.local.get(['userSettings']);
+          authorsScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+        }
+        authorsAnalysisId = await generateAnalysisId(paperId, authorsScholar);
+      }
+      
+      console.log('Loading authors view with analysisId:', authorsAnalysisId);
+      updateStatus(`Loading author data...`);
       
       try {
-        const authorData = await fetchAuthorDataFromBackend(paperId, requestedScholarUrl);
+        const authorData = await fetchAuthorDataByAnalysisId(authorsAnalysisId);
         if (authorData && authorData.data?.author_data) {
           console.log('Successfully loaded author data');
           clearStatus();
@@ -1927,17 +2084,34 @@ document.addEventListener('DOMContentLoaded', function() {
       } catch (error) {
         console.error('Error loading author data:', error);
         updateStatus(`Error loading author data: ${error.message}`, true);
+        // Set up basic UI and button listeners even on error
+        await setupBasicErrorUI();
+        setupButtonEventListeners();
       }
       return;
     }
 
-    // Scenario 3: Analysis view (paperID + optional scholar URL)
-    console.log('Loading analysis view for paper:', paperId, 'with scholar:', requestedScholarUrl);
-    updateStatus(`Loading analysis for paper ID: ${paperId}...`);
+    // Scenario 3: Analysis view (analysisID or paperID + optional scholar URL)
+    let effectiveAnalysisId = analysisId;
+    let effectivePaperId = paperId;
+    let effectiveScholar = requestedScholarUrl;
+    
+    // If we don't have analysisId but have paperId, generate analysisId
+    if (!effectiveAnalysisId && effectivePaperId) {
+      if (!effectiveScholar) {
+        const res = await chrome.storage.local.get(['userSettings']);
+        effectiveScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      }
+      effectiveAnalysisId = await generateAnalysisId(effectivePaperId, effectiveScholar);
+      console.log('Generated analysisId from paperId + scholar:', effectiveAnalysisId);
+    }
+    
+    console.log('Loading analysis view with analysisId:', effectiveAnalysisId);
+    updateStatus(`Loading analysis...`);
     
     try {
-      // Try to fetch analysis from backend using paperID and scholar URL
-      const analysis = await fetchAnalysisFromBackend(paperId, requestedScholarUrl);
+      // Try to fetch analysis from backend using analysisID directly
+      const analysis = await fetchAnalysisByAnalysisId(effectiveAnalysisId);
       if (analysis && analysis.summary) {
         console.log('Successfully loaded analysis from backend');
         clearStatus();
@@ -1947,22 +2121,21 @@ document.addEventListener('DOMContentLoaded', function() {
       } else {
         const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
         updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
+        // Set up basic UI and button listeners even when no analysis found
+        await setupBasicErrorUI();
+        setupButtonEventListeners();
       }
     } catch (error) {
       console.error('Error loading analysis:', error);
       updateStatus(`Error loading analysis: ${error.message}`, true);
+      // Set up basic UI and button listeners even on error
+      await setupBasicErrorUI();
+      setupButtonEventListeners();
     }
 
   // Helper function to setup Authors view UI
   function setupAuthorsViewUI(authorData) {
       const header = document.querySelector('.header');
-      const statusDiv = document.getElementById('status');
-      const analysisContent = document.getElementById('analysisContent');
-      const paperInfo = document.getElementById('paperInfo');
-      const backBtn = document.getElementById('backBtn');
-      // analyzeBtn removed
-      const clearBtn = document.getElementById('clearBtn');
-      const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
       
       if (statusDiv) statusDiv.style.display = 'none';
       if (analysisContent) analysisContent.style.display = 'block';
@@ -2029,14 +2202,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Helper function to setup Analysis view UI
   function setupAnalysisViewUI(analysis) {
-    const analysisContent = document.getElementById('analysisContent');
-    const paperInfo = document.getElementById('paperInfo');
-    const paperTitle = document.getElementById('paperTitle');
-    const paperMeta = document.getElementById('paperMeta');
     const header = document.querySelector('.header');
-    const backBtn = document.getElementById('backBtn');
-    // analyzeBtn removed
-    const clearBtn = document.getElementById('clearBtn');
     
     // Show analysis content structure
     if (analysisContent) analysisContent.style.display = 'block';
@@ -2087,14 +2253,59 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
 
+  // Function to set up basic UI for error states
+  async function setupBasicErrorUI() {
+    console.log('🔧 Setting up basic error UI');
+    const header = document.querySelector('.header');
+    
+    // Check if we have an analysisID
+    const analysisId = await getCurrentAnalysisId();
+    
+    console.log('🔍 DEBUG: Elements found in setupBasicErrorUI:', {
+      header: !!header,
+      clearBtn: !!clearBtn,
+      viewAuthorsBtn: !!viewAuthorsBtn,
+      backBtn: !!backBtn,
+      analysisID: analysisId
+    });
+    
+    // Ensure header is visible
+    if (header) header.style.display = 'flex';
+    
+    // Show and configure "Go to Homepage" button
+    if (clearBtn) {
+      clearBtn.style.display = 'inline-block';
+      clearBtn.textContent = 'Go to Homepage';
+    }
+    
+    // Only show "View Author Analysis" button if we have an analysisID
+    if (viewAuthorsBtn) {
+      if (analysisId) {
+        viewAuthorsBtn.style.display = 'inline-block';
+      } else {
+        viewAuthorsBtn.style.display = 'none';
+        console.log('🔍 Hiding View Author Analysis button - no analysisID found');
+      }
+    }
+    
+    // Hide back button for error states
+    if (backBtn) {
+      backBtn.style.display = 'none';
+    }
+    
+    console.log('🔍 DEBUG: Button states after setupBasicErrorUI:', {
+      clearBtnDisplay: clearBtn ? clearBtn.style.display : 'not found',
+      clearBtnVisible: clearBtn ? (clearBtn.offsetWidth > 0 && clearBtn.offsetHeight > 0) : false,
+      viewAuthorsBtnDisplay: viewAuthorsBtn ? viewAuthorsBtn.style.display : 'not found',
+      viewAuthorsBtnVisible: viewAuthorsBtn ? (viewAuthorsBtn.offsetWidth > 0 && viewAuthorsBtn.offsetHeight > 0) : false,
+      headerDisplay: header ? header.style.display : 'not found'
+    });
+  }
+
   // Function to set up all event listeners after view setup is complete
   function setupButtonEventListeners() {
     console.log('🔧 Setting up button event listeners for view mode:', viewMode);
-    const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
-    const backBtn = document.getElementById('backBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const sendBtn = document.getElementById('sendBtn');
-    const chatInput = document.getElementById('chatInput');
+
     
     console.log('🔍 Button elements found:', {
       viewAuthorsBtn: !!viewAuthorsBtn,
@@ -2113,44 +2324,87 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Button event listeners
-    if (viewAuthorsBtn) {
-      viewAuthorsBtn.addEventListener('click', async function() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const paperId = urlParams.get('paperID');
-        if (paperId) {
-          const authorsUrl = await buildFullpageUrl(paperId, { view: 'authors' });
-          window.location.href = authorsUrl;
+    if (viewAuthorsBtn && !viewAuthorsBtn.hasAttribute('data-listener-attached')) {
+      console.log('✅ Setting up view authors button event listener');
+      viewAuthorsBtn.setAttribute('data-listener-attached', 'true');
+      viewAuthorsBtn.addEventListener('click', async function(event) {
+        console.log('🎯 View Authors button clicked! Event:', event);
+        const analysisId = await getCurrentAnalysisId();
+        console.log('🎯 Analysis ID from URL:', analysisId);
+        
+        if (analysisId) {
+          try {
+            const authorsUrl = buildAnalysisUrl(analysisId, { view: 'authors' });
+            console.log('🎯 Redirecting to authors view:', authorsUrl);
+            window.location.href = authorsUrl;
+          } catch (error) {
+            console.error('❌ Error building authors URL:', error);
+            alert('Error navigating to authors view: ' + error.message);
+          }
+        } else {
+          console.warn('⚠️  No analysis ID found, redirecting to homepage');
+          // If no analysisID, just go to homepage instead of showing error
+          navigateToHomepage();
         }
       });
+      console.log('✅ View Authors button listener attached successfully');
+    } else if (viewAuthorsBtn && viewAuthorsBtn.hasAttribute('data-listener-attached')) {
+      console.log('⚠️  View Authors button already has listener attached');
+    } else {
+      console.log('❌ View Authors button not found');
     }
 
-    if (backBtn) {
+    if (backBtn && !backBtn.hasAttribute('data-listener-attached')) {
       console.log('Setting up back button event listener');
+      backBtn.setAttribute('data-listener-attached', 'true');
       backBtn.addEventListener('click', async function() {
         console.log('Back button clicked! Current view mode:', viewMode);
-        const urlParams = new URLSearchParams(window.location.search);
-        const paperId = urlParams.get('paperID');
+        const analysisId = await getCurrentAnalysisId();
         
         // Back button is only shown in authors view, so always go back to analysis view
-        if (viewMode === 'authors' && paperId) {
-          console.log('Navigating back to analysis view for paper:', paperId);
-          const mainUrl = await buildFullpageUrl(paperId);
+        if (viewMode === 'authors' && analysisId) {
+          console.log('Navigating back to analysis view with analysisId:', analysisId);
+          const mainUrl = buildAnalysisUrl(analysisId);
           window.location.href = mainUrl;
         } else {
           console.warn('Back button clicked outside of authors view');
           // Fallback: go to homepage
-          window.location.href = chrome.runtime.getURL('fullpage.html');
+          navigateToHomepage();
         }
       });
     }
 
-    if (clearBtn) {
-      console.log('Setting up clear/homepage button event listener');
-      clearBtn.addEventListener('click', async function() {
-        console.log('Clear/Homepage button clicked');
-        // "Go to Homepage" - simply redirect to fullpage without parameters
-        window.location.href = chrome.runtime.getURL('fullpage.html');
+    if (clearBtn && !clearBtn.hasAttribute('data-listener-attached')) {
+      console.log('✅ Setting up clear/homepage button event listener');
+      clearBtn.setAttribute('data-listener-attached', 'true');
+      clearBtn.addEventListener('click', async function(event) {
+        console.log('🎯 Clear/Homepage button clicked! Event:', event);
+        console.log('🎯 Button element:', clearBtn);
+        console.log('🎯 Current URL:', window.location.href);
+        
+        try {
+          // "Go to Homepage" - redirect to clean fullpage without any parameters
+          const newUrl = getHomepageUrl();
+          console.log('🎯 Redirecting to clean homepage:', newUrl);
+          
+          // Force a clean page load (not just navigation)
+          window.location.replace(newUrl);
+        } catch (error) {
+          console.error('❌ Error during navigation:', error);
+          // Fallback: try window.location.href
+          try {
+            window.location.href = getHomepageUrl();
+          } catch (fallbackError) {
+            console.error('❌ Fallback navigation also failed:', fallbackError);
+            alert('Error navigating to homepage. Please refresh the page.');
+          }
+        }
       });
+      console.log('✅ Clear button listener attached successfully');
+    } else if (clearBtn && clearBtn.hasAttribute('data-listener-attached')) {
+      console.log('⚠️  Clear button already has listener attached');
+    } else {
+      console.log('❌ Clear button not found');
     }
 
     // Chat functionality event listeners
@@ -2508,6 +2762,170 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Error fetching author configurations:', err);
       return [];
     }
+  }
+
+  // Function to generate analysis_id consistently with backend
+  async function generateAnalysisId(paperId, userScholarUrl) {
+    const combined = `${paperId}_${userScholarUrl}`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(combined);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex.substring(0, 32);
+  }
+
+  function getScholarUrlFromSettingsSync() {
+    const stored = window.localScholarUrlCache;
+    if (stored) return stored;
+    return 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+  }
+
+  // Function to fetch analysis from backend by analysisID directly
+  async function fetchAnalysisByAnalysisId(analysisId) {
+    try {
+      // Use smart backend detection to get the correct backend URL
+      const backend = await backendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No healthy backend available for fetching analysis');
+        return null;
+      }
+      
+      const url = `${backend.url}/analysis/${encodeURIComponent(analysisId)}`;
+      console.log('Fetching analysis by analysisId:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.log('Backend returned non-OK for analysis:', response.status, response.statusText);
+        
+        if (response.status === 404) {
+          console.log('Analysis not found on backend for analysisId:', analysisId);
+          return null;
+        } else if (response.status >= 500) {
+          throw new Error(`Backend server error: ${response.status} - ${response.statusText}`);
+        } else {
+          throw new Error(`Backend error: ${response.status} - ${response.statusText}`);
+        }
+      }
+      
+      const data = await response.json();
+      console.log('Successfully fetched analysis by analysisId:', data);
+      
+      if (data) {
+        // Store in local storage for future use using paper_id as key for compatibility
+        if (data.paper_id) {
+          const storageKey = `analysis_${data.paper_id}`;
+          const analysisResult = {
+            timestamp: new Date().toISOString(),
+            paperId: data.paper_id,
+            analysisId: data.analysis_id || analysisId,
+            model: data.ai_model || data.model || 'unknown',
+            content: data.content || {
+              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${data.paper_id}`,
+              paperId: data.paper_id,
+              title: data.title || 'Paper Analysis',
+              abstract: data.abstract || 'Analysis loaded from backend',
+              paperContent: data.content || 'Content processed by backend'
+            },
+            summary: data.summary,
+            data: data,
+            autoAnalyzed: false
+          };
+          
+          const storageData = {};
+          storageData[storageKey] = analysisResult;
+          await chrome.storage.local.set(storageData);
+          console.log('Stored analysis result with analysisId in local storage');
+        }
+        
+        return data;
+      }
+      
+      return null;
+      
+    } catch (error) {
+      console.error('Error fetching analysis by analysisId:', error);
+      throw error;
+    }
+  }
+
+  // Function to fetch author data by analysisId (gets author data from the analysis itself)
+  async function fetchAuthorDataByAnalysisId(analysisId) {
+    try {
+      // First try to get the full analysis which includes author data
+      const analysis = await fetchAnalysisByAnalysisId(analysisId);
+      
+      if (analysis && analysis.author_data) {
+        // Return in the same format as the old fetchAuthorDataFromBackend
+        return {
+          paper_id: analysis.paper_id,
+          data: {
+            author_data: analysis.author_data
+          },
+          paper_metadata: {
+            title: analysis.content?.title || analysis.title || '',
+            paperUrl: analysis.content?.paperUrl || '',
+            paperId: analysis.paper_id,
+            abstract: analysis.content?.abstract || analysis.abstract || '',
+            authors: analysis.content?.authors || [],
+            affiliations: analysis.content?.affiliations || []
+          }
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching author data by analysisId:', error);
+      throw error;
+    }
+  }
+
+  // Helper function to build URLs with analysisId (new approach)
+  function buildAnalysisUrl(analysisId, additionalParams = {}) {
+    try {
+      let url = getHomepageUrl() + '?analysisID=' + encodeURIComponent(analysisId);
+      
+      // Add any additional parameters
+      Object.keys(additionalParams).forEach(key => {
+        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
+      });
+      
+      return url;
+    } catch (error) {
+      console.error('Error building analysis URL:', error);
+      return getHomepageUrl() + '?analysisID=' + encodeURIComponent(analysisId);
+    }
+  }
+
+  // Helper function to get current analysis ID from URL or generate it from paperId + scholar
+  async function getCurrentAnalysisId() {
+    const urlParams = getUrlParams();
+    const analysisId = urlParams.get('analysisID');
+    
+    if (analysisId) {
+      return analysisId;
+    }
+    
+    // Fallback: generate from paperId + scholar (for legacy URLs)
+    const paperId = urlParams.get('paperID');
+    const requestedScholar = urlParams.get('scholar');
+    
+    if (paperId) {
+      let effectiveScholar = requestedScholar;
+      if (!effectiveScholar) {
+        const res = await chrome.storage.local.get(['userSettings']);
+        effectiveScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      }
+      return await generateAnalysisId(paperId, effectiveScholar);
+    }
+    
+    return null;
   }
 
   })(); // End of initializePage async IIFE

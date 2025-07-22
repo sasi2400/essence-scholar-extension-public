@@ -64,7 +64,37 @@ function extractSsrnIdFromUrl(url) {
  * @returns {Promise<string>} - URL-safe paper ID
  */
 async function generatePaperId(paperContent) {
-    // Try to extract SSRN numeric ID first
+    // If paperId is already provided (e.g., from fullpage upload), use it
+    if (paperContent.paperId && paperContent.paperId.trim()) {
+        console.debug('Using provided paperId:', paperContent.paperId);
+        return paperContent.paperId;
+    }
+    
+    // Handle local file URLs (file://) - extract filename for consistent hashing
+    if (paperContent.paperUrl && paperContent.paperUrl.startsWith('file:///')) {
+        const url = paperContent.paperUrl;
+        console.debug('Processing local file URL:', url);
+        
+        // Extract filename from file:// URL
+        const urlPath = url.replace('file:///', '');
+        const fileName = urlPath.split('/').pop() || urlPath;
+        console.debug('Extracted filename from file URL:', fileName);
+        
+        // Create consistent hash based on filename only (to match uploaded files)
+        const fileHash = await generateSHA256Hash(fileName);
+        console.debug('Generated hash for local file:', fileHash);
+        return fileHash;
+    }
+    
+    // Handle uploaded files with file properties - use filename for consistency with file:// URLs
+    if (paperContent.isLocalFile && paperContent.fileName) {
+        console.debug('Processing uploaded file with filename:', paperContent.fileName);
+        const fileHash = await generateSHA256Hash(paperContent.fileName);
+        console.debug('Generated hash for uploaded file:', fileHash);
+        return fileHash;
+    }
+    
+    // Try to extract SSRN numeric ID from regular URLs
     if (paperContent.paperUrl) {
         const url = paperContent.paperUrl;
         console.debug('Attempting to extract ID from URL:', url);
