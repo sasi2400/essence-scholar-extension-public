@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SSRN Paper Summarizer",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Analyzes SSRN papers using AI to provide structured summaries",
   "permissions": [
     "activeTab",

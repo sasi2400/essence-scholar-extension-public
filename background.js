@@ -765,7 +765,7 @@ async function triggerPDFAnalysis(tabId) {
       // Make API request to backend
       let serverResponse;
       try {
-        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_ENDPOINT, {
+        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
           method: 'POST',
           body: JSON.stringify({
             content: paperContent || { paperUrl },
@@ -779,7 +779,7 @@ async function triggerPDFAnalysis(tabId) {
         console.error(`API request failed for tab ${tabId} on backend ${backend?.name}:`, apiError);
         backend = await BackendManager.detectBestBackend();
         // Retry once with new backend
-        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_ENDPOINT, {
+        serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
           method: 'POST',
           body: JSON.stringify({
             content: paperContent || { paperUrl },

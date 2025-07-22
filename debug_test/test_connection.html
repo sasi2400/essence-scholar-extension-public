@@ -136,7 +136,7 @@
           paperContent: 'This is test content for the paper.'
         };
 
-        const response = await fetch(getApiUrl(CONFIG.ANALYZE_ENDPOINT), {
+        const response = await fetch(getApiUrl(CONFIG.ANALYZE_STREAM_ENDPOINT), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

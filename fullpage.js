@@ -684,7 +684,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  const analyzeBtn = document.getElementById('analyzeBtn');
+  // analyzeBtn removed - analysis handled via homepage upload
   const backBtn = document.getElementById('backBtn');
   const clearBtn = document.getElementById('clearBtn');
   const statusDiv = document.getElementById('status');
@@ -1128,19 +1128,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const storageKey = `analysis_${paperId}`;
         await chrome.storage.local.remove([storageKey]);
         
-        // Show retry button
-        if (analyzeBtn) {
-          analyzeBtn.style.display = 'inline-block';
-          analyzeBtn.style.backgroundColor = '#2196F3';
-          analyzeBtn.textContent = 'Retry Analysis';
-          analyzeBtn.onclick = async () => {
-            if (content) {
-              await analyzePaper(content);
-            } else {
-              updateStatus('No paper content available for analysis', true);
-            }
-          };
-        }
+        // Retry functionality now handled via homepage upload section
       }
       
       // Return null for error case
@@ -1918,7 +1906,7 @@ document.addEventListener('DOMContentLoaded', function() {
       stopSubtitleLoop(); // Stop subtitle loop when leaving homepage
       
       if (uploadSection) uploadSection.style.display = 'none';
-      if (analyzeBtn) analyzeBtn.style.display = 'none';
+      // analyzeBtn removed
 
     // Scenario 2: Authors view
     if (viewMode === 'authors') {
@@ -1972,7 +1960,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const analysisContent = document.getElementById('analysisContent');
       const paperInfo = document.getElementById('paperInfo');
       const backBtn = document.getElementById('backBtn');
-      const analyzeBtn = document.getElementById('analyzeBtn');
+      // analyzeBtn removed
       const clearBtn = document.getElementById('clearBtn');
       const viewAuthorsBtn = document.getElementById('viewAuthorsBtn');
       
@@ -1986,7 +1974,7 @@ document.addEventListener('DOMContentLoaded', function() {
       backBtn.style.display = 'inline-block';
       backBtn.textContent = 'Back to Analysis';
     }
-    if (analyzeBtn) analyzeBtn.style.display = 'none'; // Hide redundant button
+    // analyzeBtn removed
     if (clearBtn) {
       clearBtn.style.display = 'inline-block';
       clearBtn.textContent = 'Go to Homepage';
@@ -2047,7 +2035,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const paperMeta = document.getElementById('paperMeta');
     const header = document.querySelector('.header');
     const backBtn = document.getElementById('backBtn');
-    const analyzeBtn = document.getElementById('analyzeBtn');
+    // analyzeBtn removed
     const clearBtn = document.getElementById('clearBtn');
     
     // Show analysis content structure
@@ -2057,7 +2045,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Configure buttons for analysis view
     if (backBtn) backBtn.style.display = 'none'; // No back button for analysis view
-    if (analyzeBtn) analyzeBtn.style.display = 'none'; // Hide redundant button
+    // analyzeBtn removed
     if (clearBtn) {
       clearBtn.style.display = 'inline-block';
       clearBtn.textContent = 'Go to Homepage';

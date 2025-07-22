@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Current analysis status:', status);
       
       // Always hide/disable View Analysis button unless status is complete
-      setButtonState('Analyze Current Paper', false, false);
+      setButtonState('Deep Read!', false, false);
       analyzeBtn.style.backgroundColor = '#2196F3';
       analyzeBtn.onclick = analyzePaper;
 
@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', function() {
           return;
         } else {
           showStatus('Analysis has not been done for this paper.', 'info');
-          setButtonState('Analyze Current Paper', false, false);
+          setButtonState('Deep Read!', false, false);
           analyzeBtn.style.backgroundColor = '#2196F3';
           analyzeBtn.onclick = analyzePaper;
           return;
@@ -124,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // If backend does not have analysis, show not done message
         showStatus('Analysis has not been done for this paper.', 'info');
-        setButtonState('Analyze Current Paper', false, false);
+        setButtonState('Deep Read!', false, false);
         analyzeBtn.style.backgroundColor = '#2196F3';
         analyzeBtn.onclick = analyzePaper;
         return;
@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', function() {
             chrome.tabs.create({ url: fullpageUrl });
           };
         } else {
-          setButtonState('Analyze Current Paper', false, false);
+          setButtonState('Deep Read!', false, false);
           analyzeBtn.style.backgroundColor = '#2196F3';
           analyzeBtn.onclick = analyzePaper;
           showStatus('Analysis complete, but no results found. Please try again.', 'error');
@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', function() {
           // Only show in progress if there is a previous status (i.e., not a new paper)
           if (!status.startedAt) {
             // No previous analysis, do not show in progress
-            setButtonState('Analyze Current Paper', true, false);
+            setButtonState('Deep Read!', true, false);
             analyzeBtn.style.backgroundColor = '#ccc';
             analyzeBtn.onclick = null;
             return;
@@ -190,7 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
               clearInterval(monitorInterval);
               await clearStaleAnalysisStatus();
               showStatus('Analysis timed out. Please try again.', 'error');
-              setButtonState('Analyze Current Paper', false, false);
+              setButtonState('Deep Read!', false, false);
               analyzeBtn.style.backgroundColor = '#2196F3';
               analyzeBtn.onclick = analyzePaper;
               return;
@@ -216,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!currentStatus || currentStatus.status === 'error') {
               clearInterval(monitorInterval);
               showStatus('Analysis failed: ' + (currentStatus?.errorMessage || 'Unknown error'), 'error');
-              setButtonState('Analyze Current Paper', false, false);
+              setButtonState('Deep Read!', false, false);
               analyzeBtn.style.backgroundColor = '#2196F3';
               analyzeBtn.onclick = analyzePaper;
               return;
@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     chrome.tabs.create({ url: fullpageUrl });
                   };
                 } else {
-                  setButtonState('Analyze Current Paper', false, false);
+                  setButtonState('Deep Read!', false, false);
                   analyzeBtn.style.backgroundColor = '#2196F3';
                   analyzeBtn.onclick = analyzePaper;
                   showStatus('Analysis complete, but no results found. Please try again.', 'error');
@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error monitoring analysis status:', error);
             clearInterval(monitorInterval);
             showStatus('Error monitoring analysis status. Please try again.', 'error');
-            setButtonState('Analyze Current Paper', false, false);
+            setButtonState('Deep Read!', false, false);
             analyzeBtn.style.backgroundColor = '#2196F3';
             analyzeBtn.onclick = analyzePaper;
           }
@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error checking analysis status:', error);
       showStatus('Error checking analysis status. Please try again.', 'error');
-      setButtonState('Analyze Current Paper', false, false);
+      setButtonState('Deep Read!', false, false);
       analyzeBtn.style.backgroundColor = '#2196F3';
       analyzeBtn.onclick = analyzePaper;
     }
@@ -335,7 +335,6 @@ document.addEventListener('DOMContentLoaded', function() {
   const settingsBtn = document.getElementById('settings-btn');
   const analyzeAuthorsBtn = document.getElementById('analyze-authors-btn');
   const statusContainer = document.getElementById('status-container');
-  const backendStatus = document.getElementById('backend-status');
 
   // Function to show progress (simplified for new design)
   function showProgress(step, message) {
@@ -770,14 +769,14 @@ document.addEventListener('DOMContentLoaded', function() {
       }
 
       showStatus('Analysis failed: ' + errorMessage, 'error');
-      setButtonState('Analyze Current Paper', false, false);
+      setButtonState('Deep Read!', false, false);
       analyzeBtn.style.backgroundColor = '#2196F3';
       analyzeBtn.onclick = analyzePaper;
     }
   }
 
   // Display backend status
-  function displayBackendStatus(message = '🔍 Detecting backend...') {
+  function displayBackendStatus(message = '🔍 Checking Version...') {
     const statusDiv = document.getElementById('backend-status');
     if (statusDiv) {
       statusDiv.innerHTML = `<div class="info">${message}</div>`;
@@ -819,54 +818,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Update backend status display
-  async function updateBackendStatusDisplay(backend = null, error = null) {
-    const statusDiv = document.getElementById('backend-status');
-    if (!statusDiv) return;
-
-    try {
-      if (error) {
-        statusDiv.innerHTML = `<div class="error">❌ Backend Error<br><small>${error}</small></div>`;
-        return;
-      }
-
-      if (!backend) {
-        // Detect current backend
-        backend = await backendManager.getCurrentBackend();
-      }
-
-      if (backend) {
-        // Measure latency
-        const start = Date.now();
-        try {
-          await fetch(`${backend.url}${CONFIG.HEALTH_ENDPOINT}`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(CONFIG.HEALTH_CHECK_TIMEOUT)
-          });
-          const latency = Date.now() - start;
-          
-          statusDiv.innerHTML = `
-            <div class="success">
-              ✅ Connected to ${backend.name}
-              <br><small>${backend.url} (${latency}ms)</small>
-            </div>
-          `;
-        } catch (error) {
-          statusDiv.innerHTML = `
-            <div class="success">
-              ✅ Using ${backend.name}
-              <br><small>${backend.url}</small>
-            </div>
-          `;
-        }
-      } else {
-        statusDiv.innerHTML = '<div class="error">❌ No backends available</div>';
-      }
-    } catch (error) {
-      console.error('Error updating backend status:', error);
-      statusDiv.innerHTML = '<div class="error">❌ Backend detection failed</div>';
-    }
-  }
+  // Update backend status display - REMOVED DUPLICATE (kept final version at end of file)
 
   // Debug function to show current storage state
   async function debugStorageState() {
@@ -914,7 +866,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
         
         // Hide the main analyze button and show fullpage button instead
-        setButtonState('Analyze Current Paper', true, false); // Disable main button
+        setButtonState('Deep Read!', true, false); // Disable main button
         analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
         analyzeBtn.style.cursor = 'not-allowed'; // Show disabled cursor
         showAuthorsButton(false); // Hide authors button for local PDFs
@@ -925,7 +877,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('checkPageType: Main analyze button disabled, fullpage button shown');
       } else if (!isPDF && isSSRN) {
         // SSRN page without PDF: disable main analyze button, enable authors button
-        setButtonState('Analyze Current Paper', true, false); // Disable main button
+        setButtonState('Deep Read!', true, false); // Disable main button
         analyzeBtn.style.backgroundColor = '#ccc';
         showAuthorsButton(true);
         showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
@@ -936,7 +888,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // SSRN page detected - only show author analysis option
         console.log('checkPageType: SSRN detected - disabling paper analysis, showing author analysis');
         showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
-        setButtonState('Analyze Current Paper', true, false); // Disable paper analysis button
+        setButtonState('Deep Read!', true, false); // Disable paper analysis button
         analyzeBtn.style.backgroundColor = '#ccc'; // Gray out the button
         
         // Show only authors button for SSRN pages
@@ -949,7 +901,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Not a supported page
         console.log('checkPageType: Unsupported page - disabling both buttons');
         showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
-        setButtonState('Analyze Current Paper', true, false); // Disable button
+        setButtonState('Deep Read!', true, false); // Disable button
         analyzeBtn.style.backgroundColor = '#ccc';
         showAuthorsButton(false); // Hide authors button for unsupported pages
         showFullpageButton(false); // Hide fullpage button
@@ -1398,195 +1350,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
-  // Function to display author analysis results
-  function displayAuthorAnalysisResults(data) {
-    const summary = data.summary;
-    const authors = data.authors;
+  // Function to display author analysis results - REMOVED DUPLICATE (kept final version at end of file)
 
-    let resultHtml = `
-      <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 4px; text-align: left; font-size: 12px;">
-        <h3 style="margin: 0 0 10px 0; font-size: 14px; color: #333;">Author Analysis Summary</h3>
-        <div><strong>Total Authors:</strong> ${summary.total_authors}</div>
-        <div><strong>Total FT50 Publications:</strong> ${summary.total_ft50_publications}</div>
-        <div><strong>Total Citations:</strong> ${summary.total_citations.toLocaleString()}</div>
-        <div><strong>Highest H-index:</strong> ${summary.max_h_index}</div>
-        
-        <div style="margin-top: 8px;"><strong>Top Authors:</strong></div>
-    `;
+  // Function to display analysis results - REMOVED DUPLICATE (kept final version at end of file)
 
-    // Show top 2 authors by citations
-    const topAuthors = authors
-      .filter(author => !author.error)
-      .sort((a, b) => b.citations - a.citations)
-      .slice(0, 2);
+  // Function to check if analysis exists on backend - REMOVED DUPLICATE (kept final version at end of file)
 
-    topAuthors.forEach(author => {
-      resultHtml += `
-        <div style="margin: 4px 0; padding: 4px; background: white; border-radius: 2px;">
-          <div><strong>${author.name}</strong> (${author.affiliation || 'Unknown'})</div>
-          <div style="font-size: 11px; color: #666;">
-            ${author.citations} citations • H-index: ${author.h_index} • FT50: ${author.ft50_count}
-          </div>
-        </div>
-      `;
-    });
-
-    resultHtml += `
-        <div style="margin-top: 8px; font-size: 11px; color: #666;">
-          Click "View Full Analysis" for complete details, publications, and research areas.
-        </div>
-      </div>
-    `;
-
-    statusContainer.innerHTML = resultHtml;
-  }
-
-  // Function to display analysis results
-  function displayAnalysis(analysis, tabUrl) {
-    if (!analysis) {
-      showStatus('No analysis data available', 'error');
-      return;
-    }
-
-    // Update button state
-        setButtonState('View Analysis', false, false);
-        analyzeBtn.style.backgroundColor = '#4CAF50';
-        analyzeBtn.onclick = async () => {
-          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (!tab || !tab.url) return;
-          const paperId = await extractSsrnIdOrUrl(tab.url);
-          const fullpageUrl = await buildFullpageUrl(paperId);
-          chrome.tabs.create({ url: fullpageUrl });
-        };
-
-    // Show success message
-    let statusMessage = 'Analysis loaded from cache. Click "View Analysis" to see the detailed summary.';
-    if (analysis.data && analysis.data.author_data) {
-      statusMessage += ` Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations.`;
-    }
-    showStatus(statusMessage, 'success');
-  }
-
-  // Function to check if analysis exists on backend
-  async function checkAnalysisOnBackend(paperId) {
-    try {
-      console.log('Checking backend for analysis of paper:', paperId);
-      
-      // Use smart backend detection to get the correct backend
-      const backend = await backendManager.getCurrentBackend();
-      if (!backend) {
-        console.log('No healthy backend available for checking analysis');
-        return false;
-      }
-      
-      const url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
-      console.log('Checking analysis endpoint:', url);
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Backend has analysis data:', data);
-        
-        // Store the analysis data in local storage for immediate use
-        if (data && data.summary) {
-          // Check if the analysis contains an error state
-          if (data.summary === 'Error generating analysis' || !data.summary.trim()) {
-            console.log('Backend returned error analysis or empty summary:', data.summary);
-            return false;
-          }
-          
-          const storageKey = `analysis_${paperId}`;
-          const analysisResult = {
-            timestamp: new Date().toISOString(),
-            paperId: paperId,
-            content: data.content || {
-              paperUrl: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${paperId}`,
-              paperId: paperId,
-              title: 'Paper Analysis',
-              abstract: 'Analysis loaded from backend',
-              paperContent: 'Content processed by backend'
-            },
-            summary: data.summary,
-            data: data,
-            autoAnalyzed: true
-          };
-          
-          const storageData = {};
-          storageData[storageKey] = analysisResult;
-          await chrome.storage.local.set(storageData);
-          console.log('Stored analysis data from backend');
-          
-          // Update status to complete
-          await setAnalysisStatus(paperId, 'complete');
-        }
-        
-        return true;
-      } else if (response.status === 404) {
-        console.log('No analysis found on backend for paper:', paperId);
-        return false;
-      } else {
-        console.log('Backend returned error for analysis check:', response.status);
-        return false;
-      }
-    } catch (error) {
-      console.error('Error checking analysis on backend:', error);
-      return false;
-    }
-  }
-
-  // Function to check analysis status first, then completed analysis if needed
-  async function checkAnalysisStatusAndCompletion(paperId, backend) {
-    try {
-      console.log('Checking analysis status first for paper:', paperId);
-      console.log('[DEBUG] checkAnalysisStatusAndCompletion using backend:', backend?.name, backend?.url);
-      
-      // First check if analysis is in progress
-      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(paperId)}`;
-      console.log('Checking status endpoint:', statusUrl);
-      
-      const statusResponse = await fetch(statusUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('[DEBUG] Status response:', statusResponse.status, statusResponse.statusText);
-      
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        console.log('Backend status data:', statusData);
-        
-        if (statusData.status === 'in_progress') {
-          console.log('Analysis is in progress');
-          return { inProgress: true, hasCompleted: false };
-        } else if (statusData.status === 'complete') {
-          console.log('Analysis status shows complete, checking for results');
-          const hasCompleted = await checkAnalysisOnBackend(paperId);
-          return { inProgress: false, hasCompleted };
-        } else if (statusData.status === 'error') {
-          console.log('Analysis status shows error');
-          return { inProgress: false, hasCompleted: false, error: statusData.errorMessage };
-        }
-      } else if (statusResponse.status === 404) {
-        console.log('No status found, checking for completed analysis');
-        // No status entry, check if completed analysis exists
-        const hasCompleted = await checkAnalysisOnBackend(paperId);
-        return { inProgress: false, hasCompleted };
-      }
-      
-      return { inProgress: false, hasCompleted: false };
-    } catch (error) {
-      console.error('Error checking analysis status and completion:', error);
-      return { inProgress: false, hasCompleted: false };
-    }
-  }
+  // Function to check analysis status first, then completed analysis if needed - REMOVED DUPLICATE (kept final version at end of file)
 
   /**
    * Update the popup UI according to the following logic:
@@ -1624,8 +1394,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     console.log('[POPUP DEBUG] ===================');
     
     if (!backend) {
-      showStatus('❌ No backends available. Please check your backend server.', 'error');
-      setButtonState('Analyze Current Paper', true, false);
+      showStatus('❌ No Backend Available.', 'error');
+      setButtonState('Deep Read!', true, false);
       analyzeBtn.style.backgroundColor = '#ccc';
       analyzeBtn.style.display = '';
       return;
@@ -1653,7 +1423,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         
     // Hide all buttons initially
     showAuthorsButton(false);
-    setButtonState('Analyze Current Paper', true, false);
+    setButtonState('Deep Read!', true, false);
     analyzeBtn.style.display = 'none';
     if (typeof analyzeAuthorsBtn !== 'undefined') analyzeAuthorsBtn.style.display = 'none';
 
@@ -1739,10 +1509,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         monitorAnalysisProgress(tab.id, paperId, true);
         return;
       } else {
-        // Only show Analyze Current Paper
+        // Only show Deep Read!
         console.log('[POPUP DEBUG] Taking fresh analysis path - enabling button');
         analyzeBtn.style.display = '';
-        setButtonState('Analyze Current Paper', false, false);
+        setButtonState('Deep Read!', false, false);
         analyzeBtn.style.backgroundColor = '#2196F3';
         analyzeBtn.onclick = async () => {
           // Set persistent analyzing state
@@ -1843,9 +1613,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         // Check if this is an SSRN PDF or a non-SSRN PDF for appropriate messaging
         const isSSRNPDF = url.includes('ssrn.com');
         if (isSSRNPDF) {
-          showStatus('PDF detected. Click "Analyze Current Paper" to start analysis.', 'info');
+          showStatus('PDF detected. Click "Deep Read!" to start analysis.', 'info');
         } else {
-          showStatus('PDF detected. Note: This extension works best with SSRN papers, but analysis will proceed. Click "Analyze Current Paper" to start.', 'info');
+          showStatus('PDF detected. Note: This extension works best with SSRN papers, but analysis will proceed. Click "Deep Read!" to start.', 'info');
         }
         return;
       }
@@ -1855,7 +1625,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     console.log('[POPUP DEBUG] Reached final fallback section - disabling button');
     console.log('[POPUP DEBUG] isSSRN:', isSSRN, 'isPDF:', isPDF, 'paperId:', paperId);
     showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
-            setButtonState('Analyze Current Paper', true, false);
+            setButtonState('Deep Read!', true, false);
             analyzeBtn.style.backgroundColor = '#ccc';
     analyzeBtn.style.display = '';
     showAuthorsButton(false);
@@ -2036,7 +1806,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       
       hideProgress();
       showStatus('Analysis failed: ' + (message.error || 'Unknown error'), 'error');
-      setButtonState('Analyze Current Paper', false, false);
+      setButtonState('Deep Read!', false, false);
       analyzeBtn.style.backgroundColor = '#2196F3';
       
       sendResponse({ received: true });
@@ -2377,8 +2147,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           const latency = Date.now() - start;
           statusDiv.innerHTML = `
             <div class="success">
-              ✅ Connected to ${backend.name}
-              <br><small>${backend.url} (${latency}ms)</small>
+              ✅ You are using the latest version of the extension.
+              <br><small>Connected to ${backend.name} (${latency}ms)</small>
             </div>
           `;
         } catch (error) {
@@ -2390,11 +2160,11 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           `;
         }
       } else {
-        statusDiv.innerHTML = '<div class="error">❌ No backends available</div>';
+        statusDiv.innerHTML = '<div class="error">❌ You must update the extension to the latest version.</div>';
       }
     } catch (error) {
       console.error('Error updating backend status:', error);
-      statusDiv.innerHTML = '<div class="error">❌ Backend detection failed</div>';
+      statusDiv.innerHTML = '<div class="error">❌ Backend detection failed, refresh the page.</div>';
     }
   }
 

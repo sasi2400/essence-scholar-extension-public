@@ -24,14 +24,14 @@ function testConfig() {
     
     log('configLog', '✅ CONFIG object loaded successfully', 'success');
     log('configLog', `Backend URL: ${CONFIG.BACKEND_URL}`, 'info');
-    log('configLog', `Analyze endpoint: ${CONFIG.ANALYZE_ENDPOINT}`, 'info');
+    log('configLog', `Analyze stream endpoint: ${CONFIG.ANALYZE_STREAM_ENDPOINT}`, 'info');
     log('configLog', `Health endpoint: ${CONFIG.HEALTH_ENDPOINT}`, 'info');
     
     if (typeof getApiUrl === 'undefined') {
       log('configLog', '❌ getApiUrl function is undefined', 'error');
     } else {
       log('configLog', '✅ getApiUrl function available', 'success');
-      const fullUrl = getApiUrl(CONFIG.ANALYZE_ENDPOINT);
+      const fullUrl = getApiUrl(CONFIG.ANALYZE_STREAM_ENDPOINT);
       log('configLog', `Full API URL: ${fullUrl}`, 'info');
     }
     
@@ -80,7 +80,7 @@ async function testBackendAnalyze() {
   try {
     log('backendLog', 'Testing backend analyze endpoint...', 'info');
     
-    const analyzeUrl = getApiUrl(CONFIG.ANALYZE_ENDPOINT);
+    const analyzeUrl = getApiUrl(CONFIG.ANALYZE_STREAM_ENDPOINT);
     log('backendLog', `Analyze URL: ${analyzeUrl}`, 'info');
     
     const testContent = {

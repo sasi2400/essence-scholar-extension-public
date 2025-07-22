@@ -347,7 +347,7 @@ if (typeof window !== 'undefined' && window.location.href.includes('debug_test.h
         paperUrl: 'https://test.com/paper'
       };
       
-      const response = await fetch('https://ssrn-summarizer-backend-pisqy7uvxq-uc.a.run.app/analyze', {
+      const response = await fetch('https://ssrn-summarizer-backend-pisqy7uvxq-uc.a.run.app/analyze-stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

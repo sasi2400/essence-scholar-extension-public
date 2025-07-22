@@ -119,7 +119,7 @@ console.log(`New backend: ${backend.name}`);
 ### Make Smart API Request
 ```javascript
 // Automatically uses best backend with failover
-const response = await makeApiRequest('/analyze', {
+const response = await makeApiRequest('/analyze-stream', {
   method: 'POST',
   body: JSON.stringify(data)
 });

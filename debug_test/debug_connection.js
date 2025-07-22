@@ -8,7 +8,7 @@ if (typeof CONFIG === 'undefined') {
 } else {
   console.log('✅ CONFIG loaded successfully');
   console.log('Backend URL:', CONFIG.BACKEND_URL);
-  console.log('Analyze endpoint:', CONFIG.ANALYZE_ENDPOINT);
+  console.log('Analyze stream endpoint:', CONFIG.ANALYZE_STREAM_ENDPOINT);
 }
 
 // Test 2: Check if getApiUrl function is available
@@ -17,7 +17,7 @@ if (typeof getApiUrl === 'undefined') {
   console.error('❌ getApiUrl function is undefined');
 } else {
   console.log('✅ getApiUrl function available');
-  const fullUrl = getApiUrl(CONFIG.ANALYZE_ENDPOINT);
+  const fullUrl = getApiUrl(CONFIG.ANALYZE_STREAM_ENDPOINT);
   console.log('Full API URL:', fullUrl);
 }
 

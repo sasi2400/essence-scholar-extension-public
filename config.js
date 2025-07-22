@@ -9,9 +9,9 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-3-2-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-3-3-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
-      priority: 3,
+      priority: 2,
       enabled: true
     }
   },
@@ -21,7 +21,6 @@ const CONFIG = {
   CURRENT_BACKEND: null,
   
   // API endpoints
-  ANALYZE_ENDPOINT: '/analyze',
   CHAT_ENDPOINT: '/chat',
   HEALTH_ENDPOINT: '/health',
   VERSION_ENDPOINT: '/version',

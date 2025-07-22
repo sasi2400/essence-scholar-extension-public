@@ -41,10 +41,10 @@ The issue was likely caused by:
 1. **Added Debug Logging**:
 ```javascript
 // Debug: Log the URL being used
-const apiUrl = getApiUrl(CONFIG.ANALYZE_ENDPOINT);
+const apiUrl = getApiUrl(CONFIG.ANALYZE_STREAM_ENDPOINT);
 console.log('Popup: Attempting to connect to:', apiUrl);
 console.log('Popup: CONFIG.BACKEND_URL:', CONFIG.BACKEND_URL);
-console.log('Popup: CONFIG.ANALYZE_ENDPOINT:', CONFIG.ANALYZE_ENDPOINT);
+console.log('Popup: CONFIG.ANALYZE_STREAM_ENDPOINT:', CONFIG.ANALYZE_STREAM_ENDPOINT);
 ```
 
 2. **Added Fallback Logic**:
@@ -128,7 +128,7 @@ When analyzing a paper, you should see:
 ```
 Popup: Attempting to connect to: https://backend-475795094888.us-central1.run.app/analyze
 Popup: CONFIG.BACKEND_URL: https://backend-475795094888.us-central1.run.app
-Popup: CONFIG.ANALYZE_ENDPOINT: /analyze
+Popup: CONFIG.ANALYZE_STREAM_ENDPOINT: /analyze-stream
 Popup: Trying Cloud Run backend...
 Popup: Server response status: 200
 Popup: Successfully connected to Cloud Run
