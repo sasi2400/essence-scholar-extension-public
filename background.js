@@ -243,88 +243,37 @@ async function pollAnalysisStatus(paperId) {
   }
   
   monitorInfo.polling = true;
-  console.log('[BG] Polling analysis status for paper:', paperId, 'using backend:', monitorInfo.backend.url);
+  console.log('[BG] Checking if paper exists for paper:', paperId, 'using backend:', monitorInfo.backend.url);
   
   try {
-    // Generate analysis_id from paperId and scholar URL
-    const settings = await chrome.storage.local.get(['userSettings']);
-    const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-    const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+    // Simple check: does paper exist in backend?
+    const paperUrl = `${monitorInfo.backend.url}/storage/paper/${encodeURIComponent(paperId)}`;
+    const response = await fetch(paperUrl);
     
-    console.log('[BG] Generated analysisId for polling:', analysisId);
+    console.log('[BG] Paper existence check response:', response.status, response.statusText);
     
-    const statusUrl = `${monitorInfo.backend.url}/analysis-status/${encodeURIComponent(analysisId)}`;
-    const response = await fetch(statusUrl);
-    
-    console.log('[BG] Status response:', response.status, response.statusText);
-    
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log('[BG] Analysis status not found for analysis:', analysisId);
-        return;
-      }
-      throw new Error(`Status check failed: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    console.log('[BG] Status data received:', data);
-    
-    // Check if status changed
-    if (data.status === 'complete') {
-      console.log('[BG] Analysis completed for paper:', paperId);
+    if (response.ok) {
+      // Paper exists - analysis is complete
+      console.log('[BG] Paper exists, analysis completed for paper:', paperId);
       stopAnalysisMonitoring(paperId);
       
       // Notify popup if it's open
       try {
         chrome.runtime.sendMessage({
           action: 'analysisComplete',
-          paperId: paperId,
-          tabId: monitorInfo.tabId
-        });
-        console.log('[BG] Sent analysisComplete message');
-      } catch (e) {
-        console.log('[BG] Could not send analysisComplete message (popup may be closed):', e);
-      }
-      
-      // Update badge
-      chrome.action.setBadgeText({ text: '✓' });
-      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-      
-    } else if (data.status === 'error') {
-      console.log('[BG] Analysis failed for paper:', paperId);
-      stopAnalysisMonitoring(paperId);
-      
-      // Notify popup if it's open
-      try {
-        chrome.runtime.sendMessage({
-          action: 'analysisError',
-          paperId: paperId,
           tabId: monitorInfo.tabId,
-          error: data.errorMessage
+          paperId: paperId
         });
-        console.log('[BG] Sent analysisError message');
       } catch (e) {
-        console.log('[BG] Could not send analysisError message (popup may be closed):', e);
+        console.log('[BG] Could not notify popup (probably closed):', e.message);
       }
       
-      // Update badge
-      chrome.action.setBadgeText({ text: '✗' });
-      chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
-      
-    } else if (data.status === 'in_progress') {
-      console.log('[BG] Analysis still in progress for paper:', paperId);
-      // Send progress update to popup if it's open
-      try {
-        chrome.runtime.sendMessage({
-          action: 'analysisProgress',
-          paperId: paperId,
-          tabId: monitorInfo.tabId,
-          data: data
-        });
-        console.log('[BG] Sent analysisProgress message');
-      } catch (e) {
-        console.log('[BG] Could not send analysisProgress message (popup may be closed):', e);
-      }
+      return;
+    } else if (response.status === 404) {
+      console.log('[BG] Paper not found yet, continuing monitoring for paper:', paperId);
+      return;
+    } else {
+      throw new Error(`Paper check failed: ${response.status}`);
     }
     
   } catch (error) {

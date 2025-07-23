@@ -66,6 +66,25 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // Build paperID-based URLs (simpler approach without analysisID)
+  function buildPaperIdUrl(paperId, additionalParams = {}) {
+    const baseUrl = chrome.runtime.getURL('fullpage.html');
+    const params = new URLSearchParams();
+    
+    if (paperId) {
+      params.set('paperID', paperId);
+    }
+    
+    // Add any additional parameters
+    Object.entries(additionalParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        params.set(key, value);
+      }
+    });
+    
+    return `${baseUrl}?${params.toString()}`;
+  }
+  
   async function setAnalysisStatus(paperId, status, errorMessage = null) {
     console.log('Setting analysis status:', { paperId, status, errorMessage });
     const now = new Date().toISOString();
@@ -123,11 +142,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // No local status, check backend
         const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
         if (backendHasAnalysis) {
-          showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
-          setButtonState('View Analysis', false, false);
+          showStatus('Analysis exists for this paper! Click "View Paper Page" to see results.', 'success');
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           return;
@@ -151,11 +170,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Check backend before showing timeout error
         const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
         if (backendHasAnalysis) {
-          showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-          setButtonState('View Analysis', false, false);
+          showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           return;
@@ -172,11 +191,11 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Analysis is complete, checking for results...');
         const hasResult = await checkForExistingAnalysis();
         if (hasResult) {
-          showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-          setButtonState('View Analysis', false, false);
+          showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
         } else {
@@ -194,11 +213,11 @@ document.addEventListener('DOMContentLoaded', function() {
           // Only show in progress if there is a previous status or backend analysis
           const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
           if (backendHasAnalysis) {
-            showStatus('Analysis exists for this paper! Click "View Analysis" to see results.', 'success');
-            setButtonState('View Analysis', false, false);
+            showStatus('Analysis exists for this paper! Click "View Paper Page" to see results.', 'success');
+            setButtonState('View Paper Page', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
-              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+              const fullpageUrl = buildPaperIdUrl(paperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             return;
@@ -241,11 +260,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const backendHasAnalysis = await hasAnalysisOnBackend(paperId);
             if (backendHasAnalysis) {
               clearInterval(monitorInterval);
-              showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-              setButtonState('View Analysis', false, false);
+              showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+              setButtonState('View Paper Page', false, false);
               analyzeBtn.style.backgroundColor = '#4CAF50';
               analyzeBtn.onclick = async () => {
-                const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+                const fullpageUrl = buildPaperIdUrl(paperId);
                 chrome.tabs.create({ url: fullpageUrl });
               };
               return;
@@ -264,22 +283,22 @@ document.addEventListener('DOMContentLoaded', function() {
               clearInterval(monitorInterval);
               const hasResult = await checkForExistingAnalysis();
               if (hasResult) {
-                showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-                setButtonState('View Analysis', false, false);
+                showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+                setButtonState('View Paper Page', false, false);
                 analyzeBtn.style.backgroundColor = '#4CAF50';
                 analyzeBtn.onclick = async () => {
-                  const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+                  const fullpageUrl = buildPaperIdUrl(paperId);
                   chrome.tabs.create({ url: fullpageUrl });
                 };
               } else {
                 // If local storage says complete but no results, check backend one more time
                 const backendRecheck = await hasAnalysisOnBackend(paperId);
                 if (backendRecheck) {
-                  showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-                  setButtonState('View Analysis', false, false);
+                  showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+                  setButtonState('View Paper Page', false, false);
                   analyzeBtn.style.backgroundColor = '#4CAF50';
                   analyzeBtn.onclick = async () => {
-                    const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+                    const fullpageUrl = buildPaperIdUrl(paperId);
                     chrome.tabs.create({ url: fullpageUrl });
                   };
                 } else {
@@ -350,17 +369,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if (hasExistingAnalysis) {
           console.log('Analysis results found in storage, UI should be updated by checkForExistingAnalysis');
         } else {
-          // If storage doesn't have it, still show the View Analysis button
-          setButtonState('View Analysis', false, false);
+          // If storage doesn't have it, still show the View Paper Page button
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
-          showStatus('Analysis complete for this paper! Click "View Analysis" to see results.', 'success');
+          showStatus('Analysis complete for this paper! Click "View Paper Page" to see results.', 'success');
         }
       }
     } catch (error) {
@@ -526,17 +545,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (isRecent) {
           // Show that analysis exists and offer to view it
-          setButtonState('View Analysis', false, false);
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab || !tab.url) return;
             const paperId = await extractSsrnIdOrUrl(tab.url);
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
           
-          showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
+          showStatus('DONE: Analysis already exists for this paper! Click "View Paper Page" to see results.', 'success');
           return true; // Indicate that analysis exists
         } else {
           console.log('Analysis exists but is too old, removing from storage');
@@ -566,17 +585,17 @@ document.addEventListener('DOMContentLoaded', function() {
             await chrome.storage.local.set({ analysisResults: newResults });
             
             // Show that analysis exists and offer to view it
-            setButtonState('View Analysis', false, false);
+            setButtonState('View Paper Page', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
               const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
               if (!tab || !tab.url) return;
               const paperId = await extractSsrnIdOrUrl(tab.url);
-              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+              const fullpageUrl = buildPaperIdUrl(paperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             
-            showStatus('DONE: Analysis already exists for this paper! Click "View Analysis" to see results.', 'success');
+            showStatus('DONE: Analysis already exists for this paper! Click "View Paper Page" to see results.', 'success');
             return true;
           }
         }
@@ -1062,9 +1081,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('[POPUP ID DEBUG] Input URL:', url);
     
-    // Add test call
-    await testIdGeneration(url);
-    
     // Use the shared ID generator which matches backend logic
     try {
       const paperId = await SharedIdGenerator.generateIdFromUrl(url);
@@ -1371,8 +1387,8 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           });
           const unifiedId = await extractSsrnIdOrUrl(tab.url);
           if (unifiedId) {
-            // Use analysisID approach for author view
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(unifiedId, { view: 'authors' });
+            // Use paperID approach for author view
+            const fullpageUrl = buildPaperIdUrl(unifiedId, { view: 'authors' });
           chrome.tabs.create({ url: fullpageUrl });
           } else {
             // Fallback to basic author view
@@ -1445,22 +1461,26 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     
     let analysisStatus = { inProgress: false, hasCompleted: false };
     
-    // Check if monitoring is already active for this paper
+    // Check if paper exists in backend (simple check)
     if (paperId) {
-      const monitoringStatus = await getMonitoringStatus(paperId);
-      if (monitoringStatus) {
-        console.log('[POPUP DEBUG] Monitoring already active for paper:', paperId);
-        // Show monitoring is active
-        showProgress(2, 'Analysis in progress. Monitoring active... Do not close this popup.');
-        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
-        analyzeBtn.style.backgroundColor = '#FF9800';
-        analyzeBtn.style.display = '';
-        return;
+      console.log('[POPUP DEBUG] Checking if paper exists with paperID:', paperId);
+      try {
+        const paperExistsResponse = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (paperExistsResponse.ok) {
+          analysisStatus.hasCompleted = true;
+          console.log('[POPUP DEBUG] Paper exists in backend');
+        } else {
+          analysisStatus.hasCompleted = false;
+          console.log('[POPUP DEBUG] Paper does not exist in backend');
+        }
+      } catch (error) {
+        console.error('[POPUP DEBUG] Error checking paper existence:', error);
+        analysisStatus.hasCompleted = false;
       }
-      
-      console.log('[POPUP DEBUG] About to call checkAnalysisStatusAndCompletion with backend:', backend.url);
-      analysisStatus = await checkAnalysisStatusAndCompletion(paperId, backend);
-      console.log('[POPUP DEBUG] checkAnalysisStatusAndCompletion returned:', analysisStatus);
     }
         
     // Hide all buttons initially
@@ -1478,13 +1498,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         if (analysisStatus.hasCompleted) {
         // Show both View Analysis and Analyze Authors
         analyzeBtn.style.display = '';
-          setButtonState('View Analysis', false, false);
+          setButtonState('View Paper Page', false, false);
           analyzeBtn.style.backgroundColor = '#4CAF50';
           analyzeBtn.onclick = async () => {
-            const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+            const fullpageUrl = buildPaperIdUrl(paperId);
             chrome.tabs.create({ url: fullpageUrl });
           };
-        showStatus('Analysis exists for this paper! Click "View Analysis" or "Analyze Authors".', 'success');
+        showStatus('Analysis exists for this paper! Click "View Paper Page" or "Analyze Authors".', 'success');
         } else {
         // Only show Analyze Authors
         showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
@@ -1528,17 +1548,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       } else if (analysisStatus.hasCompleted) {
         console.log('[POPUP DEBUG] Taking hasCompleted path');
-        // Show View Analysis only
+        // Show View Paper Page only
         analyzeBtn.style.display = '';
-        setButtonState('View Analysis', false, false);
+        setButtonState('View Paper Page', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
-          const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+          const fullpageUrl = buildPaperIdUrl(paperId);
           chrome.tabs.create({ url: fullpageUrl });
         };
         // Clear analyzing state if analysis is done
         await chrome.storage.local.remove(analyzingKey);
-        showStatus('Analysis exists for this paper! Click "View Analysis".', 'success');
+        showStatus('Analysis exists for this paper! Click "View Paper Page".', 'success');
         return;
       } else if (isAnalyzing) {
         // Show Analyzing... state and start/resume polling backend logs
@@ -1563,21 +1583,77 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
           UnderAnalysis = 1;
           
           try {
-            // Update UI to show analysis is starting
-            await setAnalysisStatus(paperId, 'in_progress');
-            showStatus('Analysis in progress for this paper... Please do not close this popup during analysis.', 'progress');
+            // Step 1: Generate paperID from URL using SharedIdGenerator
+            showStatus('Generating paper ID from URL...', 'info');
+            setButtonState('Checking...', true, false);
+            analyzeBtn.style.backgroundColor = '#FF9800';
+
+            const actualPaperId = await SharedIdGenerator.generateIdFromUrl(tab.url);
+            console.log('[POPUP] Generated paperId from URL:', actualPaperId);
+            
+            if (!actualPaperId) {
+              throw new Error('Could not generate paper ID from URL');
+            }
+
+            // Step 2: Check if paper already exists using /storage/paper/{paperID}
+            showStatus('Checking if paper exists in database...', 'info');
+            
+            const backend = await BackendManager.getCurrentBackend();
+            if (!backend) {
+              throw new Error('No backend available');
+            }
+
+            const paperExistsResponse = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(actualPaperId)}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (paperExistsResponse.ok) {
+              // Paper exists - show View Paper Page button immediately
+              const paperData = await paperExistsResponse.json();
+              showStatus(`Paper "${paperData.title}" already exists! Click "View Paper Page" to see analysis.`, 'success');
+              setButtonState('View Paper Page', false, false);
+              analyzeBtn.style.backgroundColor = '#4CAF50';
+              analyzeBtn.onclick = async () => {
+                const fullpageUrl = buildPaperIdUrl(actualPaperId);
+                chrome.tabs.create({ url: fullpageUrl });
+              };
+              
+              // Clear analyzing state since we're not analyzing
+              await chrome.storage.local.remove(key);
+              UnderAnalysis = 0;
+              return;
+            }
+
+            // Step 3: Paper doesn't exist - proceed with PDF upload/analysis
+            showStatus('New paper detected. Starting analysis...', 'info');
+            await setAnalysisStatus(actualPaperId, 'in_progress');
             setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
             analyzeBtn.style.backgroundColor = '#FF9800';
 
-            // Direct streaming analysis for PDFs
+            // Get current settings
+            const settings = await chrome.storage.local.get(['llmSettings', 'userSettings']);
+            const selectedModel = settings.llmSettings?.model || 'gemini-2.5-flash';
+            const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+            const researchInterests = settings.userSettings?.researchInterests || '';
+            const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+
+            // Step 4: Check if this is a local file or web URL
             let fileContentB64 = null;
+            const isLocalFile = tab.url.startsWith('file://');
+            
+            if (isLocalFile) {
+              // For local files, try to read the file content
             try {
+                showStatus('Reading local PDF file...', 'info');
               const resp = await fetch(tab.url);
               const blob = await resp.blob();
               const arrayBuf = await blob.arrayBuffer();
               const uint8Array = new Uint8Array(arrayBuf);
               
-              // Convert to base64 in chunks to avoid stack overflow on large files
+                // Convert to base64 in chunks
               let binary = '';
               const chunkSize = 0x8000; // 32KB chunks
               for (let i = 0; i < uint8Array.length; i += chunkSize) {
@@ -1585,26 +1661,31 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
                 binary += String.fromCharCode.apply(null, chunk);
               }
               fileContentB64 = btoa(binary);
+                showStatus('Local PDF file read successfully. Starting analysis...', 'info');
             } catch (e) {
-              console.warn('Could not fetch PDF content for base64; backend will download directly', e);
+                console.warn('Could not read local PDF file:', e);
+                showStatus('Could not read local PDF file. Please try uploading from fullpage interface.', 'error');
+                throw new Error('Could not read local PDF file');
+              }
+            } else {
+              showStatus('Preparing to download PDF from URL...', 'info');
+              // For web URLs, let the backend download the file
+              fileContentB64 = null;
             }
-
-            // Get current model, scholar URL, and API keys from settings
-            const settings = await chrome.storage.local.get(['llmSettings', 'userSettings']);
-            const selectedModel = settings.llmSettings?.model || 'gemini-2.5-flash';
-            const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-            const researchInterests = settings.userSettings?.researchInterests || '';
-            const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
             
-            // Create base payload
+            // Step 5: Create payload for analysis
             const basePayload = {
-              content: { paperUrl: tab.url },
+              content: { 
+                paperUrl: tab.url,
+                paperId: actualPaperId,
+                isLocalFile: isLocalFile
+              },
               model: selectedModel,
               user_scholar_url: userScholarUrl,
               research_interests: researchInterests
             };
             
-            // Add file content if available
+            // Add file content if available (for local files)
             if (fileContentB64) {
               basePayload.file_content = fileContentB64;
             }
@@ -1620,31 +1701,28 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
               basePayload.claude_api_key = llmSettings.claudeKey;
             }
             
-            const bodyPayload = basePayload;
+            // Step 6: Start analysis via streaming endpoint
+            showStatus('Starting PDF analysis...', 'info');
+            await monitorAnalysisProgress(tab.id, actualPaperId, true);
 
-            // Start background monitoring
-            await monitorAnalysisProgress(tab.id, paperId, true);
-            
-            const finalEvt = await analyzeWithSmartBackendStream(bodyPayload, (msg) => {
+            const finalEvt = await analyzeWithSmartBackendStream(basePayload, (msg) => {
               showStatus(msg, 'info');
             });
 
-            // Clear analyzing state
+            // Step 7: Analysis completed
             await chrome.storage.local.remove(key);
             UnderAnalysis = 0;
             
-            // Analysis completed via streaming - update UI directly
-            await setAnalysisStatus(paperId, 'complete');
-            showStatus('Analysis complete! Click "View Analysis" to see results.', 'success');
-            setButtonState('View Analysis', false, false);
+            await setAnalysisStatus(actualPaperId, 'complete');
+            showStatus('Analysis complete! Click "View Paper Page" to see results.', 'success');
+            setButtonState('View Paper Page', false, false);
             analyzeBtn.style.backgroundColor = '#4CAF50';
             analyzeBtn.onclick = async () => {
-              const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+              const fullpageUrl = buildPaperIdUrl(actualPaperId);
               chrome.tabs.create({ url: fullpageUrl });
             };
             
-            // Stop any background monitoring
-            await stopAnalysisMonitoring(paperId);
+            await stopAnalysisMonitoring(actualPaperId);
           } catch (error) {
             console.error('Error in PDF analysis:', error);
             await chrome.storage.local.remove(key);
@@ -1691,6 +1769,24 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       updatePopupUI();
     }
   });
+
+  // Simplified cleanup function
+  async function cleanupStaleAnalyzingStates() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) return;
+      
+      const paperId = await extractSsrnIdOrUrl(tab.url);
+      if (!paperId) return;
+      
+      // Simple cleanup - just remove any stale analyzing states
+      const analyzingKey = getAnalyzingKey(tab.id, paperId);
+      await chrome.storage.local.remove(analyzingKey);
+      console.log('Cleaned up analyzing state for tab:', tab.id, 'paper:', paperId);
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+    }
+  }
 
   // Replace initialization to use updatePopupUI
   async function initializePopup() {
@@ -1778,16 +1874,16 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       
       // Update UI to show completion
       hideProgress();
-      setButtonState('View Analysis', false, false);
+      setButtonState('View Paper Page', false, false);
       analyzeBtn.style.backgroundColor = '#4CAF50';
-      showStatus('Analysis completed successfully! Click "View Analysis" to see results.', 'success');
+      showStatus('Analysis completed successfully! Click "View Paper Page" to see results.', 'success');
       
       // Update button onclick to view results
       analyzeBtn.onclick = async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tab || !tab.url) return;
         const paperId = await extractSsrnIdOrUrl(tab.url);
-        const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+        const fullpageUrl = buildPaperIdUrl(paperId);
         chrome.tabs.create({ url: fullpageUrl });
       };
       
@@ -1911,18 +2007,18 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
 
     // Update button state
-    setButtonState('View Analysis', false, false);
+    setButtonState('View Paper Page', false, false);
     analyzeBtn.style.backgroundColor = '#4CAF50';
     analyzeBtn.onclick = async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) return;
       const paperId = await extractSsrnIdOrUrl(tab.url);
-      const fullpageUrl = await buildFullpageUrlWithAnalysisId(paperId);
+      const fullpageUrl = buildPaperIdUrl(paperId);
       chrome.tabs.create({ url: fullpageUrl });
     };
 
     // Show success message
-    let statusMessage = 'Analysis loaded from cache. Click "View Analysis" to see the detailed summary.';
+    let statusMessage = 'Analysis loaded from cache. Click "View Paper Page" to see the detailed summary.';
     if (analysis.data && analysis.data.author_data) {
       statusMessage += ` Author profiles available: ${analysis.data.author_data.summary.total_authors} authors with ${analysis.data.author_data.summary.total_citations.toLocaleString()} total citations.`;
     }
@@ -1973,104 +2069,28 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   // Backward-compatible wrapper for UI checks - returns boolean
   async function hasAnalysisOnBackend(paperId) {
     try {
-      // Generate analysis_id from paperId and current scholar URL
-      const settings = await chrome.storage.local.get(['userSettings']);
-      const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-      const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
+      // Simple check: does paper exist in backend?
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) return false;
       
-      console.log('[UI] Generated analysisId for UI check:', analysisId);
+      const response = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
       
-      const result = await checkAnalysisOnBackend(analysisId);
-      return !!result; // Convert to boolean
+      return response.ok;
     } catch (error) {
-      console.error('Error in hasAnalysisOnBackend:', error);
+      console.error('Error checking if paper exists:', error);
       return false;
     }
   }
 
-  // Function to check analysis status first, then completed analysis if needed
+  // DISABLED: checkAnalysisStatusAndCompletion function 
+  // This function made unnecessary /analysis-status/ calls to the backend
+  // Now we use simple paper existence check via /storage/paper/{paperID}
   async function checkAnalysisStatusAndCompletion(paperId, backend) {
-    try {
-      console.log('Checking analysis status first for paper:', paperId);
-      console.log('[DEBUG] checkAnalysisStatusAndCompletion using backend:', backend?.name, backend?.url);
-      
-      // Generate analysis_id from paperId and current scholar URL
-      const settings = await chrome.storage.local.get(['userSettings']);
-      const currentScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-      const analysisId = await generateAnalysisId(paperId, currentScholarUrl);
-      
-      console.log('[DEBUG] Generated analysisId for status check:', analysisId);
-      
-      // First check if analysis is in progress using analysis_id
-      const statusUrl = `${backend.url}/analysis-status/${encodeURIComponent(analysisId)}`;
-      console.log('Checking status endpoint:', statusUrl);
-      
-      const statusResponse = await fetch(statusUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('[DEBUG] Status response:', statusResponse.status, statusResponse.statusText);
-      
-      if (statusResponse.ok) {
-        const statusData = await statusResponse.json();
-        console.log('[DEBUG] Status data:', statusData);
-        
-        if (statusData.status === 'complete') {
-          console.log('Analysis is complete, attempting to fetch full analysis');
-          // If complete, try to get the full analysis using analysis_id
-          const fullAnalysis = await checkAnalysisOnBackend(analysisId);  // Use analysisId here too
-          if (fullAnalysis) {
-            return {
-              inProgress: false,
-              hasCompleted: true,
-              analysisData: fullAnalysis
-            };
-          } else {
-            return {
-              inProgress: false,
-              hasCompleted: false
-            };
-          }
-        } else if (statusData.status === 'in_progress' || statusData.status === 'pending') {
-          console.log('Analysis is in progress:', statusData);
-          return {
-            inProgress: true,
-            hasCompleted: false,
-            data: statusData
-          };
-        } else if (statusData.status === 'not_found') {
-          console.log('Analysis not found');
-          return {
-            inProgress: false,
-            hasCompleted: false
-          };
-        } else {
-          console.log('Unknown status:', statusData);
-          return {
-            inProgress: false,
-            hasCompleted: false
-          };
-        }
-      } else if (statusResponse.status === 404) {
-        console.log('Analysis status not found, analysis has not been started');
-        return {
-          inProgress: false,
-          hasCompleted: false
-        };
-      } else {
-        console.log('Backend returned error for status check:', statusResponse.status);
-        return {
-          inProgress: false,
-          hasCompleted: false
-        };
-      }
-    } catch (error) {
-      console.error('Error checking analysis status and completion:', error);
+    console.log('checkAnalysisStatusAndCompletion has been disabled - using simple paper existence check instead');
       return { inProgress: false, hasCompleted: false };
-    }
   }
 
   // Listen for tab refresh and reset UnderAnalysis if the current tab is reloaded
@@ -2088,32 +2108,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   // Utility to get the analyzing key for a tab and paper
   function getAnalyzingKey(tabId, paperId) {
     return `analyzing_${tabId}_${paperId}`;
-  }
-
-  // Function to clean up stale analyzing states on popup initialization
-  async function cleanupStaleAnalyzingStates() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.url) return;
-      
-      const paperId = await extractSsrnIdOrUrl(tab.url);
-      if (!paperId) return;
-      
-      // Check if there's actually an analysis in progress or completed
-      const backend = await BackendManager.getCurrentBackend();
-      if (backend) {
-        const analysisStatus = await checkAnalysisStatusAndCompletion(paperId, backend);
-        
-        // If no analysis exists or is in progress, clear the analyzing state
-        if (!analysisStatus.inProgress && !analysisStatus.hasCompleted) {
-          const analyzingKey = getAnalyzingKey(tab.id, paperId);
-          await chrome.storage.local.remove(analyzingKey);
-          console.log('Cleaned up stale analyzing state for tab:', tab.id, 'paper:', paperId);
-        }
-      }
-    } catch (error) {
-      console.error('Error cleaning up stale analyzing states:', error);
-    }
   }
 
   // On tab refresh or redirect, clear persistent analyzing state
