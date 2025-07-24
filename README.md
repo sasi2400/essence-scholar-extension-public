@@ -2,6 +2,14 @@
 
 A powerful Chrome extension that provides intelligent analysis of academic papers from SSRN and PDF files using AI-powered research assistance.
 
+
+<p align="center">
+  <a href="https://youtu.be/PwXn94MjdpY">
+    <img src="https://img.youtube.com/vi/PwXn94MjdpY/0.jpg" alt="SSRN Paper Summarizer Demo">
+  </a>
+</p>
+
+
 ## 🚀 Features
 
 * **Smart Paper Analysis**: Automatically extracts and analyzes academic papers from SSRN
@@ -21,6 +29,7 @@ A powerful Chrome extension that provides intelligent analysis of academic paper
 * **Author Analysis**: Detailed author profiles with Google Scholar integration
 
 * **FT50 Journal Tracking**: Identifies publications in Financial Times Top 50 journals
+
 
 ## 📦 Installation
 
