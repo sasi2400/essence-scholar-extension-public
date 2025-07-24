@@ -2,12 +2,15 @@
 
 A powerful Chrome extension that provides intelligent analysis of academic papers from SSRN and PDF files using AI-powered research assistance.
 
+## 🎥 Demo
 
-<p align="center">
-  <a href="https://youtu.be/PwXn94MjdpY">
-    <img src="https://img.youtube.com/vi/PwXn94MjdpY/0.jpg" alt="SSRN Paper Summarizer Demo">
-  </a>
-</p>
+<div align="center">
+  
+[![SSRN Paper Summarizer Demo](https://img.youtube.com/vi/PwXn94MjdpY/maxresdefault.jpg)](https://youtu.be/PwXn94MjdpY)
+
+*Click the image above to watch the demo video*
+
+</div>
 
 
 ## 🚀 Features
