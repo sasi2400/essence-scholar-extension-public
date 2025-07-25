@@ -877,47 +877,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Update backend status display - REMOVED DUPLICATE (kept final version at end of file)
 
-  // Debug function to show current storage state
-  async function debugStorageState() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      console.log('=== STORAGE DEBUG ===');
-      console.log('Current tab URL:', tab?.url);
-      
-      const storage = await chrome.storage.local.get(['analysisResults', 'authorAnalysisResults', 'lastAnalysis', 'lastAuthorAnalysis']);
-      console.log('All analysis results:', storage.analysisResults);
-      console.log('All author analysis results:', storage.authorAnalysisResults);
-      console.log('Legacy lastAnalysis:', storage.lastAnalysis);
-      console.log('Legacy lastAuthorAnalysis:', storage.lastAuthorAnalysis);
-      
-      if (tab?.url && storage.analysisResults) {
-        console.log('Analysis for current tab:', storage.analysisResults[tab.url]);
-      }
-      console.log('=== END STORAGE DEBUG ===');
-    } catch (error) {
-      console.error('Error debugging storage:', error);
-    }
-  }
-
   // Function to check if current tab is a PDF and set up the UI accordingly
   async function checkPageType() {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      console.log('checkPageType: Current tab URL:', tab.url);
-      
       // Check if it's a PDF page using multiple criteria
       const isPDF = await checkIfPDFPage(tab);
-      console.log('checkPageType: Is PDF page?', isPDF);
       
       // Check if it's an SSRN page
       const isSSRN = tab.url && tab.url.includes('ssrn.com');
-      console.log('checkPageType: Is SSRN page?', isSSRN);
 
       if (isPDF && isSSRN) {
         // PDF detected on SSRN page - show guidance to user
-        console.log('checkPageType: PDF detected on SSRN page - showing guidance');
-        console.log('checkPageType: Tab URL:', tab.url);
         const fileName = tab.url.split('/').pop() || 'PDF file';
         
         showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
@@ -931,7 +903,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show the full page interface button prominently
         showFullpageButton(true);
         
-        console.log('checkPageType: Main analyze button disabled, fullpage button shown');
       } else if (!isPDF && isSSRN) {
         // SSRN page without PDF: disable main analyze button, enable authors button
         setButtonState('Deep Read!', true, false); // Disable main button
@@ -943,7 +914,6 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (tab.url && tab.url.includes('ssrn.com')) {
         // SSRN page detected - only show author analysis option
-        console.log('checkPageType: SSRN detected - disabling paper analysis, showing author analysis');
         showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
         setButtonState('Deep Read!', true, false); // Disable paper analysis button
         analyzeBtn.style.backgroundColor = '#ccc'; // Gray out the button
@@ -956,7 +926,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
       } else {
         // Not a supported page
-        console.log('checkPageType: Unsupported page - disabling both buttons');
         showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
         setButtonState('Deep Read!', true, false); // Disable button
         analyzeBtn.style.backgroundColor = '#ccc';
@@ -973,9 +942,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to check if a tab contains a PDF using multiple detection methods
   async function checkIfPDFPage(tab) {
     try {
-      console.log('[PDF DEBUG] Checking PDF for URL:', tab.url);
-      console.log('[PDF DEBUG] Tab title:', tab.title);
-      
       // Method 1: Check URL patterns
       const urlPatterns = [
         tab.url.toLowerCase().endsWith('.pdf'),
@@ -991,58 +957,36 @@ document.addEventListener('DOMContentLoaded', function() {
         tab.url.includes('/pdf/') || tab.url.includes('/PDF/') // Simple PDF path check
       ];
       
-      console.log('[PDF DEBUG] URL pattern checks:', {
-        'ends with .pdf': tab.url.toLowerCase().endsWith('.pdf'),
-        'starts with file:///': tab.url.startsWith('file:///'),
-        'has pdf + viewer/download': tab.url.includes('pdf') && (tab.url.includes('viewer') || tab.url.includes('download')),
-        'has application/pdf': tab.url.includes('application/pdf'),
-        'has content-type=application/pdf': tab.url.includes('content-type=application/pdf'),
-        'arxiv.org/pdf/': /arxiv\.org\/pdf\//.test(tab.url),
-        'researchgate publication': /researchgate\.net.*\/publication\/.*\//.test(tab.url),
-        'edu domain with /pdf/': /\.edu\/.*\/pdf\//.test(tab.url),
-        'generic /pdf/ pattern': /\/pdf\//.test(tab.url) && !tab.url.includes('html'),
-        'simple PDF path check': tab.url.includes('/pdf/') || tab.url.includes('/PDF/')
-      });
-      
       if (urlPatterns.some(pattern => pattern)) {
-        console.log('[PDF DEBUG] PDF detected via URL pattern - SUCCESS');
         return true;
       }
       
       // Method 2: Check content type via content script
       try {
-        console.log('[PDF DEBUG] Trying content type check via content script...');
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkContentType' });
-        console.log('[PDF DEBUG] Content type response:', response);
         if (response && response.contentType === 'application/pdf') {
-          console.log('[PDF DEBUG] PDF detected via content type - SUCCESS');
           return true;
         }
       } catch (error) {
-        console.log('[PDF DEBUG] Content type check failed:', error.message);
+        // Content script not available, continue with other methods
       }
       
       // Method 3: Check for PDF elements in the page
       try {
-        console.log('[PDF DEBUG] Trying PDF elements check via content script...');
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFElements' });
-        console.log('[PDF DEBUG] PDF elements response:', response);
         if (response && response.hasPDFElements) {
-          console.log('[PDF DEBUG] PDF detected via page elements - SUCCESS');
           return true;
         }
       } catch (error) {
-        console.log('[PDF DEBUG] PDF elements check failed:', error.message);
+        // Content script not available, continue
       }
       
       // Method 4: Check if the page title suggests it's a PDF
       const title = tab.title || '';
       if (title.toLowerCase().includes('pdf') || title.toLowerCase().includes('document')) {
-        console.log('[PDF DEBUG] PDF suggested by title:', title);
         // This is a weaker indicator, so we'll log it but not return true immediately
       }
       
-      console.log('[PDF DEBUG] Final result: PDF detection FAILED');
       return false;
     } catch (error) {
       console.error('Error checking if page is PDF:', error);
@@ -1050,48 +994,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Test function to compare ID generation
-  async function testIdGeneration(url) {
-    console.log('🧪 TESTING ID GENERATION FOR:', url);
-    
-    // Test SharedIdGenerator directly
-    try {
-      const sharedId = await SharedIdGenerator.generateIdFromUrl(url);
-      console.log('🧪 SharedIdGenerator result:', sharedId);
-      
-      // Test backend ID generation via message
-      const bgResponse = await chrome.runtime.sendMessage({ action: 'testPaperId', url: url });
-      console.log('🧪 Background result:', bgResponse);
-      
-      if (sharedId === bgResponse.paperId) {
-        console.log('✅ IDs MATCH!');
-      } else {
-        console.log('❌ IDs DO NOT MATCH!');
-        console.log('   SharedIdGenerator:', sharedId);
-        console.log('   Background:', bgResponse.paperId);
-      }
-    } catch (error) {
-      console.error('🧪 Test failed:', error);
-    }
-  }
-
   // Use shared ID generator for consistent paper ID generation
   async function extractSsrnIdOrUrl(url) {
     if (!url) return null;
     
-    console.log('[POPUP ID DEBUG] Input URL:', url);
-    
     // Use the shared ID generator which matches backend logic
     try {
       const paperId = await SharedIdGenerator.generateIdFromUrl(url);
-      console.log('[POPUP ID DEBUG] Generated paperId:', paperId);
       return paperId;
     } catch (error) {
-      console.error('[POPUP ID DEBUG] Error generating paper ID:', error);
+      console.error('Error generating paper ID:', error);
       // Fallback to simple SSRN ID extraction
       const match = url.match(/[?&]abstract(?:_?id)?=(\d+)/i);
       const fallbackId = match ? match[1] : url;
-      console.log('[POPUP ID DEBUG] Fallback paperId:', fallbackId);
       return fallbackId;
     }
   }
@@ -1426,30 +1341,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
    * Once /analysis/paperID is 200, UnderAnalysis is again 0 and depending on the above scenarios, users see the popup
    */
   async function updatePopupUI() {
-    console.log('[EXTENSION DEBUG] updatePopupUI called - new code is running!');
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return;
     const url = tab.url;
-    console.log('[EXTENSION DEBUG] Processing URL:', url);
     const paperId = await extractSsrnIdOrUrl(url);
-    console.log('[EXTENSION DEBUG] Generated paperId in popup:', paperId);
-    console.log('🔍 POPUP ID GENERATION - URL:', url, 'RESULT:', paperId);
     const isSSRN = url.includes('ssrn.com') && paperId && !await checkIfPDFPage(tab);
-    console.log('[EXTENSION DEBUG] About to call checkIfPDFPage...');
     const isPDF = await checkIfPDFPage(tab);
-    console.log('[EXTENSION DEBUG] checkIfPDFPage returned:', isPDF);
     
     // Use global backend detection instead of per-tab
     let backend = await BackendManager.getCurrentBackend();
-    console.log('[POPUP] Global backend result:', backend);
-    
-    // Add comprehensive debug logging
-    console.log('[POPUP DEBUG] ===================');
-    console.log('[POPUP DEBUG] Tab ID:', tab.id);
-    console.log('[POPUP DEBUG] Paper ID:', paperId);
-    console.log('[POPUP DEBUG] Tab URL:', tab.url);
-    console.log('[POPUP DEBUG] Global Backend:', backend?.name, backend?.url);
-    console.log('[POPUP DEBUG] ===================');
     
     if (!backend) {
       showStatus('❌ No Backend Available.', 'error');
@@ -1463,7 +1363,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     
     // Check if paper exists in backend (simple check)
     if (paperId) {
-      console.log('[POPUP DEBUG] Checking if paper exists with paperID:', paperId);
       try {
         const paperExistsResponse = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`, {
           method: 'GET',
@@ -1472,13 +1371,11 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         
         if (paperExistsResponse.ok) {
           analysisStatus.hasCompleted = true;
-          console.log('[POPUP DEBUG] Paper exists in backend');
         } else {
           analysisStatus.hasCompleted = false;
-          console.log('[POPUP DEBUG] Paper does not exist in backend');
         }
       } catch (error) {
-        console.error('[POPUP DEBUG] Error checking paper existence:', error);
+        console.error('Error checking paper existence:', error);
         analysisStatus.hasCompleted = false;
       }
     }
@@ -1514,12 +1411,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
 
     // PDF page - allow analysis for all PDFs, not just ones with existing paperIds
     if (isPDF) {
-      console.log('[POPUP DEBUG] Entering PDF analysis section');
-      console.log('[POPUP DEBUG] isPDF:', isPDF, 'paperId:', paperId);
       // Generate paperId if not already available (for non-SSRN PDFs)
       if (!paperId) {
         paperId = await SharedIdGenerator.generateIdFromUrl(url);
-        console.log('[POPUP DEBUG] Generated paperId for non-SSRN PDF:', paperId);
       }
       // Check persistent analyzing state
       let analyzingKey = getAnalyzingKey(tab.id, paperId);
@@ -1535,10 +1429,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       }
       
       UnderAnalysis = isAnalyzing ? 1 : 0;
-      console.log('[POPUP DEBUG] Analysis status check - inProgress:', analysisStatus.inProgress, 'hasCompleted:', analysisStatus.hasCompleted, 'isAnalyzing:', isAnalyzing);
+      
       if (analysisStatus.inProgress) {
         // Analysis is in progress - show status and start monitoring
-        console.log('[POPUP DEBUG] Taking inProgress path');
         analyzeBtn.style.display = '';
         setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
@@ -1547,7 +1440,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         monitorAnalysisProgress(tab.id, paperId, true);
         return;
       } else if (analysisStatus.hasCompleted) {
-        console.log('[POPUP DEBUG] Taking hasCompleted path');
         // Show View Paper Page only
         analyzeBtn.style.display = '';
         setButtonState('View Paper Page', false, false);
@@ -1562,7 +1454,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       } else if (isAnalyzing) {
         // Show Analyzing... state and start/resume polling backend logs
-        console.log('[POPUP DEBUG] Taking isAnalyzing path');
         analyzeBtn.style.display = '';
         setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
@@ -1572,7 +1463,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       } else {
         // Only show Deep Read!
-        console.log('[POPUP DEBUG] Taking fresh analysis path - enabling button');
         analyzeBtn.style.display = '';
         setButtonState('Deep Read!', false, false);
         analyzeBtn.style.backgroundColor = '#2196F3';
@@ -1744,8 +1634,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
 
     // Not SSRN, not PDF, or no paperId
-    console.log('[POPUP DEBUG] Reached final fallback section - disabling button');
-    console.log('[POPUP DEBUG] isSSRN:', isSSRN, 'isPDF:', isPDF, 'paperId:', paperId);
     showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
             setButtonState('Deep Read!', true, false);
             analyzeBtn.style.backgroundColor = '#ccc';
@@ -1792,7 +1680,6 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   async function initializePopup() {
     try {
       displayBackendStatus();
-      await debugStorageState();
       await updateBackendStatusDisplay();
       
       // Reset UnderAnalysis on popup initialization (handles tab refresh case)
@@ -1813,32 +1700,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   initializePopup();
   updateConfigurationStatus();
   
-  // Debug function to manually check status (for testing)
-  window.debugCheckStatus = async function() {
-    console.log('=== DEBUG: Manual status check ===');
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    console.log('Current tab:', tab);
-    
-    if (tab && tab.url) {
-      const paperId = await extractSsrnIdOrUrl(tab.url);
-      if (paperId) {
-        const status = await getAnalysisStatus(paperId);
-        console.log('Status for current URL:', status);
-        
-        // Also show all stored statuses
-        const storage = await chrome.storage.local.get([STATUS_KEY]);
-        console.log('All stored statuses:', storage[STATUS_KEY]);
-        
-        // Check background monitoring status
-        try {
-          const response = await chrome.runtime.sendMessage({ action: 'debugMonitoring' });
-          console.log('Background monitoring debug info:', response.debugInfo);
-        } catch (error) {
-          console.error('Error getting background monitoring info:', error);
-        }
-      }
-    }
-  };
+
   
   // Also check page type when popup is focused (in case user switches tabs)
   window.addEventListener('focus', async () => {
@@ -2047,7 +1909,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         }
       });
       
-      console.log('[DEBUG] Analysis response:', response.status, response.statusText);
+
       
       if (response.ok) {
         const data = await response.json();
