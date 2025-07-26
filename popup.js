@@ -1122,7 +1122,8 @@ document.addEventListener('DOMContentLoaded', function() {
         model, 
         geminiKey,
         openaiKey, 
-        claudeKey 
+        claudeKey,
+        lastUpdated: new Date().toISOString()
       };
       
       console.log('🔍 Popup: Saving LLM settings:', {
@@ -2145,39 +2146,39 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     renderTaskChecklist();
   }
 
-  // Version checking functionality
-  async function checkForUpdates() {
-    try {
-      const backend = await BackendManager.getCurrentBackend();
-      if (!backend) {
-        console.log('No backend available for version check');
-        return;
-      }
+  // // Version checking functionality
+  // async function checkForUpdates() {
+  //   try {
+  //     const backend = await BackendManager.getCurrentBackend();
+  //     if (!backend) {
+  //       console.log('No backend available for version check');
+  //       return;
+  //     }
 
-      // Get extension version from manifest
-      const manifest = chrome.runtime.getManifest();
-      const extensionVersion = `v${manifest.version}`;
+  //     // Get extension version from manifest
+  //     const manifest = chrome.runtime.getManifest();
+  //     const extensionVersion = `v${manifest.version}`;
 
-      const response = await fetch(`${backend.url}${CONFIG.VERSION_ENDPOINT}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Extension-Version': extensionVersion
-        }
-      });
+  //     const response = await fetch(`${backend.url}${CONFIG.VERSION_ENDPOINT}`, {
+  //       method: 'GET',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //         'X-Extension-Version': extensionVersion
+  //       }
+  //     });
 
-      if (response.ok) {
-        const versionData = await response.json();
-        console.log('Version check result:', versionData);
+  //     if (response.ok) {
+  //       const versionData = await response.json();
+  //       console.log('Version check result:', versionData);
 
-        if (versionData.update_available || versionData.deprecated) {
-          showVersionNotification(versionData);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking for updates:', error);
-    }
-  }
+  //       if (versionData.update_available || versionData.deprecated) {
+  //         showVersionNotification(versionData);
+  //       }
+  //     }
+  //   } catch (error) {
+  //     console.error('Error checking for updates:', error);
+  //   }
+  // }
 
   function showVersionNotification(versionData) {
     // Remove any existing version notifications first

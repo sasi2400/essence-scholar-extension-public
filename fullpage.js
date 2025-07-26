@@ -57,33 +57,21 @@ document.addEventListener('DOMContentLoaded', function() {
    *    URL: fullpage.html?paperID=123&scholar=...
    *    Shows: Analysis view (generates analysisID internally)
    *    Used by: Search results, legacy URLs
-   * 
-   * 3. fullpage+analysisID
-   *    URL: fullpage.html?analysisID=abc123
-   *    Shows: Analysis view (direct analysisID access)
-   *    Used by: PDF uploads, internal navigation
-   * 
-   * 4. fullpage+...+authorview
-   *    URL: fullpage.html?analysisID=abc123&view=authors
-   *    Shows: Authors view for specific analysis
-   *    Used by: View Authors button navigation
-   * 
-   * SEARCH CONSISTENCY: All search results use paperID for navigation,
-   * which is then converted to analysisID internally for consistency.
+ 
    */
   const VIEW_MODES = {
     HOMEPAGE: 'homepage',
-    ANALYSIS: 'analysis', 
+    // ANALYSIS: 'analysis', 
     ANALYSIS_WITH_PAPER_ID: 'analysis_paperid',
-    AUTHORS: 'authors',
+    // AUTHORS: 'authors',
     AUTHOR_PROFILE: 'author_profile'
   };
   
   // View Mode Detection - determines current view mode from URL parameters
   function detectViewMode() {
     const urlParams = getUrlParams();
-    const view = urlParams.get('view');
-    const analysisId = urlParams.get('analysisID');
+    // const view = urlParams.get('view');
+    // const analysisId = urlParams.get('analysisID');
     const paperId = urlParams.get('paperID');
     const authorId = urlParams.get('authorID');
     
@@ -93,15 +81,15 @@ document.addEventListener('DOMContentLoaded', function() {
       return VIEW_MODES.AUTHOR_PROFILE;
     }
     
-    // 2. Explicit view=authors parameter
-    if (view === 'authors') {
-      return VIEW_MODES.AUTHORS;
-    }
+    // // 2. Explicit view=authors parameter
+    // if (view === 'authors') {
+    //   return VIEW_MODES.AUTHORS;
+    // }
     
-    // 3. analysisID present = analysis view
-    if (analysisId) {
-      return VIEW_MODES.ANALYSIS;
-    }
+    // // 3. analysisID present = analysis view
+    // if (analysisId) {
+    //   return VIEW_MODES.ANALYSIS;
+    // }
     
     // 4. paperID present = analysis view with paperID (will generate analysisID)
     if (paperId) {
@@ -117,26 +105,26 @@ document.addEventListener('DOMContentLoaded', function() {
     return chrome.runtime.getURL('fullpage.html');
   }
   
-  function buildAnalysisUrl(analysisId, additionalParams = {}) {
-    try {
-      const baseUrl = chrome.runtime.getURL('fullpage.html');
-      let url = `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
+  // function buildAnalysisUrl(analysisId, additionalParams = {}) {
+  //   try {
+  //     const baseUrl = chrome.runtime.getURL('fullpage.html');
+  //     let url = `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
       
-      // Add any additional parameters
-      Object.keys(additionalParams).forEach(key => {
-        url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
-      });
+  //     // Add any additional parameters
+  //     Object.keys(additionalParams).forEach(key => {
+  //       url += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(additionalParams[key]);
+  //     });
       
-      return url;
-    } catch (error) {
-      console.error('Error building analysis URL:', error);
-      const baseUrl = chrome.runtime.getURL('fullpage.html');
-      return `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
-    }
-  }
+  //     return url;
+  //   } catch (error) {
+  //     console.error('Error building analysis URL:', error);
+  //     const baseUrl = chrome.runtime.getURL('fullpage.html');
+  //     return `${baseUrl}?analysisID=${encodeURIComponent(analysisId)}`;
+  //   }
+  // }
   
   async function buildAnalysisUrlFromPaperId(paperId, scholarUrl = null, additionalParams = {}) {
-    try {
+    // try {
       // Get scholar URL if not provided
       if (!scholarUrl) {
         const result = await chrome.storage.local.get(['userSettings']);
@@ -144,42 +132,43 @@ document.addEventListener('DOMContentLoaded', function() {
         scholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
       }
       
-      // Generate analysisId and use standard analysis URL
-      const analysisId = await generateAnalysisId(paperId, scholarUrl);
-      return buildAnalysisUrl(analysisId, additionalParams);
-    } catch (error) {
-      console.error('Error building analysis URL from paperID:', error);
-      // Fallback to basic URL with paperID
+    //   // Generate analysisId and use standard analysis URL
+    //   const analysisId = await generateAnalysisId(paperId, scholarUrl);
+    //   return buildAnalysisUrl(analysisId, additionalParams);
+    // } catch (error) {
+    //   console.error('Error building analysis URL from paperID:', error);
+    //   // Fallback to basic URL with paperID
       const baseUrl = chrome.runtime.getURL('fullpage.html');
       return `${baseUrl}?paperID=${encodeURIComponent(paperId)}`;
-    }
+    // }
+    return `${baseUrl}`;
   }
   
-  async function buildAuthorsViewUrl(analysisId = null, paperId = null, scholarUrl = null, additionalParams = {}) {
-    try {
-      let effectiveAnalysisId = analysisId;
+  // async function buildAuthorsViewUrl(analysisId = null, paperId = null, scholarUrl = null, additionalParams = {}) {
+  //   try {
+  //     let effectiveAnalysisId = analysisId;
       
-      // If no analysisId but have paperId, generate it
-      if (!effectiveAnalysisId && paperId) {
-        if (!scholarUrl) {
-          const result = await chrome.storage.local.get(['userSettings']);
-          const settings = result.userSettings || {};
-          scholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-        }
-        effectiveAnalysisId = await generateAnalysisId(paperId, scholarUrl);
-      }
+  //     // If no analysisId but have paperId, generate it
+  //     if (!effectiveAnalysisId && paperId) {
+  //       if (!scholarUrl) {
+  //         const result = await chrome.storage.local.get(['userSettings']);
+  //         const settings = result.userSettings || {};
+  //         scholarUrl = settings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+  //       }
+  //       effectiveAnalysisId = await generateAnalysisId(paperId, scholarUrl);
+  //     }
       
-      if (!effectiveAnalysisId) {
-        throw new Error('Cannot build authors view URL without analysisId or paperId');
-      }
+  //     if (!effectiveAnalysisId) {
+  //       throw new Error('Cannot build authors view URL without analysisId or paperId');
+  //     }
       
-      // Build URL with view=authors parameter
-      return buildAnalysisUrl(effectiveAnalysisId, { view: 'authors', ...additionalParams });
-    } catch (error) {
-      console.error('Error building authors view URL:', error);
-      return buildHomepageUrl();
-    }
-  }
+  //     // Build URL with view=authors parameter
+  //     return buildAnalysisUrl(effectiveAnalysisId, { view: 'authors', ...additionalParams });
+  //   } catch (error) {
+  //     console.error('Error building authors view URL:', error);
+  //     return buildHomepageUrl();
+  //   }
+  // }
   
   // Legacy function for backward compatibility
   function getHomepageUrl() {
@@ -535,8 +524,14 @@ document.addEventListener('DOMContentLoaded', function() {
   window.debugStorage = async function() {
     console.log('=== DEBUG STORAGE ===');
     try {
-      const userSettings = await chrome.storage.local.get(['userSettings']);
-      const llmSettings = await chrome.storage.local.get(['llmSettings']);
+      // const userSettings = await chrome.storage.local.get(['userSettings']);
+      // const llmSettings = await chrome.storage.local.get(['llmSettings']);
+      // Get LLM settings and user settings
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+      const userSettings = (await chrome.storage.local.get(['userSettings'])) || {};
+      const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const researchInterests = userSettings.researchInterests || '';
+            
       console.log('User Settings:', userSettings);
       console.log('LLM Settings:', llmSettings);
       
@@ -584,6 +579,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const result = await chrome.storage.local.get(['llmSettings']);
       const settings = result.llmSettings || {};
       settings.model = selectedModel;
+      settings.lastUpdated = new Date().toISOString();
       
       await chrome.storage.local.set({ llmSettings: settings });
       console.log('Model settings saved:', settings);
@@ -1260,9 +1256,9 @@ document.addEventListener('DOMContentLoaded', function() {
     return getUrlParams().get('paperID');
   }
 
-  function getAnalysisIdFromUrl() {
-    return getUrlParams().get('analysisID');
-  }
+  // function getAnalysisIdFromUrl() {
+  //   return getUrlParams().get('analysisID');
+  // }
 
   function navigateToHomepage() {
     window.location.replace(buildHomepageUrl());
@@ -1730,10 +1726,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Function to handle chat
   async function handleChat(message) {
+    console.log("🔍 Chat: handleChat function called with message:", message);
+    
     if (!currentPdfContent) {
+      console.log("🔍 Chat: No PDF content available, returning early");
       addMessage('No PDF content available for chat. Please upload a PDF first.', false);
       return;
     }
+    
+    console.log("🔍 Chat: PDF content is available, proceeding with chat");
 
     // First, display the user's message
     addMessage(message, true);
@@ -1752,19 +1753,50 @@ document.addEventListener('DOMContentLoaded', function() {
     loadingMessage.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
 
     try {
-      // Get LLM settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      console.log("🔍 Chat: Starting handleChat function");
+      
+      // Get LLM settings - fetch fresh each time to avoid caching issues
+      const storageResult = await chrome.storage.local.get(['llmSettings']);
+      console.log("🔍 Chat: Raw storage result:", storageResult);
+      
+      const llmSettings = storageResult.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      console.log("🔍 Chat: LLM settings loaded:", {
+        model: llmSettings.model,
+        hasGeminiKey: !!llmSettings.geminiKey,
+        hasOpenaiKey: !!llmSettings.openaiKey,
+        hasClaudeKey: !!llmSettings.claudeKey,
+        lastUpdated: llmSettings.lastUpdated || 'unknown'
+      });
       
       // Format request to match backend's expected structure
+      console.log('🔍 Chat: Model processing:', {
+        originalModel: llmSettings.model,
+        processedModel: getModelName(llmSettings.model)
+      });
+      
       const requestBody = {
         message: message,
         paper: currentPdfContent, // Send the entire PDF content object as 'paper'
-        model: getModelName(llmSettings.model),
-        google_api_key: llmSettings.geminiKey || undefined,
-        openai_api_key: llmSettings.openaiKey || undefined,
-        claude_api_key: llmSettings.claudeKey || undefined
+        model: getModelName(llmSettings.model)
       };
-
+      
+      // Only add API keys if they have actual content (same pattern as analysis code)
+      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
+        requestBody.google_api_key = llmSettings.geminiKey;
+      }
+      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
+        requestBody.openai_api_key = llmSettings.openaiKey;
+      }
+      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
+        requestBody.claude_api_key = llmSettings.claudeKey;
+      }
+      
+      console.log("🔍 Chat: API keys added:", {
+        google_api_key: !!requestBody.google_api_key,
+        openai_api_key: !!requestBody.openai_api_key,
+        claude_api_key: !!requestBody.claude_api_key
+      });
+      console.log("🔍 Chat: Request body prepared:", requestBody);
       const response = await makeApiRequest(CONFIG.CHAT_ENDPOINT, {
         method: 'POST',
         body: JSON.stringify(requestBody)
@@ -1778,11 +1810,9 @@ document.addEventListener('DOMContentLoaded', function() {
         addMessage(data.response, false);
       } else {
         const errorData = await response.text();
-        console.error('Chat error response:', errorData);
         addMessage(`Error: ${errorData || 'Could not get response from server'}`, false);
       }
     } catch (error) {
-      console.error('Chat error:', error);
       
       // Remove loading indicator on error
       loadingMessage.remove();
@@ -1798,305 +1828,398 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Function to display author analysis results
-  function displayAuthorAnalysis(authorData) {
-    const summary = authorData.summary;
-    const authors = authorData.authors;
-    
-    // Create HTML for author analysis display
-    let html = `
-      ${viewMode === 'authors' ? '' : '<hr style="margin: 30px 0; border: none; border-top: 2px solid #e9ecef;">'}
-      <div class="author-analysis-container">
-        <h2>${viewMode === 'authors' ? 'Author Profiles & Analysis' : 'Author Analysis Results'}</h2>
-        
-        <div class="summary-stats">
-          <h3>Summary Statistics</h3>
-          <div class="stats-grid">
-            <div class="stat-item">
-              <span class="stat-label">Total Authors:</span>
-              <span class="stat-value">${summary.total_authors}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Total FT50 Publications:</span>
-              <span class="stat-value">${summary.total_ft50_publications}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Total Citations:</span>
-              <span class="stat-value">${summary.total_citations.toLocaleString()}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Highest H-index:</span>
-              <span class="stat-value">${summary.max_h_index}</span>
-            </div>
-          </div>
-        </div>
+    // Test functions removed - real chat now works with LLM settings
 
-        <div class="authors-list">
-          <h3>Individual Author Profiles</h3>
-    `;
-
-    // Add each author's profile
-    authors.forEach((author, index) => {
-      html += `
-        <div class="author-profile">
-          <h4>${author.name}</h4>
-          ${author.affiliation ? `<p class="affiliation"><strong>Affiliation:</strong> ${author.affiliation}</p>` : ''}
-          
-          ${author.note ? `
-            <p class="info-message">${author.note}</p>
-          ` : ''}
-          
-          ${author.error ? `
-            <p class="error-message">Error: ${author.error}</p>
-          ` : `
-            <div class="author-stats">
-              <div class="stat-row">
-                <span class="stat-label">Citations:</span>
-                <span class="stat-value">${author.citations.toLocaleString()}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-label">H-index:</span>
-                <span class="stat-value">${author.h_index}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-label">i10-index:</span>
-                <span class="stat-value">${author.i10_index}</span>
-              </div>
-              <div class="stat-row">
-                <span class="stat-label">FT50 Publications:</span>
-                <span class="stat-value">${author.ft50_count}</span>
-              </div>
-            </div>
-
-            ${author.ft50_journals && author.ft50_journals.length > 0 ? `
-              <div class="ft50-journals">
-                <strong>FT50 Journals:</strong>
-                <ul>
-                  ${author.ft50_journals.map(journal => `<li>${journal}</li>`).join('')}
-                </ul>
-              </div>
-            ` : ''}
-
-            ${author.research_areas && author.research_areas.length > 0 ? `
-              <div class="research-areas">
-                <strong>Research Areas:</strong>
-                <div class="tags">
-                  ${author.research_areas.map(area => `<span class="tag">${area}</span>`).join('')}
-                </div>
-              </div>
-            ` : ''}
-
-            ${author.most_cited_papers && author.most_cited_papers.length > 0 ? `
-              <div class="most-cited-papers">
-                <strong>Most Cited Papers:</strong>
-                <ul>
-                  ${author.most_cited_papers.slice(0, 3).map(paper => 
-                    `<li>${paper.title || paper} ${paper.citations ? `(${paper.citations} citations)` : ''}</li>`
-                  ).join('')}
-                </ul>
-              </div>
-            ` : ''}
-
-            ${author.publications && author.publications.length > 0 ? `
-              <div class="recent-publications">
-                <strong>Recent Publications (Top ${Math.min(5, author.publications.length)}):</strong>
-                <ul>
-                  ${author.publications.slice(0, 5).map(pub => `
-                    <li>
-                      <strong>${pub.title}</strong><br>
-                      ${pub.authors ? `<em>${pub.authors}</em><br>` : ''}
-                      ${pub.venue ? `${pub.venue}` : ''} ${pub.year ? `(${pub.year})` : ''}
-                    </li>
-                  `).join('')}
-                </ul>
-              </div>
-            ` : ''}
-
-            ${author.profile_url ? `
-              <div class="profile-link">
-                <a href="${author.profile_url}" target="_blank">View Full Profile</a>
-              </div>
-            ` : ''}
-          `}
-        </div>
-      `;
+  // Debug function to check current PDF content state
+  window.checkPdfContent = function() {
+    console.log('🔍 PDF Content Status:', {
+      currentPdfContent: !!currentPdfContent,
+      currentPdfContentType: typeof currentPdfContent,
+      hasTitle: !!(currentPdfContent?.title),
+      hasPaperContent: !!(currentPdfContent?.paperContent),
+      hasAbstract: !!(currentPdfContent?.abstract),
+      chatSectionVisible: document.getElementById('chatSection')?.style.display !== 'none'
     });
+    
+    if (currentPdfContent) {
+      console.log('🔍 PDF Content Details:', {
+        title: currentPdfContent.title,
+        contentLength: currentPdfContent.paperContent?.length || 0,
+        abstractLength: currentPdfContent.abstract?.length || 0
+      });
+    }
+    
+    return currentPdfContent;
+  };
 
-    html += `
-        </div>
+  // Debug function to check current page state and analysis loading
+  window.checkPageState = function() {
+    const urlParams = getUrlParams();
+    const paperId = urlParams.get('paperID');
+    
+    console.log('🔍 Page State Check:', {
+      currentUrl: window.location.href,
+      paperId: paperId,
+      viewMode: typeof viewMode !== 'undefined' ? viewMode : 'undefined',
+      currentPdfContent: !!currentPdfContent,
+      chatSectionVisible: document.getElementById('chatSection')?.style.display !== 'none',
+      analysisContentVisible: document.getElementById('analysisContent')?.style.display !== 'none'
+    });
+    
+         return { paperId, currentPdfContent: !!currentPdfContent };
+   };
 
-        ${summary.unique_ft50_journals && summary.unique_ft50_journals.length > 0 ? `
-          <div class="unique-journals">
-            <h3>All FT50 Journals Represented</h3>
-            <div class="tags">
-              ${summary.unique_ft50_journals.map(journal => `<span class="tag">${journal}</span>`).join('')}
-            </div>
-          </div>
-        ` : ''}
+    // Debug functions removed - functionality now works automatically
 
-        ${summary.research_areas && summary.research_areas.length > 0 ? `
-          <div class="all-research-areas">
-            <h3>Research Areas Covered</h3>
-            <div class="tags">
-              ${summary.research_areas.map(area => `<span class="tag">${area}</span>`).join('')}
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-
-    // Add CSS styles for author analysis
-    html += `
-      <style>
-        .author-analysis-container {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          line-height: 1.6;
+  // Function to set PDF content from storage data (for papers without full analysis)
+  async function setPdfContentFromStorage(paperId) {
+    try {
+      console.log('🔍 Attempting to set PDF content from storage for paper:', paperId);
+      
+      const backend = await backendManager.getCurrentBackend();
+      const response = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data?.metadata) {
+          // Create PDF content object from storage data
+          currentPdfContent = {
+            title: data.title,
+            paperContent: `This paper has been analyzed. Content available from ${data.chunk_count || 0} text chunks.`,
+            abstract: data.metadata.abstract || '',
+            authors: data.metadata.authors || [],
+            paperUrl: data.metadata.paperUrl || '',
+            affiliations: data.metadata.affiliations || [],
+            paperId: paperId,
+            isFromStorage: true // Flag to indicate this is from storage, not full analysis
+          };
+          
+          console.log('🔍 PDF content set from storage:', {
+            title: currentPdfContent.title,
+            hasAbstract: !!currentPdfContent.abstract,
+            authorCount: currentPdfContent.authors.length,
+            isFromStorage: true
+          });
+          
+          // Enable chat section
+          if (chatSection) {
+            chatSection.style.display = 'block';
+            console.log('🔍 Chat section enabled from storage data');
+          }
+          
+          return true;
         }
-        .summary-stats {
-          background-color: #f8f9fa;
-          padding: 20px;
-          border-radius: 8px;
-          margin-bottom: 30px;
-        }
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-          margin-top: 15px;
-        }
-        .stat-item {
-          background: white;
-          padding: 15px;
-          border-radius: 6px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .stat-label {
-          display: block;
-          font-weight: 600;
-          color: #495057;
-          margin-bottom: 5px;
-        }
-        .stat-value {
-          display: block;
-          font-size: 1.4em;
-          font-weight: 700;
-          color: #2c3e50;
-        }
-        .author-profile {
-          background: white;
-          border: 1px solid #dee2e6;
-          border-radius: 8px;
-          padding: 20px;
-          margin-bottom: 20px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        .author-profile h4 {
-          margin: 0 0 10px 0;
-          color: #2c3e50;
-          font-size: 1.3em;
-        }
-        .affiliation {
-          color: #6c757d;
-          margin-bottom: 15px;
-        }
-        .info-message {
-          background-color: #e3f2fd;
-          color: #1976d2;
-          padding: 10px;
-          border-radius: 4px;
-          margin: 10px 0;
-          font-style: italic;
-        }
-        .author-stats {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 10px;
-          margin-bottom: 15px;
-        }
-        .stat-row {
-          display: flex;
-          justify-content: space-between;
-          padding: 8px 12px;
-          background: #f8f9fa;
-          border-radius: 4px;
-        }
-        .stat-row .stat-label {
-          font-weight: 500;
-          color: #495057;
-        }
-        .stat-row .stat-value {
-          font-weight: 600;
-          color: #2c3e50;
-        }
-        .ft50-journals, .research-areas, .most-cited-papers, .recent-publications {
-          margin: 15px 0;
-        }
-        .ft50-journals ul, .most-cited-papers ul, .recent-publications ul {
-          margin: 8px 0;
-          padding-left: 20px;
-        }
-        .ft50-journals li, .most-cited-papers li, .recent-publications li {
-          margin-bottom: 5px;
-        }
-        .tags {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-top: 8px;
-        }
-        .tag {
-          background: #e9ecef;
-          color: #495057;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 0.9em;
-          font-weight: 500;
-        }
-        .profile-link {
-          margin-top: 15px;
-        }
-        .profile-link a {
-          color: #007bff;
-          text-decoration: none;
-          font-weight: 500;
-        }
-        .profile-link a:hover {
-          text-decoration: underline;
-        }
-        .error-message {
-          color: #dc3545;
-          font-style: italic;
-        }
-        .unique-journals, .all-research-areas {
-          background: #f8f9fa;
-          padding: 20px;
-          border-radius: 8px;
-          margin-top: 20px;
-        }
-        .unique-journals h3, .all-research-areas h3 {
-          margin-top: 0;
-          color: #2c3e50;
-        }
-      </style>
-    `;
-
-    // Only render author analysis in authors view
-    console.log('🔍 DEBUG displayAuthorAnalysis - viewMode:', viewMode, 'summaryDiv:', !!summaryDiv);
-    if (summaryDiv && viewMode === 'authors') {
-      console.log('✅ Rendering author analysis content in authors view');
-      summaryDiv.innerHTML = html;
-      // In authors view, we want to show only author analysis, not paper analysis
-      return; // Exit early to prevent paper analysis from being displayed
-    } else {
-      console.log('⚠️ Not rendering in summaryDiv - viewMode is not "authors" or summaryDiv not found');
+      }
+      
+      return false;
+    } catch (error) {
+      console.log('🔍 Error setting PDF content from storage:', error);
+      return false;
     }
   }
 
-  // Legacy helper function - replaced by buildAnalysisUrlFromPaperId
-  async function buildFullpageUrl(paperId, additionalParams = {}) {
-    console.warn('buildFullpageUrl is deprecated, use buildAnalysisUrlFromPaperId instead');
-    return buildAnalysisUrlFromPaperId(paperId, null, additionalParams);
-  }
+  // Auto-recovery now handles this automatically
+
+  // // Function to display author analysis results
+  // function displayAuthorAnalysis(authorData) {
+  //   const summary = authorData.summary;
+  //   const authors = authorData.authors;
+    
+  //   // Create HTML for author analysis display
+  //   let html = `
+  //     ${viewMode === 'authors' ? '' : '<hr style="margin: 30px 0; border: none; border-top: 2px solid #e9ecef;">'}
+  //     <div class="author-analysis-container">
+  //       <h2>${viewMode === 'authors' ? 'Author Profiles & Analysis' : 'Author Analysis Results'}</h2>
+        
+  //       <div class="summary-stats">
+  //         <h3>Summary Statistics</h3>
+  //         <div class="stats-grid">
+  //           <div class="stat-item">
+  //             <span class="stat-label">Total Authors:</span>
+  //             <span class="stat-value">${summary.total_authors}</span>
+  //           </div>
+  //           <div class="stat-item">
+  //             <span class="stat-label">Total FT50 Publications:</span>
+  //             <span class="stat-value">${summary.total_ft50_publications}</span>
+  //           </div>
+  //           <div class="stat-item">
+  //             <span class="stat-label">Total Citations:</span>
+  //             <span class="stat-value">${summary.total_citations.toLocaleString()}</span>
+  //           </div>
+  //           <div class="stat-item">
+  //             <span class="stat-label">Highest H-index:</span>
+  //             <span class="stat-value">${summary.max_h_index}</span>
+  //           </div>
+  //         </div>
+  //       </div>
+
+  //       <div class="authors-list">
+  //         <h3>Individual Author Profiles</h3>
+  //   `;
+
+  //   // Add each author's profile
+  //   authors.forEach((author, index) => {
+  //     html += `
+  //       <div class="author-profile">
+  //         <h4>${author.name}</h4>
+  //         ${author.affiliation ? `<p class="affiliation"><strong>Affiliation:</strong> ${author.affiliation}</p>` : ''}
+          
+  //         ${author.note ? `
+  //           <p class="info-message">${author.note}</p>
+  //         ` : ''}
+          
+  //         ${author.error ? `
+  //           <p class="error-message">Error: ${author.error}</p>
+  //         ` : `
+  //           <div class="author-stats">
+  //             <div class="stat-row">
+  //               <span class="stat-label">Citations:</span>
+  //               <span class="stat-value">${author.citations.toLocaleString()}</span>
+  //             </div>
+  //             <div class="stat-row">
+  //               <span class="stat-label">H-index:</span>
+  //               <span class="stat-value">${author.h_index}</span>
+  //             </div>
+  //             <div class="stat-row">
+  //               <span class="stat-label">i10-index:</span>
+  //               <span class="stat-value">${author.i10_index}</span>
+  //             </div>
+  //             <div class="stat-row">
+  //               <span class="stat-label">FT50 Publications:</span>
+  //               <span class="stat-value">${author.ft50_count}</span>
+  //             </div>
+  //           </div>
+
+  //           ${author.ft50_journals && author.ft50_journals.length > 0 ? `
+  //             <div class="ft50-journals">
+  //               <strong>FT50 Journals:</strong>
+  //               <ul>
+  //                 ${author.ft50_journals.map(journal => `<li>${journal}</li>`).join('')}
+  //               </ul>
+  //             </div>
+  //           ` : ''}
+
+  //           ${author.research_areas && author.research_areas.length > 0 ? `
+  //             <div class="research-areas">
+  //               <strong>Research Areas:</strong>
+  //               <div class="tags">
+  //                 ${author.research_areas.map(area => `<span class="tag">${area}</span>`).join('')}
+  //               </div>
+  //             </div>
+  //           ` : ''}
+
+  //           ${author.most_cited_papers && author.most_cited_papers.length > 0 ? `
+  //             <div class="most-cited-papers">
+  //               <strong>Most Cited Papers:</strong>
+  //               <ul>
+  //                 ${author.most_cited_papers.slice(0, 3).map(paper => 
+  //                   `<li>${paper.title || paper} ${paper.citations ? `(${paper.citations} citations)` : ''}</li>`
+  //                 ).join('')}
+  //               </ul>
+  //             </div>
+  //           ` : ''}
+
+  //           ${author.publications && author.publications.length > 0 ? `
+  //             <div class="recent-publications">
+  //               <strong>Recent Publications (Top ${Math.min(5, author.publications.length)}):</strong>
+  //               <ul>
+  //                 ${author.publications.slice(0, 5).map(pub => `
+  //                   <li>
+  //                     <strong>${pub.title}</strong><br>
+  //                     ${pub.authors ? `<em>${pub.authors}</em><br>` : ''}
+  //                     ${pub.venue ? `${pub.venue}` : ''} ${pub.year ? `(${pub.year})` : ''}
+  //                   </li>
+  //                 `).join('')}
+  //               </ul>
+  //             </div>
+  //           ` : ''}
+
+  //           ${author.profile_url ? `
+  //             <div class="profile-link">
+  //               <a href="${author.profile_url}" target="_blank">View Full Profile</a>
+  //             </div>
+  //           ` : ''}
+  //         `}
+  //       </div>
+  //     `;
+  //   });
+
+  //   html += `
+  //       </div>
+
+  //       ${summary.unique_ft50_journals && summary.unique_ft50_journals.length > 0 ? `
+  //         <div class="unique-journals">
+  //           <h3>All FT50 Journals Represented</h3>
+  //           <div class="tags">
+  //             ${summary.unique_ft50_journals.map(journal => `<span class="tag">${journal}</span>`).join('')}
+  //           </div>
+  //         </div>
+  //       ` : ''}
+
+  //       ${summary.research_areas && summary.research_areas.length > 0 ? `
+  //         <div class="all-research-areas">
+  //           <h3>Research Areas Covered</h3>
+  //           <div class="tags">
+  //             ${summary.research_areas.map(area => `<span class="tag">${area}</span>`).join('')}
+  //           </div>
+  //         </div>
+  //       ` : ''}
+  //     </div>
+  //   `;
+
+  //   // Add CSS styles for author analysis
+  //   html += `
+  //     <style>
+  //       .author-analysis-container {
+  //         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  //         line-height: 1.6;
+  //       }
+  //       .summary-stats {
+  //         background-color: #f8f9fa;
+  //         padding: 20px;
+  //         border-radius: 8px;
+  //         margin-bottom: 30px;
+  //       }
+  //       .stats-grid {
+  //         display: grid;
+  //         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  //         gap: 15px;
+  //         margin-top: 15px;
+  //       }
+  //       .stat-item {
+  //         background: white;
+  //         padding: 15px;
+  //         border-radius: 6px;
+  //         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  //       }
+  //       .stat-label {
+  //         display: block;
+  //         font-weight: 600;
+  //         color: #495057;
+  //         margin-bottom: 5px;
+  //       }
+  //       .stat-value {
+  //         display: block;
+  //         font-size: 1.4em;
+  //         font-weight: 700;
+  //         color: #2c3e50;
+  //       }
+  //       .author-profile {
+  //         background: white;
+  //         border: 1px solid #dee2e6;
+  //         border-radius: 8px;
+  //         padding: 20px;
+  //         margin-bottom: 20px;
+  //         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  //       }
+  //       .author-profile h4 {
+  //         margin: 0 0 10px 0;
+  //         color: #2c3e50;
+  //         font-size: 1.3em;
+  //       }
+  //       .affiliation {
+  //         color: #6c757d;
+  //         margin-bottom: 15px;
+  //       }
+  //       .info-message {
+  //         background-color: #e3f2fd;
+  //         color: #1976d2;
+  //         padding: 10px;
+  //         border-radius: 4px;
+  //         margin: 10px 0;
+  //         font-style: italic;
+  //       }
+  //       .author-stats {
+  //         display: grid;
+  //         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  //         gap: 10px;
+  //         margin-bottom: 15px;
+  //       }
+  //       .stat-row {
+  //         display: flex;
+  //         justify-content: space-between;
+  //         padding: 8px 12px;
+  //         background: #f8f9fa;
+  //         border-radius: 4px;
+  //       }
+  //       .stat-row .stat-label {
+  //         font-weight: 500;
+  //         color: #495057;
+  //       }
+  //       .stat-row .stat-value {
+  //         font-weight: 600;
+  //         color: #2c3e50;
+  //       }
+  //       .ft50-journals, .research-areas, .most-cited-papers, .recent-publications {
+  //         margin: 15px 0;
+  //       }
+  //       .ft50-journals ul, .most-cited-papers ul, .recent-publications ul {
+  //         margin: 8px 0;
+  //         padding-left: 20px;
+  //       }
+  //       .ft50-journals li, .most-cited-papers li, .recent-publications li {
+  //         margin-bottom: 5px;
+  //       }
+  //       .tags {
+  //         display: flex;
+  //         flex-wrap: wrap;
+  //         gap: 8px;
+  //         margin-top: 8px;
+  //       }
+  //       .tag {
+  //         background: #e9ecef;
+  //         color: #495057;
+  //         padding: 4px 8px;
+  //         border-radius: 12px;
+  //         font-size: 0.9em;
+  //         font-weight: 500;
+  //       }
+  //       .profile-link {
+  //         margin-top: 15px;
+  //       }
+  //       .profile-link a {
+  //         color: #007bff;
+  //         text-decoration: none;
+  //         font-weight: 500;
+  //       }
+  //       .profile-link a:hover {
+  //         text-decoration: underline;
+  //       }
+  //       .error-message {
+  //         color: #dc3545;
+  //         font-style: italic;
+  //       }
+  //       .unique-journals, .all-research-areas {
+  //         background: #f8f9fa;
+  //         padding: 20px;
+  //         border-radius: 8px;
+  //         margin-top: 20px;
+  //       }
+  //       .unique-journals h3, .all-research-areas h3 {
+  //         margin-top: 0;
+  //         color: #2c3e50;
+  //       }
+  //     </style>
+  //   `;
+
+  //   // Only render author analysis in authors view
+  //   console.log('🔍 DEBUG displayAuthorAnalysis - viewMode:', viewMode, 'summaryDiv:', !!summaryDiv);
+  //   if (summaryDiv && viewMode === 'authors') {
+  //     console.log('✅ Rendering author analysis content in authors view');
+  //     summaryDiv.innerHTML = html;
+  //     // In authors view, we want to show only author analysis, not paper analysis
+  //     return; // Exit early to prevent paper analysis from being displayed
+  //   } else {
+  //     console.log('⚠️ Not rendering in summaryDiv - viewMode is not "authors" or summaryDiv not found');
+  //   }
+  // }
+
+  // // Legacy helper function - replaced by buildAnalysisUrlFromPaperId
+  // async function buildFullpageUrl(paperId, additionalParams = {}) {
+  //   console.warn('buildFullpageUrl is deprecated, use buildAnalysisUrlFromPaperId instead');
+  //   return buildAnalysisUrlFromPaperId(paperId, null, additionalParams);
+  // }
 
   // Use shared ID generator for consistent paper ID generation
   async function extractSsrnIdOrUrl(url) {
@@ -2127,7 +2250,13 @@ document.addEventListener('DOMContentLoaded', function() {
       // If we have a scholar URL, try using the generated analysis_id first for better efficiency
       if (requestedScholarUrl) {
         try {
-          const generatedAnalysisId = await generateAnalysisId(paperId, requestedScholarUrl);
+                  // Get LLM settings and user settings
+          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+          const userSettings = (await chrome.storage.local.get(['userSettings'])) || {};
+          const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+          const researchInterests = userSettings.researchInterests || '';
+      
+          const generatedAnalysisId = await generateAnalysisId(paperId, userScholarUrl);
           const analysisIdUrl = `${backend.url}/analysis/${encodeURIComponent(generatedAnalysisId)}`;
           console.log('Trying to fetch analysis by generated analysis_id:', analysisIdUrl);
           
@@ -2148,9 +2277,9 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Fallback to original method: paper_id with scholar parameter
       let url = `${backend.url}/analysis/${encodeURIComponent(paperId)}`;
-      if (requestedScholarUrl) {
-        url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
-      }
+      // if (requestedScholarUrl) {
+      //   url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
+      // }
       console.log('Trying to fetch analysis from backend (fallback):', url);
       
       const response = await fetch(url, {
@@ -2436,15 +2565,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const urlParams = getUrlParams();
     const paperUrl = urlParams.get('paperUrl');
-    const analysisId = urlParams.get('analysisID');
+    // const analysisId = urlParams.get('analysisID');
     const paperId = (paperUrl ? await extractSsrnIdOrUrl(paperUrl) : null) || urlParams.get('paperID');
-    const requestedScholarUrl = urlParams.get('scholar');
+    // const requestedScholarUrl = urlParams.get('scholar');
     
     console.log('🎯 Fullpage View Mode Detection:', {
       detectedViewMode,
-      analysisId,
+      // analysisId,
       paperId,
-      requestedScholarUrl,
+      // requestedScholarUrl,
       urlParams: urlParams.toString()
     });
 
@@ -2537,77 +2666,81 @@ document.addEventListener('DOMContentLoaded', function() {
     // Always set up button listeners when not in homepage mode
     setupButtonEventListeners();
 
-    // SCENARIO 3: Authors view
-    if (detectedViewMode === VIEW_MODES.AUTHORS) {
-      console.log('✅ Loading authors view with paperId:', paperId);
+    // // SCENARIO 3: Authors view
+    // if (detectedViewMode === VIEW_MODES.AUTHORS) {
+    //   console.log('✅ Loading authors view with paperId:', paperId);
       
-      // Add specific class for authors view to control layout
-      document.body.classList.add('authors-view-mode');
-      document.body.classList.remove('homepage-mode');
+    //   // Add specific class for authors view to control layout
+    //   document.body.classList.add('authors-view-mode');
+    //   document.body.classList.remove('homepage-mode');
       
-      updateStatus(`Loading author data...`);
+    //   updateStatus(`Loading author data...`);
       
-      try {
-        let authorData = null;
+    //   try {
+    //     let authorData = null;
         
-        // Try to fetch author data directly by paperID first
-        if (paperId) {
-          console.log('Attempting to fetch author data by paperId:', paperId);
-          authorData = await fetchAuthorDataByPaperId(paperId);
-        }
+    //     // Try to fetch author data directly by paperID first
+    //     if (paperId) {
+    //       console.log('Attempting to fetch author data by paperId:', paperId);
+    //       authorData = await fetchAuthorDataByPaperId(paperId);
+    //     }
         
-        // Fallback: if no paperID or no data found, try analysisID approach
-        if (!authorData && analysisId) {
-          console.log('Fallback: fetching author data by analysisId:', analysisId);
-          authorData = await fetchAuthorDataByAnalysisId(analysisId);
-        }
+    //     // Fallback: if no paperID or no data found, try analysisID approach
+    //     if (!authorData && analysisId) {
+    //       console.log('Fallback: fetching author data by analysisId:', analysisId);
+    //       authorData = await fetchAuthorDataByAnalysisId(analysisId);
+    //     }
         
-        // Final fallback: generate analysisId from paperId if we have it
-        if (!authorData && paperId) {
-          console.log('Final fallback: generating analysisId from paperId');
-          let authorsScholar = requestedScholarUrl;
-          if (!authorsScholar) {
-            const res = await chrome.storage.local.get(['userSettings']);
-            authorsScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-          }
-          const generatedAnalysisId = await generateAnalysisId(paperId, authorsScholar);
-          authorData = await fetchAuthorDataByAnalysisId(generatedAnalysisId);
-        }
+    //     // Final fallback: generate analysisId from paperId if we have it
+    //     if (!authorData && paperId) {
+    //       console.log('Final fallback: generating analysisId from paperId');
+    //       let authorsScholar = requestedScholarUrl;
+    //       if (!authorsScholar) {
+    //         const res = await chrome.storage.local.get(['userSettings']);
+    //         authorsScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+    //       }
+    //       const generatedAnalysisId = await generateAnalysisId(paperId, authorsScholar);
+    //       authorData = await fetchAuthorDataByAnalysisId(generatedAnalysisId);
+    //     }
         
-        if (authorData && authorData.data?.author_data) {
-          console.log('Successfully loaded author data');
-          console.log('🔍 DEBUG Authors View - viewMode:', viewMode, 'authorData:', authorData);
-          clearStatus();
+    //     if (authorData && authorData.data?.author_data) {
+    //       console.log('Successfully loaded author data');
+    //       console.log('🔍 DEBUG Authors View - viewMode:', viewMode, 'authorData:', authorData);
+    //       clearStatus();
           
-          // Ensure viewMode is set correctly for authors view
-          viewMode = VIEW_MODES.AUTHORS;
-          console.log('🔍 DEBUG - Set viewMode to AUTHORS:', viewMode);
+    //       // Ensure viewMode is set correctly for authors view
+    //       viewMode = VIEW_MODES.AUTHORS;
+    //       console.log('🔍 DEBUG - Set viewMode to AUTHORS:', viewMode);
           
-          displayAuthorAnalysis(authorData.data.author_data);
-          setupAuthorsViewUI(authorData);
-          setupButtonEventListeners();
-        } else {
-          console.log('🔍 DEBUG - No author data found:', authorData);
-          updateStatus('No author analysis data available for this paper. Try running an author analysis first.', true);
-          await setupAuthorsViewErrorUI(paperId);
-          setupButtonEventListeners();
-        }
-      } catch (error) {
-        console.error('Error loading author data:', error);
-        updateStatus(`Error loading author data: ${error.message}`, true);
-        await setupBasicErrorUI();
-        setupButtonEventListeners();
-      }
-      return;
-    }
+    //       displayAuthorAnalysis(authorData.data.author_data);
+    //       setupAuthorsViewUI(authorData);
+    //       setupButtonEventListeners();
+    //     } else {
+    //       console.log('🔍 DEBUG - No author data found:', authorData);
+    //       updateStatus('No author analysis data available for this paper. Try running an author analysis first.', true);
+    //       await setupAuthorsViewErrorUI(paperId);
+    //       setupButtonEventListeners();
+    //     }
+    //   } catch (error) {
+    //     console.error('Error loading author data:', error);
+    //     updateStatus(`Error loading author data: ${error.message}`, true);
+    //     await setupBasicErrorUI();
+    //     setupButtonEventListeners();
+    //   }
+    //   return;
+    // }
 
     // SCENARIO 4: Analysis view (both analysisID and paperID modes)
-    let effectiveAnalysisId = analysisId;
+    // let effectiveAnalysisId = analysisId;
+    // Get user settings and LLM settings
+    const userSettings = await chrome.storage.local.get(['userSettings', 'llmSettings']);
+    const requestedScholarUrl = userSettings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+    const researchInterests = userSettings.userSettings?.researchInterests || '';
     let effectivePaperId = paperId;
     let effectiveScholar = requestedScholarUrl;
     
     // For ANALYSIS_WITH_PAPER_ID mode, generate analysisId
-    if (detectedViewMode === VIEW_MODES.ANALYSIS_WITH_PAPER_ID && !effectiveAnalysisId && effectivePaperId) {
+    if (detectedViewMode === VIEW_MODES.ANALYSIS_WITH_PAPER_ID && effectivePaperId) {
       if (!effectiveScholar) {
         const res = await chrome.storage.local.get(['userSettings']);
         effectiveScholar = res.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
@@ -2629,16 +2762,50 @@ document.addEventListener('DOMContentLoaded', function() {
         setupAnalysisViewUI(analysis);
         setupButtonEventListeners();
       } else {
-        const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
-        updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
-        await setupBasicErrorUI();
-        setupButtonEventListeners();
+        // Analysis not found - try to set PDF content from storage data instead
+        console.log('🔍 Main analysis not found, trying to load from storage data...');
+        
+        if (effectivePaperId && await setPdfContentFromStorage(effectivePaperId)) {
+          console.log('✅ Successfully loaded paper content from storage - enabling basic functionality');
+          clearStatus();
+          
+          // Set up basic UI for storage-based paper
+          if (analysisContent) analysisContent.style.display = 'block';
+          if (paperInfo) paperInfo.style.display = 'block';
+          if (summaryDiv) {
+            summaryDiv.style.display = 'block';
+            summaryDiv.innerHTML = `
+              <div style="padding: 20px; text-align: center; background: #f8f9fa; border-radius: 5px; margin: 20px 0;">
+                <h3>Paper Available</h3>
+                <p>This paper has been processed and is available for chat. You can ask questions about the content below.</p>
+                <p><strong>Title:</strong> ${currentPdfContent?.title || 'Unknown'}</p>
+                <p><strong>Authors:</strong> ${currentPdfContent?.authors?.join(', ') || 'Unknown'}</p>
+              </div>
+            `;
+          }
+          
+          setupButtonEventListeners();
+        } else {
+          const scholarInfo = requestedScholarUrl ? ` for scholar ${requestedScholarUrl}` : '';
+          updateStatus(`No analysis found for this paper${scholarInfo}.`, true);
+          await setupBasicErrorUI();
+          setupButtonEventListeners();
+        }
       }
     } catch (error) {
       console.error('Error loading analysis:', error);
-      updateStatus(`Error loading analysis: ${error.message}`, true);
-      await setupBasicErrorUI();
-      setupButtonEventListeners();
+      
+      // Try storage fallback on error too
+      if (effectivePaperId && await setPdfContentFromStorage(effectivePaperId)) {
+        console.log('✅ Recovered from error using storage data');
+        clearStatus();
+        updateStatus('Paper loaded from storage - chat functionality available');
+        setupButtonEventListeners();
+      } else {
+        updateStatus(`Error loading analysis: ${error.message}`, true);
+        await setupBasicErrorUI();
+        setupButtonEventListeners();
+      }
     }
 
   // Helper function to setup Authors view UI
@@ -2739,16 +2906,33 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Enable chat section if we have content
+    console.log('🔍 PDF Content Check: Analysis content available:', !!analysis.content);
     if (analysis.content) {
               const hasContent = analysis.content.paperContent || 
                                 analysis.content.abstract || 
                                 analysis.content.file_content ||
                         analysis.content.title;
               
+              console.log('🔍 PDF Content Check: Content types found:', {
+                paperContent: !!analysis.content.paperContent,
+                abstract: !!analysis.content.abstract,
+                file_content: !!analysis.content.file_content,
+                title: !!analysis.content.title,
+                hasContent: hasContent
+              });
+              
               if (hasContent) {
               currentPdfContent = analysis.content;
-        if (chatSection) chatSection.style.display = 'block';
+              console.log('🔍 PDF Content Check: currentPdfContent set successfully!');
+        if (chatSection) {
+          chatSection.style.display = 'block';
+          console.log('🔍 PDF Content Check: Chat section enabled');
+        }
+      } else {
+        console.log('🔍 PDF Content Check: No valid content found');
       }
+    } else {
+      console.log('🔍 PDF Content Check: No analysis.content available');
     }
     
     // Set paper information
@@ -2899,6 +3083,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to set up all event listeners after view setup is complete
   function setupButtonEventListeners() {
     console.log('🔧 Setting up button event listeners for view mode:', viewMode);
+    console.log('🔧 DOM Ready State:', document.readyState);
 
     // Also setup new layout buttons
     setupNewLayoutButtons();
@@ -2975,27 +3160,44 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Chat functionality event listeners
+    console.log('🔍 Chat Setup: Checking chat elements...', {
+      sendBtn: !!sendBtn,
+      chatInput: !!chatInput,
+      sendBtnId: sendBtn?.id,
+      chatInputId: chatInput?.id
+    });
+    
     if (sendBtn && chatInput) {
+      console.log('🔍 Chat Setup: Setting up chat event listeners...');
       sendBtn.addEventListener('click', async function() {
+        console.log('🔍 Chat Setup: Send button clicked!');
         const message = chatInput.value.trim();
+        console.log('🔍 Chat Setup: Message to send:', message);
         if (message) {
           chatInput.value = '';
           await handleChat(message);
+        } else {
+          console.log('🔍 Chat Setup: No message to send (empty)');
         }
       });
       
       chatInput.addEventListener('keypress', async function(event) {
         if (event.key === 'Enter' && !event.shiftKey) {
+          console.log('🔍 Chat Setup: Enter key pressed!');
           event.preventDefault();
           const message = chatInput.value.trim();
+          console.log('🔍 Chat Setup: Message from Enter key:', message);
           if (message) {
             chatInput.value = '';
             await handleChat(message);
+          } else {
+            console.log('🔍 Chat Setup: No message to send via Enter (empty)');
           }
         }
       });
+      console.log('🔍 Chat Setup: Chat event listeners attached successfully!');
     } else {
-      console.warn('sendBtn or chatInput not found');
+      console.warn('🔍 Chat Setup: sendBtn or chatInput not found - chat functionality disabled');
     }
   }
 
@@ -3215,6 +3417,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Update the model
         settings.model = selectedModel;
+        settings.lastUpdated = new Date().toISOString();
         
         // Save settings
         await chrome.storage.local.set({ llmSettings: settings });
@@ -3264,9 +3467,9 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Build URL with scholar parameter if specified
       let url = `${backend.url}${CONFIG.AUTHOR_DATA_ENDPOINT}/${encodeURIComponent(paperId)}`;
-      if (requestedScholarUrl) {
-        url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
-      }
+      // if (requestedScholarUrl) {
+      //   url += `?scholar=${encodeURIComponent(requestedScholarUrl)}`;
+      // }
       console.log('Trying to fetch author data from backend:', url);
       
       const response = await fetch(url, {
@@ -3683,6 +3886,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (backend) {
           const userSettings = await chrome.storage.local.get(['userSettings']);
           const scholarUrl = userSettings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+          const researchInterests = userSettings.userSettings?.researchInterests || '';
+          
+          // Get current LLM settings
+          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
           
           // Check each researcher type for existing analysis
           for (const researcher of juniorResearchers) {
@@ -3693,7 +3900,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({
                   paper_id: paperId,
                   user_scholar_url: scholarUrl,
-                  researcher_type: researcher.id
+                  researcher_type: researcher.id,
+                  model: getModelName(llmSettings.model),
+                  research_interests: researchInterests
                 })
               });
               
@@ -3980,9 +4189,13 @@ document.addEventListener('DOMContentLoaded', function() {
         throw new Error('No paper ID found');
       }
       
-      // Get user scholar URL
+      // Get user scholar URL and research interests
       const userSettings = await chrome.storage.local.get(['userSettings']);
       const scholarUrl = userSettings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      const researchInterests = userSettings.userSettings?.researchInterests || '';
+      
+      // Get current LLM settings
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
       
       // Get backend
       const backend = await backendManager.getCurrentBackend();
@@ -4001,7 +4214,9 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify({
               paper_id: paperId,
               user_scholar_url: scholarUrl,
-              researcher_type: researcherType
+              researcher_type: researcherType,
+              model: getModelName(llmSettings.model),
+              research_interests: researchInterests
             })
           });
           
@@ -4344,16 +4559,44 @@ document.addEventListener('DOMContentLoaded', function() {
         metadata: paperStorageData.metadata
       };
       
+      // Get LLM settings for chat
+      const storageResult = await chrome.storage.local.get(['llmSettings']);
+      const llmSettings = storageResult.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      
+      console.log('🔍 New Chat: LLM settings loaded:', {
+        model: llmSettings.model,
+        hasGeminiKey: !!llmSettings.geminiKey,
+        hasOpenaiKey: !!llmSettings.openaiKey,
+        hasClaudeKey: !!llmSettings.claudeKey
+      });
+      
+      // Prepare request body with model and API keys
+      const requestBody = {
+        message: message,
+        paper: paperData,
+        model: getModelName(llmSettings.model)
+      };
+      
+      // Add API keys if available
+      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
+        requestBody.google_api_key = llmSettings.geminiKey;
+      }
+      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
+        requestBody.openai_api_key = llmSettings.openaiKey;
+      }
+      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
+        requestBody.claude_api_key = llmSettings.claudeKey;
+      }
+      
+      console.log('🔍 New Chat: Sending request with model:', requestBody.model);
+
       // Send chat message to backend
       const chatResponse = await fetch(`${backend.url}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          message: message,
-          paper: paperData
-        })
+        body: JSON.stringify(requestBody)
       });
       
       if (!chatResponse.ok) {

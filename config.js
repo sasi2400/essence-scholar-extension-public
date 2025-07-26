@@ -9,7 +9,7 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-5-1-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-5-2-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 2,
       enabled: true
@@ -23,7 +23,7 @@ const CONFIG = {
   // API endpoints
   CHAT_ENDPOINT: '/chat',
   HEALTH_ENDPOINT: '/health',
-  VERSION_ENDPOINT: '/version',
+  // VERSION_ENDPOINT: '/version',
   ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
   // New author data endpoints
   AUTHOR_DATA_ENDPOINT: '/authors',
@@ -140,7 +140,6 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   const timeout = backend.url.includes('localhost') 
     ? CONFIG.REQUEST_TIMEOUT 
     : CONFIG.CLOUD_REQUEST_TIMEOUT;
-  console.log(`Making API request to ${backend.name}: ${url}`);
   
   // Get extension version for the request
   const manifest = chrome?.runtime?.getManifest?.();
@@ -173,9 +172,9 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      console.log(`Request to ${backend.name} timed out`);
+      // Request timed out
     } else {
-      console.log(`Request to ${backend.name} failed:`, error.message);
+      // Request failed
     }
     throw error;
   }
@@ -199,7 +198,6 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
         throw new Error('No healthy backend available');
       }
       const url = `${backend.url}${endpoint}`;
-      console.log(`📡 Starting SSE request to ${backend.name}: ${url}`);
       
       // Get extension version for the request
       const manifest = chrome?.runtime?.getManifest?.();
