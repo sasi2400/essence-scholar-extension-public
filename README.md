@@ -1,12 +1,14 @@
-# SSRN Paper Summarizer Extension
+# Essence Scholar Extension
 
-A powerful Chrome extension that provides intelligent analysis of academic papers from SSRN and PDF files using AI-powered research assistance.
+**Distill the Knowledge, Drive Your Research.**
+
+A powerful Chrome extension that provides personalized analysis of academic papers with tailored insights for social science and economics research. Experience smart reading that amplifies your academic interests and delivers core insights customized for you.
 
 ## 🎥 Demo
 
 <div align="center">
   
-[![SSRN Paper Summarizer Demo](https://img.youtube.com/vi/PwXn94MjdpY/maxresdefault.jpg)](https://youtu.be/PwXn94MjdpY)
+[![Essence Scholar Demo](https://img.youtube.com/vi/PwXn94MjdpY/maxresdefault.jpg)](https://youtu.be/PwXn94MjdpY)
 
 *Click the image above to watch the demo video*
 
@@ -15,38 +17,40 @@ A powerful Chrome extension that provides intelligent analysis of academic paper
 
 ## 🚀 Features
 
-* **Smart Paper Analysis**: Automatically extracts and analyzes academic papers from SSRN
+**"See Papers Through Your Academic Lens"**
 
-* **PDF Support**: Works with local PDF files and web-hosted PDFs
+* **Personalized Analysis**: Uncover the essence of every study with tailored insights that match your research interests
 
-* **AI-Powered Insights**: Uses advanced AI to provide structured analysis including:
+* **Smart PDF Reading**: Works seamlessly with SSRN papers, local PDFs, and web-hosted documents
 
-  * Key findings and contributions
-  * Author profiles and publication history
+* **AI-Powered Scholarly Clarity**: Advanced AI provides structured analysis including:
+
+  * Core insights customized for you
+  * Author profiles and publication history  
   * Research methodology and data analysis
   * Bibliography and reference analysis
-  * Topic relevance assessment
+  * Topic relevance assessment focused on what matters most
 
-* **Interactive Chat**: Ask questions about analyzed papers using RAG (Retrieval-Augmented Generation)
+* **Interactive Chat**: From paper to perspective - ask personalized questions using RAG (Retrieval-Augmented Generation)
 
-* **Author Analysis**: Detailed author profiles with Google Scholar integration
+* **Author Analysis**: Detailed author profiles with Google Scholar integration for deeper understanding
 
 * **FT50 Journal Tracking**: Identifies publications in Financial Times Top 50 journals
 
 
 ## 📦 Installation
 
-Install the SSRN Paper Summarizer Extension with these simple steps:
+Install the Essence Scholar Extension with these simple steps:
 
 1. **Clone (development)** *(optional)*
 
    ```bash
-   git clone https://github.com/sasi2400/ssrn-summarizer-extension.git
-   cd ssrn-summarizer-extension
+   git clone https://github.com/sasi2400/essence-scholar-extension-public.git
+   cd essence-scholar-extension-public
    ```
 2. **Download (stable)**
 
-   * Visit the [GitHub tags page](https://github.com/sasi2400/ssrn-summarizer-extension/tags)
+   * Visit the [GitHub tags page](https://github.com/sasi2400/essence-scholar-extension-public/tags)
    * Select the latest tag
    * Download and extract the ZIP archive
 3. **Load in Chrome**

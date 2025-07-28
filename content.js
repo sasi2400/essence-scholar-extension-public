@@ -1,9 +1,9 @@
 
 // Prevent multiple script injections
 if (window.ssrnSummarizerInitialized) {
-  console.log('SSRN Summarizer already initialized, skipping...');
+  console.log('Essence Scholar already initialized, skipping...');
   // Exit early to prevent re-execution
-  throw new Error('SSRN Summarizer already initialized');
+  throw new Error('Essence Scholar already initialized');
 }
 
 // Mark as initialized immediately to prevent race conditions

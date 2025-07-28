@@ -1,4 +1,4 @@
-# SSRN Summarizer Extension Troubleshooting Guide
+# Essence Scholar Extension Troubleshooting Guide
 
 ## Issues Fixed
 
@@ -21,7 +21,7 @@
 
 ### Step 1: Reload the Extension
 1. Open Chrome Extensions page (`chrome://extensions/`)
-2. Find "SSRN Summarizer" extension
+2. Find "Essence Scholar" extension
 3. Click the refresh/reload button
 4. Or toggle the extension off and on
 

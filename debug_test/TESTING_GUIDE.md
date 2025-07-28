@@ -1,8 +1,8 @@
-# SSRN Summarizer Extension Testing Guide
+# Essence Scholar Extension Testing Guide
 
 ## Overview
 
-This guide helps you test the SSRN Summarizer extension to ensure it's working properly. The extension should work on SSRN paper pages and PDF files.
+This guide helps you test the Essence Scholar extension to ensure it's working properly. The extension should work on SSRN paper pages and PDF files.
 
 ## Quick Test Steps
 

@@ -1,4 +1,4 @@
-// Configuration for SSRN Paper Summarizer Extension
+// Configuration for Essence Scholar Extension
 const CONFIG = {
   // Backend configuration with priority order
   BACKENDS: {

@@ -2498,13 +2498,13 @@ document.addEventListener('DOMContentLoaded', function() {
     return 'gemini-2.5-flash';
   }
 
-  // --- Typewriter effect for SSRN Paper Summarizer title ---
+  // --- Typewriter effect for Essence Scholar title ---
   function startTitleTypewriter() {
     const titleElement = document.getElementById('mainTitle');
     const cursorElement = document.querySelector('.cursor');
     if (!titleElement || !cursorElement) return;
     
-    const fullText = 'SSRN Paper Summarizer';
+    const fullText = 'Essence Scholar';
     let currentIndex = 0;
     titleElement.textContent = '';
     cursorElement.style.display = 'inline-block';
