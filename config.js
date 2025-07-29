@@ -9,7 +9,7 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-5-3-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-5-4-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 1,
       enabled: true
@@ -41,74 +41,38 @@ const CONFIG = {
   
   // Backend detection settings
   BACKEND_CACHE_DURATION: 5 * 60 * 1000, // Cache backend choice for 5 minutes (increased from 2)
-  AUTO_DETECT_BACKENDS: true, // Enable automatic backend detection
+  AUTO_DETECT_BACKENDS: false, // Disable automatic backend detection for efficiency
   PREFER_LOCAL: true, // Prefer local backends over cloud
+  
+  // Backend failure tracking
+  MAX_CONSECUTIVE_FAILURES: 2, // Show update message after 2 consecutive failures
+  FAILURE_RESET_DURATION: 10 * 60 * 1000, // Reset failure count after 10 minutes
 };
 
-// Smart backend detection and selection
+// Optimized backend selection - simply use priority 1 backend
 class BackendManager {
-  // Get ordered list of backends by priority
-  static getBackendsByPriority() {
-    return Object.entries(CONFIG.BACKENDS)
+  // Track consecutive failures
+  static _consecutiveFailures = 0;
+  static _lastFailureTime = 0;
+  static _updateMessageShown = false;
+
+  // Get the priority 1 backend directly (no health checks)
+  static getPriorityOneBackend() {
+    const backends = Object.entries(CONFIG.BACKENDS)
       .filter(([key, backend]) => backend.enabled)
-      .sort(([, a], [, b]) => a.priority - b.priority)
-      .map(([key, backend]) => ({ key, ...backend }));
-  }
-
-  // Check if a backend is healthy
-  static async checkBackendHealth(backend) {
-    try {
-      console.log(`Checking health of ${backend.name} (${backend.url})`);
-      const timeout = backend.url.includes('localhost') 
-        ? CONFIG.HEALTH_CHECK_TIMEOUT 
-        : CONFIG.HEALTH_CHECK_TIMEOUT * 1.5;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-      const response = await fetch(`${backend.url}${CONFIG.HEALTH_ENDPOINT}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`✅ ${backend.name} is healthy:`, data);
-        return true;
-      } else {
-        console.log(`❌ ${backend.name} returned status:`, response.status);
-        return false;
-      }
-    } catch (error) {
-      console.log(`❌ ${backend.name} health check failed:`, error.message);
-      return false;
+      .sort(([, a], [, b]) => a.priority - b.priority);
+    
+    if (backends.length > 0) {
+      const [key, backend] = backends[0];
+      console.log(`🎯 Using priority 1 backend: ${backend.name} (${backend.url})`);
+      return { key, ...backend };
     }
+    
+    console.log('❌ No enabled backends found');
+    return null;
   }
 
-  // Find the best available backend (no cache)
-  static async detectBestBackend() {
-    console.log('🔍 Detecting best available backend (per-tab)...');
-    const backends = BackendManager.getBackendsByPriority();
-    
-    // Check all backends in parallel for faster detection
-    const healthPromises = backends.map(async (backend) => {
-      const isHealthy = await BackendManager.checkBackendHealth(backend);
-      return { backend, isHealthy };
-    });
-    
-    const results = await Promise.all(healthPromises);
-    const healthyBackends = results.filter(result => result.isHealthy).map(result => result.backend);
-    
-    if (healthyBackends.length > 0) {
-      const bestBackend = healthyBackends[0];
-      console.log(`🎯 Best backend detected: ${bestBackend.name} (${bestBackend.url})`);
-      return bestBackend;
-    } else {
-      console.log('❌ No healthy backends found');
-      return null;
-    }
-  }
-
-  // Get current backend (with caching)
+  // Get current backend (simplified - just return priority 1)
   static async getCurrentBackend() {
     // Check if we have a cached backend choice
     if (window.currentBackend && window.backendCacheTime) {
@@ -119,8 +83,8 @@ class BackendManager {
       }
     }
     
-    // Detect new backend
-    const backend = await BackendManager.detectBestBackend();
+    // Get priority 1 backend (no health checks)
+    const backend = BackendManager.getPriorityOneBackend();
     if (backend) {
       window.currentBackend = backend;
       window.backendCacheTime = Date.now();
@@ -129,12 +93,116 @@ class BackendManager {
     return backend;
   }
 
-  // Force refresh backend choice
+  // Force refresh backend choice (simplified)
   static async refreshBackend() {
     window.currentBackend = null;
     window.backendCacheTime = null;
     console.log('🔄 Forced backend refresh');
     return await BackendManager.getCurrentBackend();
+  }
+
+  // Track backend failure and show update message if needed
+  static trackBackendFailure(error = null) {
+    const now = Date.now();
+    
+    // Reset failure count if enough time has passed
+    if (now - BackendManager._lastFailureTime > CONFIG.FAILURE_RESET_DURATION) {
+      BackendManager._consecutiveFailures = 0;
+      BackendManager._updateMessageShown = false;
+    }
+    
+    BackendManager._consecutiveFailures++;
+    BackendManager._lastFailureTime = now;
+    
+    console.log(`❌ Backend failure #${BackendManager._consecutiveFailures} tracked`);
+    
+    // Show update message after 2 consecutive failures
+    if (BackendManager._consecutiveFailures >= CONFIG.MAX_CONSECUTIVE_FAILURES && !BackendManager._updateMessageShown) {
+      BackendManager._updateMessageShown = true;
+      BackendManager.showUpdateMessage();
+    }
+  }
+
+  // Show user-friendly update message
+  static showUpdateMessage() {
+    console.log('⚠️ Showing extension update message to user');
+    
+    // Create a user-friendly message
+    const message = {
+      type: 'extension_update_required',
+      title: 'Extension Update Required',
+      message: 'Your extension needs to be updated to work with the latest backend. Please update the extension from the Chrome Web Store.',
+      action: 'update_extension',
+      timestamp: Date.now()
+    };
+    
+    // Try to show the message in different contexts
+    try {
+      // Method 1: Send message to popup if available
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'showUpdateMessage',
+          message: message
+        }).catch(() => {
+          // Ignore errors if popup is not available
+        });
+      }
+      
+      // Method 2: Show alert if in fullpage context
+      if (typeof window !== 'undefined' && window.location && window.location.href.includes('fullpage.html')) {
+        alert('⚠️ Extension Update Required\n\nYour extension needs to be updated to work with the latest backend. Please update the extension from the Chrome Web Store.');
+      }
+      
+      // Method 3: Store message for popup to read
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({
+          'extension_update_message': message
+        }).catch(() => {
+          // Ignore storage errors
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error showing update message:', error);
+    }
+  }
+
+  // Reset failure tracking (call this on successful requests)
+  static resetFailureTracking() {
+    BackendManager._consecutiveFailures = 0;
+    BackendManager._lastFailureTime = 0;
+    BackendManager._updateMessageShown = false;
+    console.log('✅ Backend failure tracking reset');
+  }
+
+  // Get current failure status
+  static getFailureStatus() {
+    return {
+      consecutiveFailures: BackendManager._consecutiveFailures,
+      lastFailureTime: BackendManager._lastFailureTime,
+      updateMessageShown: BackendManager._updateMessageShown,
+      shouldShowUpdate: BackendManager._consecutiveFailures >= CONFIG.MAX_CONSECUTIVE_FAILURES
+    };
+  }
+
+  // Legacy method for compatibility (now just returns priority 1)
+  static async detectBestBackend() {
+    return BackendManager.getPriorityOneBackend();
+  }
+
+  // Legacy method for compatibility (now just returns priority 1)
+  static async checkBackendHealth(backend) {
+    // Skip health checks for efficiency
+    console.log(`⏭️ Skipping health check for ${backend.name} (efficiency mode)`);
+    return true;
+  }
+
+  // Legacy method for compatibility
+  static getBackendsByPriority() {
+    return Object.entries(CONFIG.BACKENDS)
+      .filter(([key, backend]) => backend.enabled)
+      .sort(([, a], [, b]) => a.priority - b.priority)
+      .map(([key, backend]) => ({ key, ...backend }));
   }
 }
 
@@ -180,13 +248,27 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
       }).catch(() => {}); // Ignore errors for this check
     }
     
+    // Reset failure tracking on successful response
+    if (response.ok) {
+      BackendManager.resetFailureTracking();
+    } else {
+      // Track failure for non-OK responses
+      BackendManager.trackBackendFailure(new Error(`HTTP ${response.status}: ${response.statusText}`));
+    }
+    
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    
+    // Track failure for network errors
+    BackendManager.trackBackendFailure(error);
+    
     if (error.name === 'AbortError') {
       // Request timed out
+      console.log('⏰ Request timed out');
     } else {
       // Request failed
+      console.log('❌ Request failed:', error.message);
     }
     throw error;
   }
@@ -194,9 +276,9 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
 
 // Helper: auto-detect backend and make a non-stream request
 async function makeApiRequest(endpoint, options = {}) {
-  const backend = await BackendManager.detectBestBackend();
+  const backend = await BackendManager.getCurrentBackend();
   if (!backend) {
-    throw new Error('No healthy backend available');
+    throw new Error('No backend available');
   }
   return makeApiRequestWithBackend(endpoint, options, backend);
 }
@@ -205,9 +287,9 @@ async function makeApiRequest(endpoint, options = {}) {
 function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
   return new Promise(async (resolve, reject) => {
     try {
-      const backend = await BackendManager.detectBestBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
-        throw new Error('No healthy backend available');
+        throw new Error('No backend available');
       }
       const url = `${backend.url}${endpoint}`;
       
@@ -224,7 +306,12 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
         },
         body: JSON.stringify(bodyObj)
       });
-      if (!response.ok) {
+      
+      // Track success/failure
+      if (response.ok) {
+        BackendManager.resetFailureTracking();
+      } else {
+        BackendManager.trackBackendFailure(new Error(`HTTP ${response.status}: ${response.statusText}`));
         reject(new Error(`Backend error: ${response.status}`));
         return;
       }

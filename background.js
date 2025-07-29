@@ -742,7 +742,7 @@ async function triggerPDFAnalysis(tabId) {
       } catch (apiError) {
         // If backend fails, try to detect a new global backend  
         console.error(`API request failed for tab ${tabId} on backend ${backend?.name}:`, apiError);
-        backend = await BackendManager.detectBestBackend();
+        backend = await BackendManager.getCurrentBackend();
         // Retry once with new backend
         serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
           method: 'POST',

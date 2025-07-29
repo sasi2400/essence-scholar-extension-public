@@ -248,12 +248,12 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // Initialize backend detection early
-  if (typeof backendManager !== 'undefined') {
-    backendManager.detectBestBackend().then(backend => {
+  if (typeof BackendManager !== 'undefined') {
+    BackendManager.getCurrentBackend().then(backend => {
       if (backend) {
         console.log('Initial backend selected for fullpage:', backend.name, backend.url);
       } else {
-        console.log('No healthy backends found during fullpage initialization');
+        console.log('No backend available during fullpage initialization');
       }
     }).catch(error => {
       console.error('Error during fullpage backend detection:', error);
@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Homepage functions
   async function loadHomepageStats() {
     try {
-      const backend = await backendManager.detectBestBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.error('No backend available for stats');
         return;
@@ -328,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function searchPapers(query) {
     try {
-      const backend = await backendManager.detectBestBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -2241,9 +2241,9 @@ document.addEventListener('DOMContentLoaded', function() {
   async function fetchAnalysisFromBackend(paperId, requestedScholarUrl = null) {
     try {
       // Use smart backend detection to get the correct backend URL
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
-        console.log('No healthy backend available for fetching analysis');
+        console.log('No backend available for fetching analysis');
         return null;
       }
       
@@ -3602,9 +3602,9 @@ document.addEventListener('DOMContentLoaded', function() {
   async function fetchAnalysisByAnalysisId(analysisId) {
     try {
       // Use smart backend detection to get the correct backend URL
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
-        console.log('No healthy backend available for fetching analysis');
+        console.log('No backend available for fetching analysis');
         return null;
       }
       
@@ -3678,7 +3678,7 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Fetching author data for paperId:', paperId);
       
       // Get backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }

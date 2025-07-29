@@ -1757,6 +1757,31 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       });
       
       // Update UI to show completion
+      updatePopupUI();
+      
+      sendResponse({ received: true });
+    } else if (message.action === 'showUpdateMessage') {
+      console.log('Showing extension update message');
+      showStatus('⚠️ Extension Update Required - Please update from Chrome Web Store', 'error');
+      
+      // Show a more prominent message
+      const statusDiv = document.getElementById('status');
+      if (statusDiv) {
+        statusDiv.innerHTML = `
+          <div style="background: #ffebee; border: 2px solid #f44336; border-radius: 8px; padding: 15px; margin: 10px 0; text-align: center;">
+            <div style="font-weight: bold; color: #d32f2f; margin-bottom: 8px;">⚠️ Extension Update Required</div>
+            <div style="color: #d32f2f; font-size: 14px; margin-bottom: 10px;">
+              Your extension needs to be updated to work with the latest backend.
+            </div>
+            <button onclick="window.open('https://chrome.google.com/webstore/detail/essence-scholar/your-extension-id', '_blank')" 
+                    style="background: #d32f2f; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+              Update Extension
+            </button>
+          </div>
+        `;
+      }
+      
+      sendResponse({ received: true });
       hideProgress();
       setButtonState('View Paper Page', false, false);
       analyzeBtn.style.backgroundColor = '#4CAF50';
