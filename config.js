@@ -5,13 +5,13 @@ const CONFIG = {
     LOCAL_DEV: {
       url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 1,
+      priority: 2,
       enabled: true
     },
     CLOUD_RUN: {
       url: 'https://ssrn-summarizer-backend-v1-5-1-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
-      priority: 2,
+      priority: 1,
       enabled: true
     }
   },
@@ -23,12 +23,9 @@ const CONFIG = {
   // API endpoints
   CHAT_ENDPOINT: '/chat',
   HEALTH_ENDPOINT: '/health',
-  // VERSION_ENDPOINT: '/version',
   ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
-  // New author data endpoints
   AUTHOR_DATA_ENDPOINT: '/authors',
   ALL_AUTHOR_DATA_ENDPOINT: '/authors/all',
-  // SSE streaming endpoint for progressive analysis
   ANALYZE_STREAM_ENDPOINT: '/analyze-stream',
   
   // Timeouts
@@ -64,7 +61,7 @@ class BackendManager {
       console.log(`Checking health of ${backend.name} (${backend.url})`);
       const timeout = backend.url.includes('localhost') 
         ? CONFIG.HEALTH_CHECK_TIMEOUT 
-        : CONFIG.HEALTH_CHECK_TIMEOUT * 1.5; // Reduced from 2x to 1.5x for faster detection
+        : CONFIG.HEALTH_CHECK_TIMEOUT * 1.5;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
       const response = await fetch(`${backend.url}${CONFIG.HEALTH_ENDPOINT}`, {
@@ -98,51 +95,51 @@ class BackendManager {
       return { backend, isHealthy };
     });
     
-    try {
-      const results = await Promise.all(healthPromises);
-      
-      // Find the first healthy backend by priority order
-      for (const backend of backends) {
-        const result = results.find(r => r.backend.key === backend.key);
-        if (result && result.isHealthy) {
-          console.log(`✅ Selected backend: ${backend.name} (${backend.url})`);
-          // cache the result
-          BackendManager._currentBackend = backend;
-          BackendManager._lastDetection = Date.now();
-          return backend;
-        }
+    const results = await Promise.all(healthPromises);
+    const healthyBackends = results.filter(result => result.isHealthy).map(result => result.backend);
+    
+    if (healthyBackends.length > 0) {
+      const bestBackend = healthyBackends[0];
+      console.log(`🎯 Best backend detected: ${bestBackend.name} (${bestBackend.url})`);
+      return bestBackend;
+    } else {
+      console.log('❌ No healthy backends found');
+      return null;
+    }
+  }
+
+  // Get current backend (with caching)
+  static async getCurrentBackend() {
+    // Check if we have a cached backend choice
+    if (window.currentBackend && window.backendCacheTime) {
+      const now = Date.now();
+      if (now - window.backendCacheTime < CONFIG.BACKEND_CACHE_DURATION) {
+        console.log(`🔄 Using cached backend: ${window.currentBackend.name}`);
+        return window.currentBackend;
       }
-    } catch (error) {
-      console.error('Error during parallel health checks:', error);
     }
     
-    console.log('❌ No healthy backends found');
-    return null;
-  }
-
-  // Cached backend accessor
-  static async getCurrentBackend() {
-    const now = Date.now();
-    if (BackendManager._currentBackend && BackendManager._lastDetection &&
-        now - BackendManager._lastDetection < CONFIG.BACKEND_CACHE_DURATION) {
-      return BackendManager._currentBackend;
+    // Detect new backend
+    const backend = await BackendManager.detectBestBackend();
+    if (backend) {
+      window.currentBackend = backend;
+      window.backendCacheTime = Date.now();
+      console.log(`💾 Cached backend choice: ${backend.name}`);
     }
-    return await BackendManager.detectBestBackend();
+    return backend;
   }
 
-  // Force re-detect backend regardless of cache
+  // Force refresh backend choice
   static async refreshBackend() {
-    BackendManager._currentBackend = null;
-    BackendManager._lastDetection = 0;
-    return await BackendManager.detectBestBackend();
+    window.currentBackend = null;
+    window.backendCacheTime = null;
+    console.log('🔄 Forced backend refresh');
+    return await BackendManager.getCurrentBackend();
   }
 }
 
-// Helper function to get full API URL with explicit backend
+// Helper function to get API URL with backend
 function getApiUrlWithBackend(endpoint, backend) {
-  if (!backend) {
-    throw new Error('No backend provided');
-  }
   return `${backend.url}${endpoint}`;
 }
 
@@ -246,43 +243,26 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
           const jsonStr = line.replace(/^data:\s*/, '');
           if (!jsonStr) continue;
           let evt;
-          try { evt = JSON.parse(jsonStr); } catch (e) { console.warn('SSE parse error', e, jsonStr); continue; }
-          try { onEvent(evt); } catch (cbErr) { console.warn('onEvent error', cbErr); }
-          if (evt.status === 'done') {
-            // Check for version warnings in the final response
-            if (evt.version_warning && window.showVersionWarningFromAPI) {
-              window.showVersionWarningFromAPI(evt.version_warning);
-            }
-            return resolve(evt);
+          try {
+            evt = JSON.parse(jsonStr);
+          } catch (e) {
+            console.warn('Failed to parse SSE event:', jsonStr);
+            continue;
           }
-          if (evt.status === 'error') return reject(new Error(evt.message || 'Analysis error'));
+          onEvent(evt);
         }
       }
-      reject(new Error('Stream ended without completion'));
-    } catch (err) {
-      reject(err);
+      resolve();
+    } catch (error) {
+      reject(error);
     }
   });
 }
 
-// Initialize backend detection when config loads
-console.log('🔧 Backend Manager initialized');
-console.log('📊 Available backends:', Object.keys(CONFIG.BACKENDS));
-console.log('⚙️ Auto-detect enabled:', CONFIG.AUTO_DETECT_BACKENDS);
-console.log('🏠 Prefer local:', CONFIG.PREFER_LOCAL);
-
-// Export for use in other files
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { CONFIG, getApiUrlWithBackend };
-} 
-
-// Attach helpers to window for browser context
+// Make functions available globally
 if (typeof window !== 'undefined') {
-  window.CONFIG = CONFIG;
-  window.BackendManager = BackendManager;
-  window.backendManager = BackendManager; // legacy alias
-  window.getApiUrlWithBackend = getApiUrlWithBackend;
   window.makeApiRequestWithBackend = makeApiRequestWithBackend;
   window.makeApiRequest = makeApiRequest;
   window.makeStreamRequest = makeStreamRequest;
-} 
+  window.BackendManager = BackendManager;
+}
