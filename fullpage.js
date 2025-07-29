@@ -646,7 +646,7 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Settings to save:', settings);
 
       // Try to save to backend first
-      const backend = await backendManager.detectBestBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (backend) {
         try {
           const response = await fetch(`${backend.url}/user/settings`, {
@@ -853,13 +853,13 @@ document.addEventListener('DOMContentLoaded', function() {
   
   function getDefaultJuniorResearchers() {
     return {
-      key_message: true,
-      author_profiles: true,
-      contributions_novelty: true,
-      data_variables_models: true,
-      identification_causality: true,
-      quick_takeaways: true,
-      bibliography_reference: true
+      key_message: false,
+      author_profiles: false,
+      contributions_novelty: false,
+      data_variables_models: false,
+      identification_causality: false,
+      quick_takeaways: false,
+      bibliography_reference: false
     };
   }
   
@@ -1068,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', function() {
       content.paperId = paperId;
 
       // Get current backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -1448,7 +1448,7 @@ document.addEventListener('DOMContentLoaded', function() {
             throw new Error('No analysis results received');
           }
 
-          const currentBackend = await backendManager.getCurrentBackend();
+          const currentBackend = await BackendManager.getCurrentBackend();
           updateStatus(`Successfully connected to ${currentBackend.name}`);
           return serverResponse;
         } catch (error) {
@@ -1457,7 +1457,7 @@ document.addEventListener('DOMContentLoaded', function() {
             throw error;
           }
           console.log(`Attempt ${attempts} failed, trying next backend...`);
-          await backendManager.refreshBackend();
+          await BackendManager.refreshBackend();
         }
       }
     } catch (error) {
@@ -1876,7 +1876,7 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       console.log('🔍 Attempting to set PDF content from storage for paper:', paperId);
       
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       const response = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`);
       
       if (response.ok) {
@@ -2382,7 +2382,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Add function to get all available analyses for a paper
   async function getAllAnalysesForPaper(paperId) {
     try {
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.log('No healthy backend available for fetching analyses');
         return [];
@@ -2613,7 +2613,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       try {
         // Fetch individual author data from backend
-        const backend = await backendManager.getCurrentBackend();
+        const backend = await BackendManager.getCurrentBackend();
         if (!backend) {
           throw new Error('No backend available');
         }
@@ -3477,7 +3477,7 @@ document.addEventListener('DOMContentLoaded', function() {
   async function fetchAuthorDataFromBackend(paperId, requestedScholarUrl = null) {
     try {
       // Use smart backend detection to get the correct backend URL
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.log('No healthy backend available for fetching author data');
         return null;
@@ -3550,7 +3550,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Add function to get all author data configurations for a paper
   async function getAllAuthorDataConfigurations(paperId) {
     try {
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.log('No healthy backend available for fetching author configurations');
         return [];
@@ -3913,7 +3913,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (paperId) {
       try {
         // Check what analyses exist for this paper
-        const backend = await backendManager.getCurrentBackend();
+        const backend = await BackendManager.getCurrentBackend();
         if (backend) {
           const userSettings = await chrome.storage.local.get(['userSettings']);
           const scholarUrl = userSettings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
@@ -4062,7 +4062,7 @@ document.addEventListener('DOMContentLoaded', function() {
       });
       
       // Get backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -4229,7 +4229,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
       
       // Get backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -4412,7 +4412,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const llmSettings = userSettings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
       
       // Get backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -4567,7 +4567,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // Get backend and paper data for chat context
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available for chat');
       }
@@ -4684,7 +4684,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     try {
       // Get backend URL using the same smart detection as other functions
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -4868,7 +4868,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (paperId) {
         console.log(`🔍 Fetching real author IDs for paper: ${paperId}`);
         
-        const backend = await backendManager.getCurrentBackend();
+        const backend = await BackendManager.getCurrentBackend();
         console.log('🔧 Backend received:', backend);
         if (backend) {
           try {
@@ -4999,7 +4999,7 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('🔄 Refreshing author data for ID:', authorId);
       
       // Get backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         throw new Error('No backend available');
       }

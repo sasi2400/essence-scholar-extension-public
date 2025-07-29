@@ -1108,7 +1108,7 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   } else if (request.action === 'testBackend') {
     // Test backend detection
     try {
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       sendResponse({ 
         success: true, 
         backendAvailable: !!backend,

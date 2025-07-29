@@ -296,10 +296,16 @@ async function checkBackendStatus() {
     if (backend) {
       // Test if backend is actually responsive
       try {
+        // Use AbortController for better browser compatibility
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        
         const healthCheck = await fetch(`${backend.url}/health`, { 
           method: 'GET',
-          signal: AbortSignal.timeout(5000) // 5 second timeout
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (healthCheck.ok) {
           statusDiv.innerHTML = `
@@ -442,13 +448,13 @@ function skipSetup() {
       researchInterests: ''
     },
     juniorResearchers: {
-      key_message: true,
-      author_profiles: true,
-      contributions_novelty: true,
-      data_variables_models: true,
-      identification_causality: true,
-      quick_takeaways: true,
-      bibliography_reference: true
+      key_message: false,
+      author_profiles: false,
+      contributions_novelty: false,
+      data_variables_models: false,
+      identification_causality: false,
+      quick_takeaways: false,
+      bibliography_reference: false
     },
     onboardingCompleted: true
   };

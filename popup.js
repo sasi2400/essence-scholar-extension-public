@@ -1940,7 +1940,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       console.log('Checking backend for analysis with ID:', analysisId);
       
       // Use smart backend detection to get the correct backend
-      const backend = await backendManager.getCurrentBackend();
+      const backend = await BackendManager.getCurrentBackend();
       if (!backend) {
         console.log('No healthy backend available for checking analysis');
         return false;
