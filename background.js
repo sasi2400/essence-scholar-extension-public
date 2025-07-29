@@ -150,6 +150,9 @@ async function restoreMonitoringState() {
 console.log('[BG] Service worker starting up, restoring monitoring state...');
 restoreMonitoringState();
 
+// Check if this is first install and show onboarding
+checkFirstInstall();
+
 // Log configuration on startup
 console.log('Background script: Smart backend detection enabled');
 console.log('Background script: Available backends:', Object.keys(CONFIG.BACKENDS));
@@ -1131,6 +1134,18 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(() => {
     // Clean up any resources if needed
   });
+});
+
+// Listen for extension installation
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason === 'install') {
+    console.log('[BG] Extension installed, checking for onboarding...');
+    
+    // Wait a moment for storage to be ready
+    setTimeout(async () => {
+      await checkFirstInstall();
+    }, 1000);
+  }
 }); 
 
 // Function to generate analysis_id consistently with backend
@@ -1142,4 +1157,26 @@ async function generateAnalysisId(paperId, userScholarUrl) {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return hashHex.substring(0, 32);
+}
+
+// Check if this is first install and show onboarding
+async function checkFirstInstall() {
+  try {
+    const result = await chrome.storage.local.get(['onboardingCompleted', 'onboardingShown']);
+    
+    if (!result.onboardingCompleted && !result.onboardingShown) {
+      console.log('[BG] First install detected, showing onboarding...');
+      
+      // Mark onboarding as shown immediately to prevent duplicate tabs
+      await chrome.storage.local.set({ onboardingShown: true });
+      
+      // Open onboarding page in a new tab
+      const onboardingUrl = chrome.runtime.getURL('onboarding.html');
+      await chrome.tabs.create({ url: onboardingUrl });
+    } else {
+      console.log('[BG] Onboarding already completed or shown');
+    }
+  } catch (error) {
+    console.error('[BG] Error checking first install:', error);
+  }
 } 

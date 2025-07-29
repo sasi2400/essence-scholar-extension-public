@@ -1038,6 +1038,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Onboarding button
+  const onboardingBtn = document.getElementById('onboarding-btn');
+  if (onboardingBtn) {
+    onboardingBtn.addEventListener('click', function() {
+      chrome.tabs.create({
+        url: chrome.runtime.getURL('onboarding.html')
+      });
+    });
+  }
+
 
   // Settings modal logic
   const settingsModal = document.getElementById('settings-modal');

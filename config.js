@@ -9,7 +9,7 @@ const CONFIG = {
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-5-0-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-5-1-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 2,
       enabled: true
@@ -36,7 +36,7 @@ const CONFIG = {
   CLOUD_REQUEST_TIMEOUT: 120000, // 120 seconds for cloud (increased from 30)
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000, // 1 second
-  HEALTH_CHECK_TIMEOUT: 500, // 1 second for health checks (reduced for faster detection)
+  HEALTH_CHECK_TIMEOUT: 1000, // 1 second for health checks (reduced for faster detection)
   
   // Analysis settings
   MAX_CONTENT_LENGTH: 50000, // characters

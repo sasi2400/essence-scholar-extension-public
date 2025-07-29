@@ -3159,6 +3159,24 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('❌ Clear button not found');
     }
 
+    // Onboarding button
+    const onboardingBtn = document.getElementById('onboardingBtn');
+    if (onboardingBtn && !onboardingBtn.hasAttribute('data-listener-attached')) {
+      console.log('✅ Setting up onboarding button event listener');
+      onboardingBtn.setAttribute('data-listener-attached', 'true');
+      onboardingBtn.addEventListener('click', function() {
+        console.log('📋 Onboarding button clicked!');
+        chrome.tabs.create({
+          url: chrome.runtime.getURL('onboarding.html')
+        });
+      });
+      console.log('✅ Onboarding button listener attached successfully');
+    } else if (onboardingBtn && onboardingBtn.hasAttribute('data-listener-attached')) {
+      console.log('⚠️  Onboarding button already has listener attached');
+    } else {
+      console.log('❌ Onboarding button not found');
+    }
+
     // Chat functionality event listeners
     console.log('🔍 Chat Setup: Checking chat elements...', {
       sendBtn: !!sendBtn,
@@ -3834,6 +3852,19 @@ document.addEventListener('DOMContentLoaded', function() {
       clearBtn2.addEventListener('click', () => {
         console.log('🎯 clearBtn2 clicked! Navigating to homepage');
         window.location.href = getHomepageUrl();
+      });
+    }
+
+    // Onboarding button for new layout
+    const onboardingBtn2 = document.getElementById('onboardingBtn2');
+    if (onboardingBtn2 && !onboardingBtn2.hasAttribute('data-listener-attached')) {
+      console.log('✅ Setting up onboardingBtn2 event listener');
+      onboardingBtn2.setAttribute('data-listener-attached', 'true');
+      onboardingBtn2.addEventListener('click', () => {
+        console.log('📋 onboardingBtn2 clicked!');
+        chrome.tabs.create({
+          url: chrome.runtime.getURL('onboarding.html')
+        });
       });
     }
     
