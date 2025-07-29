@@ -1,34 +1,66 @@
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <!-- Violet‑centric gradient background -->
+  <!-- Elegant gradient background -->
   <defs>
     <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7A1FA2"></stop>
-      <stop offset="100%" stop-color="#6E5EF9"></stop>
+      <stop offset="0%" stop-color="#1E3A8A"></stop>
+      <stop offset="50%" stop-color="#3B82F6"></stop>
+      <stop offset="100%" stop-color="#1D4ED8"></stop>
+    </linearGradient>
+    
+    <linearGradient id="essence-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"></stop>
+      <stop offset="100%" stop-color="#FEF3C7"></stop>
+    </linearGradient>
+    
+    <linearGradient id="paper-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"></stop>
+      <stop offset="100%" stop-color="#F8FAFC"></stop>
     </linearGradient>
   </defs>
-  <rect width="128" height="128" rx="20" fill="url(#bg-grad)"></rect>
+  
+  <!-- Rounded background -->
+  <rect width="128" height="128" rx="24" fill="url(#bg-grad)"></rect>
 
-  <!-- Back sheet (soft card tone) -->
-  <path d="M34 40h50a5 5 0 0 1 5 5v50a5 5 0 0 1-5 5H34a5 5 0 0 1-5-5V45a5 5 0 0 1 5-5z" fill="rgba(255,255,255,0.6)"></path>
+  <!-- Scholar's scroll/paper with curved edge -->
+  <path d="M20 35 Q20 25 30 25 h60 Q100 25 100 35 v55 Q100 105 90 105 h-60 Q20 105 20 95 Z" 
+        fill="url(#paper-grad)" stroke="#E2E8F0" stroke-width="2"></path>
 
-  <!-- Front sheet -->
-  <path d="M42 30h50a5 5 0 0 1 5 5v50a5 5 0 0 1-5 5H42a5 5 0 0 1-5-5V35a5 5 0 0 1 5-5z" fill="#FFFFFF"></path>
-
-  <!-- AI spark network -->
-  <g stroke="#FFB400" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="#FFB400">
-    <circle cx="56" cy="42" r="4"></circle>
-    <circle cx="70" cy="40" r="4"></circle>
-    <circle cx="62" cy="52" r="4"></circle>
-    <line x1="56" y1="42" x2="70" y2="40"></line>
-    <line x1="56" y1="42" x2="62" y2="52"></line>
-    <line x1="70" y1="40" x2="62" y2="52"></line>
+  <!-- Text lines representing academic content -->
+  <rect x="32" y="40" width="45" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
+  <rect x="32" y="48" width="55" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
+  <rect x="32" y="56" width="40" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
+  <rect x="32" y="64" width="50" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
+  
+  <!-- Knowledge distillation symbol - essence droplet -->
+  <g transform="translate(50, 75)">
+    <!-- Essence droplet/gem representing distilled knowledge -->
+    <path d="M0,-12 L8,0 L0,12 L-8,0 Z" fill="url(#essence-grad)" stroke="#D97706" stroke-width="1.5"></path>
+    <!-- Inner light reflection -->
+    <ellipse cx="-2" cy="-4" rx="3" ry="2" fill="#FEF3C7" opacity="0.8"></ellipse>
   </g>
 
-  <!-- Magnifier (now on top and contrasting) -->
-  <g stroke-linecap="round" stroke-linejoin="round">
-    <!-- Ring in bright blue -->
-    <circle cx="78" cy="78" r="20" fill="none" stroke="#37B4E7" stroke-width="6"></circle>
-    <!-- Handle in dark navy -->
-    <line x1="92" y1="92" x2="104" y2="104" stroke="#0F2F4A" stroke-width="6"></line>
+  <!-- Academic lens/magnifier with scholarly elements -->
+  <g transform="translate(75, 70)">
+    <!-- Magnifying glass lens -->
+    <circle cx="0" cy="0" r="18" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"></circle>
+    <!-- Handle -->
+    <line x1="14" y1="14" x2="24" y2="24" stroke="#059669" stroke-width="4" stroke-linecap="round"></line>
+    
+    <!-- Knowledge nodes inside lens -->
+    <circle cx="-6" cy="-6" r="2.5" fill="#10B981"></circle>
+    <circle cx="6" cy="-4" r="2.5" fill="#10B981"></circle>
+    <circle cx="0" cy="6" r="2.5" fill="#10B981"></circle>
+    
+    <!-- Connection lines showing knowledge network -->
+    <line x1="-6" y1="-6" x2="6" y2="-4" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
+    <line x1="-6" y1="-6" x2="0" y2="6" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
+    <line x1="6" y1="-4" x2="0" y2="6" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
+  </g>
+
+  <!-- Decorative academic elements -->
+  <!-- Small stars representing insights -->
+  <g fill="#F59E0B" opacity="0.8">
+    <path d="M25,20 L26,22 L28,22 L26.5,23.5 L27,26 L25,24.5 L23,26 L23.5,23.5 L22,22 L24,22 Z" transform="scale(0.6)"></path>
+    <path d="M105,25 L106,27 L108,27 L106.5,28.5 L107,31 L105,29.5 L103,31 L103.5,28.5 L102,27 L104,27 Z" transform="scale(0.5)"></path>
   </g>
 </svg>

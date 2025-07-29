@@ -36,14 +36,14 @@ const CONFIG = {
   CLOUD_REQUEST_TIMEOUT: 120000, // 120 seconds for cloud (increased from 30)
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000, // 1 second
-  HEALTH_CHECK_TIMEOUT: 5000, // 5 seconds for health checks
+  HEALTH_CHECK_TIMEOUT: 500, // 1 second for health checks (reduced for faster detection)
   
   // Analysis settings
   MAX_CONTENT_LENGTH: 50000, // characters
   ANALYSIS_CACHE_DURATION: 5 * 60 * 1000, // 5 minutes in milliseconds
   
   // Backend detection settings
-  BACKEND_CACHE_DURATION: 2 * 60 * 1000, // Cache backend choice for 2 minutes
+  BACKEND_CACHE_DURATION: 5 * 60 * 1000, // Cache backend choice for 5 minutes (increased from 2)
   AUTO_DETECT_BACKENDS: true, // Enable automatic backend detection
   PREFER_LOCAL: true, // Prefer local backends over cloud
 };
@@ -64,7 +64,7 @@ class BackendManager {
       console.log(`Checking health of ${backend.name} (${backend.url})`);
       const timeout = backend.url.includes('localhost') 
         ? CONFIG.HEALTH_CHECK_TIMEOUT 
-        : CONFIG.HEALTH_CHECK_TIMEOUT * 2;
+        : CONFIG.HEALTH_CHECK_TIMEOUT * 1.5; // Reduced from 2x to 1.5x for faster detection
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
       const response = await fetch(`${backend.url}${CONFIG.HEALTH_ENDPOINT}`, {
@@ -91,16 +91,31 @@ class BackendManager {
   static async detectBestBackend() {
     console.log('🔍 Detecting best available backend (per-tab)...');
     const backends = BackendManager.getBackendsByPriority();
-    for (const backend of backends) {
+    
+    // Check all backends in parallel for faster detection
+    const healthPromises = backends.map(async (backend) => {
       const isHealthy = await BackendManager.checkBackendHealth(backend);
-      if (isHealthy) {
-        console.log(`✅ Selected backend: ${backend.name} (${backend.url})`);
-        // cache the result
-        BackendManager._currentBackend = backend;
-        BackendManager._lastDetection = Date.now();
-        return backend;
+      return { backend, isHealthy };
+    });
+    
+    try {
+      const results = await Promise.all(healthPromises);
+      
+      // Find the first healthy backend by priority order
+      for (const backend of backends) {
+        const result = results.find(r => r.backend.key === backend.key);
+        if (result && result.isHealthy) {
+          console.log(`✅ Selected backend: ${backend.name} (${backend.url})`);
+          // cache the result
+          BackendManager._currentBackend = backend;
+          BackendManager._lastDetection = Date.now();
+          return backend;
+        }
       }
+    } catch (error) {
+      console.error('Error during parallel health checks:', error);
     }
+    
     console.log('❌ No healthy backends found');
     return null;
   }

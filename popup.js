@@ -1680,8 +1680,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   // Replace initialization to use updatePopupUI
   async function initializePopup() {
     try {
-      displayBackendStatus();
-      await updateBackendStatusDisplay();
+      displayBackendStatus('🔍 Checking Backend...');
+      
+      // Start backend detection asynchronously and update UI immediately
+      const backendPromise = BackendManager.getCurrentBackend();
       
       // Reset UnderAnalysis on popup initialization (handles tab refresh case)
       UnderAnalysis = 0;
@@ -1690,6 +1692,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       // Check for stale analyzing states and clean them up
       await cleanupStaleAnalyzingStates();
       
+      // Wait for backend detection to complete
+      const backend = await backendPromise;
+      if (backend) {
+        displayBackendStatus('✅ Backend Connected');
+      } else {
+        displayBackendStatus('❌ No Backend Available');
+      }
+      
+      await updateBackendStatusDisplay(backend);
       await updatePopupUI();
     } catch (error) {
       console.error('Popup: Initialization error:', error);
@@ -2235,10 +2246,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     showVersionNotification(versionWarning);
   };
 
-  // Initialize version checking
-  setTimeout(() => {
-    checkForUpdates();
-  }, 2000); // Check for updates 2 seconds after popup loads
+  // // Initialize version checking
+  // setTimeout(() => {
+  //   checkForUpdates();
+  // }, 2000); // Check for updates 2 seconds after popup loads
 
   // Function to generate analysis_id consistently with backend
   async function generateAnalysisId(paperId, userScholarUrl) {
