@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Essence Scholar",
-  "version": "1.5.5",
-  "description": "Uncover the essence of every study! AI‑powered insights tailored to your academic interests in economics & social sciences.",
+  "version": "1.5.6",
+  "description": "Uncover the essence of every study! AI-powered insights tailored to your academic interests in economics & social sciences.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -54,8 +54,7 @@
         "onboarding.js",
         "marked.min.js",
         "marked-init.js",
-        "shared-id-generator.js",
-        "id-consistency-test.html"
+        "shared-id-generator.js"
       ],
       "matches": ["<all_urls>"]
     }
