@@ -11,7 +11,7 @@
   ],
   "host_permissions": [
     "http://localhost:8080/*",
-    "https://ssrn-summarizer-backend-v*-pisqy7uvxq-uc.a.run.app/*",
+    "https://*.a.run.app/*",
     "https://*.ssrn.com/*",
     "file:///*.pdf"
   ],
