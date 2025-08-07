@@ -92,31 +92,40 @@ const pdfTabs = new Set();
  * returns Content-Type: application/pdf  *or*  ends with ".pdf".
  * Works for network & local file:// URLs alike.
  */
-chrome.webRequest.onHeadersReceived.addListener(
-  details => {
-    if (details.type !== 'main_frame') return;
+if (chrome.webRequest && chrome.webRequest.onHeadersReceived) {
+  try {
+    chrome.webRequest.onHeadersReceived.addListener(
+      details => {
+        if (details.type !== 'main_frame') return;
 
-    const ct = details.responseHeaders?.find(
-      h => h.name.toLowerCase() === 'content-type'
-    )?.value ?? '';
+        const ct = details.responseHeaders?.find(
+          h => h.name.toLowerCase() === 'content-type'
+        )?.value ?? '';
 
-    const isPdf = ct.includes('pdf') || details.url.toLowerCase().endsWith('.pdf');
-    
-    if (isPdf) {
-      console.log('[BG] PDF detected via webRequest:', details.url);
-      pdfTabs.add(details.tabId);
-      
-      // Tell the content script to start collecting
-      setTimeout(() => {
-        chrome.tabs.sendMessage(details.tabId, {action: 'pdfDetected'}).catch(err => {
-          console.log('[BG] Could not notify content script (tab may still be loading):', err.message);
-        });
-      }, 100); // Small delay to ensure content script is loaded
-    }
-  },
-  {urls: ['<all_urls>'], types: ['main_frame']},
-  ['responseHeaders']
-);
+        const isPdf = ct.includes('pdf') || details.url.toLowerCase().endsWith('.pdf');
+        
+        if (isPdf) {
+          console.log('[BG] PDF detected via webRequest:', details.url);
+          pdfTabs.add(details.tabId);
+          
+          // Tell the content script to start collecting
+          setTimeout(() => {
+            chrome.tabs.sendMessage(details.tabId, {action: 'pdfDetected'}).catch(err => {
+              console.log('[BG] Could not notify content script (tab may still be loading):', err.message);
+            });
+          }, 100); // Small delay to ensure content script is loaded
+        }
+      },
+      {urls: ['<all_urls>'], types: ['main_frame']},
+      ['responseHeaders']
+    );
+    console.log('[BG] webRequest listener registered successfully');
+  } catch (error) {
+    console.error('[BG] Failed to register webRequest listener:', error);
+  }
+} else {
+  console.warn('[BG] webRequest API not available, falling back to URL-based detection');
+}
 
 /** Cleanup on tab close / reload */
 chrome.tabs.onRemoved.addListener(tabId => {
@@ -124,12 +133,17 @@ chrome.tabs.onRemoved.addListener(tabId => {
   console.log('[BG] Cleaned up PDF tab on removal:', tabId);
 });
 
-chrome.webNavigation.onCommitted.addListener(e => {
-  if (e.transitionType === 'reload') {
-    pdfTabs.delete(e.tabId);
-    console.log('[BG] Cleaned up PDF tab on reload:', e.tabId);
-  }
-});
+// Add defensive check for webNavigation API availability
+if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener(e => {
+    if (e.transitionType === 'reload') {
+      pdfTabs.delete(e.tabId);
+      console.log('[BG] Cleaned up PDF tab on reload:', e.tabId);
+    }
+  });
+} else {
+  console.warn('[BG] webNavigation API not available');
+}
 
 // =============================================================================
 // Analysis Management (Simplified)
