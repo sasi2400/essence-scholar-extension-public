@@ -1,22 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Essence Scholar",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Uncover the essence of every study! AI-powered insights tailored to your academic interests in economics & social sciences.",
   "permissions": [
     "activeTab",
     "scripting",
     "tabs",
-    "storage"
+    "storage",
+    "webRequest"
   ],
   "host_permissions": [
-    "http://localhost:8080/*",
-    "https://*.a.run.app/*",
-    "https://*.ssrn.com/*",
-    "file:///*.pdf"
+    "<all_urls>",
+    "file:///*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -28,16 +28,11 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://*.ssrn.com/*",
-        "file:///*.pdf",
-        "http://*/*.pdf",
-        "https://*/*.pdf"
-      ],
-      "js": ["shared-id-generator.js", "content.js"],
-      "css": ["styles.css"],
-      "run_at": "document_end",
-      "all_frames": true
+      "id": "pdf-collector",
+      "js": ["pdf-collector.js"],
+      "matches": ["<all_urls>"],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
     }
   ],
   "web_accessible_resources": [

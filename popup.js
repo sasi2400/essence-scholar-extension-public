@@ -465,20 +465,110 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  function showFullpageButton(show = true) {
-    const fullpageBtn = document.getElementById('fullpage-btn');
-    console.log('showFullpageButton: show =', show, 'fullpageBtn =', fullpageBtn);
-    if (fullpageBtn) {
-      fullpageBtn.style.display = show ? 'block' : 'none';
-      console.log('showFullpageButton: Set display to', fullpageBtn.style.display);
-    } else {
-      console.error('showFullpageButton: fullpage-btn element not found!');
-    }
-  }
+
 
   // Function to show status messages
   function showStatus(message, type = 'info') {
-    if (statusContainer) {
+    if (!statusContainer) {
+      console.error('Status container not found, disabling analyze button');
+      const analyzeBtn = document.getElementById('analyze-btn');
+      if (analyzeBtn) {
+        setButtonState('Deep Read!', true, false);
+        analyzeBtn.style.backgroundColor = '#ccc';
+      }
+      return;
+    }
+
+    // Clear any existing error display
+    const errorContainer = document.getElementById('error-container');
+    if (!errorContainer) {
+      // Fallback to simple status display if error container is not available
+      statusContainer.innerHTML = `
+        <div class="status-message ${type}">
+          ${message}
+        </div>
+      `;
+      // If it's an error, also disable the analyze button
+      if (type === 'error') {
+        const analyzeBtn = document.getElementById('analyze-btn');
+        if (analyzeBtn) {
+          setButtonState('Deep Read!', true, false);
+          analyzeBtn.style.backgroundColor = '#ccc';
+        }
+      }
+      return;
+    }
+
+    errorContainer.style.display = 'none';
+
+    // For error messages, use the new error container
+    if (type === 'error') {
+      try {
+        const errorTitle = errorContainer.querySelector('.error-title');
+        const errorMessage = errorContainer.querySelector('.error-message');
+        const errorAction = errorContainer.querySelector('.error-action');
+
+        if (!errorTitle || !errorMessage || !errorAction) {
+          throw new Error('Error container elements not found');
+        }
+
+        // Parse the error message
+        let title = 'Error';
+        let detail = message;
+        let action = '';
+
+      if (message.includes('Cannot proceed with analysis:')) {
+        title = 'Cannot Analyze PDF';
+        detail = message.replace('Cannot proceed with analysis:', '').trim();
+      } else if (message.includes('Cannot access PDF URL:')) {
+        title = 'Cannot Access PDF';
+        detail = 'The PDF file is not accessible.';
+        action = 'Please ensure you are logged in and have proper permissions.';
+      } else if (message.includes('404')) {
+        title = 'PDF Not Found';
+        detail = 'The PDF file could not be found at the specified URL.';
+        action = 'Please check if the URL is correct and accessible.';
+      } else if (message.includes('403')) {
+        title = 'Access Denied';
+        detail = 'Access to this PDF is restricted.';
+        action = 'Please log in to the website or ensure you have proper permissions.';
+      } else if (message.includes('login page') || message.includes('authentication')) {
+        title = 'Authentication Required';
+        detail = 'This appears to be a secure PDF requiring login.';
+        action = 'Please log in to the website first, then try again.';
+      }
+
+        errorTitle.textContent = title;
+        errorMessage.textContent = detail;
+        errorAction.textContent = action;
+        errorContainer.style.display = 'flex';
+        
+        // Hide the regular status message
+        statusContainer.innerHTML = '';
+        
+        // Always disable the analyze button for errors
+        const analyzeBtn = document.getElementById('analyze-btn');
+        if (analyzeBtn) {
+          setButtonState('Deep Read!', true, false);
+          analyzeBtn.style.backgroundColor = '#ccc';
+        }
+      } catch (error) {
+        // Fallback to simple error display if error container is broken
+        console.error('Error displaying detailed error:', error);
+        statusContainer.innerHTML = `
+          <div class="status-message error">
+            ${message}
+          </div>
+        `;
+        // Still disable the analyze button
+        const analyzeBtn = document.getElementById('analyze-btn');
+        if (analyzeBtn) {
+          setButtonState('Deep Read!', true, false);
+          analyzeBtn.style.backgroundColor = '#ccc';
+        }
+      }
+    } else {
+      // For non-error messages, use the regular status display
       statusContainer.innerHTML = `
         <div class="status-message ${type}">
           ${message}
@@ -501,7 +591,7 @@ document.addEventListener('DOMContentLoaded', function() {
       try {
         await chrome.tabs.sendMessage(tabId, { action: 'ping' });
         console.log('Content script already injected, skipping injection');
-        return;
+        return true;
       } catch (error) {
         // Content script not injected, proceed with injection
         console.log('Content script not found, injecting...');
@@ -512,9 +602,13 @@ document.addEventListener('DOMContentLoaded', function() {
         files: ['content.js']
       });
       console.log('Content script injected successfully');
+      
+      // Wait a moment for the script to initialize
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return true;
     } catch (error) {
-      console.log('Content script injection failed:', error);
-      // Don't throw error, just log it
+      console.error('Content script injection failed:', error);
+      throw new Error(`Failed to inject content script: ${error.message}`);
     }
   }
 
@@ -894,44 +988,39 @@ document.addEventListener('DOMContentLoaded', function() {
         
         showStatus(`📄 Local PDF File Detected: ${fileName}`, 'info');
         
-        // Hide the main analyze button and show fullpage button instead
+        // Disable the main analyze button for local files
         setButtonState('Deep Read!', true, false); // Disable main button
         analyzeBtn.style.backgroundColor = '#ccc'; // Gray out main button
         analyzeBtn.style.cursor = 'not-allowed'; // Show disabled cursor
         showAuthorsButton(false); // Hide authors button for local PDFs
         
-        // Show the full page interface button prominently
-        showFullpageButton(true);
-        
-      } else if (!isPDF && isSSRN) {
-        // SSRN page without PDF: disable main analyze button, enable authors button
-        setButtonState('Deep Read!', true, false); // Disable main button
-        analyzeBtn.style.backgroundColor = '#ccc';
-        showAuthorsButton(true);
-        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
-        return;
+      // } else if (!isPDF && isSSRN) {
+      //   // SSRN page without PDF: disable main analyze button, enable authors button
+      //   setButtonState('Deep Read!', true, false); // Disable main button
+      //   analyzeBtn.style.backgroundColor = '#ccc';
+      //   showAuthorsButton(true);
+      //   showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+      //   return;
       }
       
-      if (tab.url && tab.url.includes('ssrn.com')) {
-        // SSRN page detected - only show author analysis option
-        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
-        setButtonState('Deep Read!', true, false); // Disable paper analysis button
-        analyzeBtn.style.backgroundColor = '#ccc'; // Gray out the button
+      // if (tab.url && tab.url.includes('ssrn.com')) {
+      //   // SSRN page detected - only show author analysis option
+      //   showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+      //   setButtonState('Deep Read!', true, false); // Disable paper analysis button
+      //   analyzeBtn.style.backgroundColor = '#ccc'; // Gray out the button
         
-        // Show only authors button for SSRN pages
-        showAuthorsButton(true);
-        setAuthorsButtonState('Analyze Authors', false, false);
-        analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
-        showFullpageButton(false); // Hide fullpage button
+      //   // Show only authors button for SSRN pages
+      //   showAuthorsButton(true);
+      //   setAuthorsButtonState('Analyze Authors', false, false);
+      //   analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
         
-      } else {
-        // Not a supported page
-        showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
-        setButtonState('Deep Read!', true, false); // Disable button
-        analyzeBtn.style.backgroundColor = '#ccc';
-        showAuthorsButton(false); // Hide authors button for unsupported pages
-        showFullpageButton(false); // Hide fullpage button
-      }
+      // } else {
+      //   // Not a supported page
+      //   showStatus('Navigate to a PDF file', 'info');
+      //   setButtonState('Deep Read!', true, false); // Disable button
+      //   analyzeBtn.style.backgroundColor = '#ccc';
+      //   showAuthorsButton(false); // Hide authors button for unsupported pages
+      // }
     } catch (error) {
       console.error('Error checking page type:', error);
       showStatus('Error checking page status. Please try again.', 'error');
@@ -939,58 +1028,169 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Function to check if a tab contains a PDF using multiple detection methods
+  // Function to check if a tab contains a PDF and if it's accessible
   async function checkIfPDFPage(tab) {
     try {
-      // Method 1: Check URL patterns
-      const urlPatterns = [
-        tab.url.toLowerCase().endsWith('.pdf'),
-        tab.url.startsWith('file:///'),
-        tab.url.includes('pdf') && (tab.url.includes('viewer') || tab.url.includes('download')),
-        tab.url.includes('application/pdf'),
-        tab.url.includes('content-type=application/pdf'),
-        // Common academic PDF URL patterns
-        /arxiv\.org\/pdf\//.test(tab.url),
-        /researchgate\.net.*\/publication\/.*\//.test(tab.url),
-        /\.edu\/.*\/pdf\//.test(tab.url),
-        /\/pdf\//.test(tab.url) && !tab.url.includes('html'), // Generic /pdf/ pattern but not HTML pages
-        tab.url.includes('/pdf/') || tab.url.includes('/PDF/') // Simple PDF path check
-      ];
+      console.log('Popup: Checking PDF status and accessibility...');
+      console.log('Popup: Tab details:', { url: tab.url, title: tab.title });
       
-      if (urlPatterns.some(pattern => pattern)) {
-        return true;
-      }
-      
-      // Method 2: Check content type via content script
+      // First, ensure content script is injected
       try {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkContentType' });
-        if (response && response.contentType === 'application/pdf') {
-          return true;
+        console.log('Popup: Ensuring content script is available...');
+        await ensureContentScript(tab.id);
+        
+        // Wait for content script to be ready
+        let retries = 0;
+        const maxRetries = 8; // Increased retries for better reliability
+        let contentScriptReady = false;
+        
+        while (retries < maxRetries && !contentScriptReady) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+            contentScriptReady = true;
+            console.log('Popup: Content script is ready for PDF check');
+          } catch (error) {
+            retries++;
+            console.log(`Popup: Content script not ready yet, retry ${retries}/${maxRetries}`);
+            // Progressive backoff - longer waits for later retries
+            const waitTime = retries <= 3 ? 100 : 200;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
         }
-      } catch (error) {
-        // Content script not available, continue with other methods
+        
+        if (contentScriptReady) {
+          // Try enhanced accessibility check
+          try {
+            const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFAccessibility' });
+            
+            if (response && response.isPDF !== undefined) {
+              console.log('Popup: Enhanced PDF check result:', { isPDF: response.isPDF, accessible: response.accessible });
+              return {
+                isPDF: response.isPDF,
+                accessible: response.accessible
+              };
+            }
+          } catch (e) {
+            console.log('Popup: Enhanced check failed, trying basic check');
+          }
+          
+          // Check if PDF collector has already detected PDF for this tab
+          if (window.currentPdfInfo) {
+            console.log('Popup: Using PDF collector info:', window.currentPdfInfo);
+            return {
+              isPDF: true,
+              accessible: !window.currentPdfInfo.fallback
+            };
+          }
+          
+          // Try basic PDF status check (fallback to legacy content script if available)
+          try {
+            const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFStatus' });
+            if (response && response.isPDF !== undefined) {
+              console.log('Popup: Basic PDF check result:', { isPDF: response.isPDF, canAccess: response.canAccess });
+              return {
+                isPDF: response.isPDF,
+                accessible: response.canAccess !== false
+              };
+            }
+          } catch (e) {
+            console.log('Popup: Basic PDF check also failed');
+          }
+        }
+      } catch (e) {
+        console.log('Popup: Content script injection/communication failed:', e);
+        
+        // If content script fails but we have strong PDF indicators, proceed with fallback
+        const url = tab.url.toLowerCase();
+        const title = (tab.title || '').toLowerCase();
+        const isFileProtocol = tab.url.startsWith('file:///');
+        
+        // Check for strong PDF indicators that suggest it should be accessible
+        const hasStrongPdfIndicators = (
+          url.includes('.pdf') ||
+          isFileProtocol ||
+          title.includes('pdf viewer') ||
+          title.includes('pdf.js') ||
+          title.includes('.pdf')
+        );
+        
+        if (hasStrongPdfIndicators) {
+          console.log('Popup: Strong PDF indicators detected despite content script failure, treating as accessible');
+          return {
+            isPDF: true,
+            accessible: true // Assume accessible for strong indicators
+          };
+        }
+      }
+
+      // URL-based fallback with better accessibility logic
+      const url = tab.url.toLowerCase();
+      const isFileProtocol = tab.url.startsWith('file:///');
+      const isHttpsProtocol = tab.url.startsWith('https://');
+      const isHttpProtocol = tab.url.startsWith('http://');
+      
+      const hasObviousPdfUrl = url.includes('.pdf') && (
+        url.includes('pdf.') ||
+        url.includes('/pdf/') ||
+        isFileProtocol ||
+        url.endsWith('.pdf')
+      );
+      
+      if (hasObviousPdfUrl) {
+        console.log('Popup: PDF detected via URL pattern');
+        // File protocol PDFs are usually accessible, web PDFs need verification
+        const accessible = isFileProtocol || (isHttpsProtocol || isHttpProtocol);
+        return {
+          isPDF: true,
+          accessible: accessible
+        };
       }
       
-      // Method 3: Check for PDF elements in the page
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFElements' });
-        if (response && response.hasPDFElements) {
-          return true;
-        }
-      } catch (error) {
-        // Content script not available, continue
-      }
-      
-      // Method 4: Check if the page title suggests it's a PDF
+      // Title-based detection - be more specific
       const title = tab.title || '';
-      if (title.toLowerCase().includes('pdf') || title.toLowerCase().includes('document')) {
-        // This is a weaker indicator, so we'll log it but not return true immediately
+      const lowerTitle = title.toLowerCase();
+      
+      // Look for more specific PDF indicators in title
+      const hasPdfExtension = lowerTitle.includes('.pdf');
+      const hasPdfViewer = lowerTitle.includes('pdf viewer') || lowerTitle.includes('pdf.js');
+      const isGoogleDriveViewer = url.includes('drive.google.com') && lowerTitle.includes('pdf');
+      const isBrowserPdfViewer = lowerTitle.includes('pdf') && (url.startsWith('file:///') || url.startsWith('chrome-extension://') || url.startsWith('moz-extension://'));
+      
+      if (hasPdfExtension || hasPdfViewer || isGoogleDriveViewer || isBrowserPdfViewer) {
+        console.log('Popup: PDF detected via title/context', { 
+          hasPdfExtension, 
+          hasPdfViewer, 
+          isGoogleDriveViewer, 
+          isBrowserPdfViewer,
+          url: url.substring(0, 50) + '...',
+          title: title.substring(0, 50) + '...'
+        });
+        
+        // Determine accessibility based on context
+        let accessible = false;
+        if (isFileProtocol) {
+          accessible = true; // Local files are accessible
+        } else if (hasPdfViewer || isBrowserPdfViewer) {
+          accessible = true; // Browser PDF viewers are accessible
+        } else if (isGoogleDriveViewer) {
+          accessible = true; // Google Drive PDFs are usually accessible
+        } else if (hasPdfExtension && (isHttpsProtocol || isHttpProtocol)) {
+          accessible = true; // Web PDFs with .pdf extension are usually accessible
+        }
+        
+        console.log('Popup: PDF accessibility determined:', accessible);
+        return {
+          isPDF: true,
+          accessible: accessible
+        };
       }
       
-      return false;
+      console.log('Popup: No PDF detected');
+      return { isPDF: false, accessible: false };
+      
     } catch (error) {
-      console.error('Error checking if page is PDF:', error);
-      return false;
+      console.error('Popup: Error checking PDF:', error);
+      return { isPDF: false, accessible: false };
     }
   }
 
@@ -1017,18 +1217,7 @@ document.addEventListener('DOMContentLoaded', function() {
     analyzeAuthorsBtn.addEventListener('click', analyzeAuthors);
   }
   
-  const fullpageBtn = document.getElementById('fullpage-btn');
-  if (fullpageBtn) {
-    fullpageBtn.addEventListener('click', async function() {
-      // Get current tab to pass local file info if available
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const url = tab && tab.url && tab.url.startsWith('file:///') 
-        ? chrome.runtime.getURL('fullpage.html') + '?localFile=' + encodeURIComponent(tab.url)
-        : chrome.runtime.getURL('fullpage.html');
-      
-      chrome.tabs.create({ url });
-    });
-  }
+
   
   if (homeBtn) {
     homeBtn.addEventListener('click', function() {
@@ -1213,20 +1402,52 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log('Popup: Starting author analysis process...');
       setAuthorsButtonState('Analyzing... Do Not Close Extension Popup', true, true);
       showStatus('Extracting authors from the page...', 'progress');
-      // Ensure content script is injected
+      // Ensure content script is injected and ready
       console.log('Popup: Ensuring content script is injected...');
       await ensureContentScript(tab.id);
-      // Wait a short moment for the content script to initialize
+      
+      // Wait for content script to be ready with retries
       console.log('Popup: Waiting for content script to initialize...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      let retries = 0;
+      const maxRetries = 10;
+      let contentScriptReady = false;
+      
+      while (retries < maxRetries && !contentScriptReady) {
+        try {
+          await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+          contentScriptReady = true;
+          console.log('Popup: Content script is ready');
+        } catch (error) {
+          retries++;
+          console.log(`Popup: Content script not ready yet, retry ${retries}/${maxRetries}`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      if (!contentScriptReady) {
+        throw new Error('Content script failed to initialize after multiple attempts');
+      }
+      
       // Request content from the content script to get authors
       console.log('Popup: Requesting content from content script...');
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
-      console.log('Popup: Content script response:', response);
+      let response;
+      try {
+        response = await chrome.tabs.sendMessage(tab.id, { action: 'getPaperContent' });
+        console.log('Popup: Content script response:', response);
+      } catch (error) {
+        console.error('Popup: Failed to communicate with content script:', error);
+        throw new Error('Could not communicate with content script. Please try refreshing the page.');
+      }
+      
+      if (!response) {
+        throw new Error('No response received from content script');
+      }
+      
       if (response.error) {
         console.log('Popup: Content script returned error:', response.error);
         throw new Error(response.error);
       }
+      
       if (!response.content) {
         console.log('Popup: No content received from content script');
         throw new Error('No content received from the page');
@@ -1356,8 +1577,11 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     if (!tab || !tab.url) return;
     const url = tab.url;
     const paperId = await extractSsrnIdOrUrl(url);
-    const isSSRN = url.includes('ssrn.com') && paperId && !await checkIfPDFPage(tab);
-    const isPDF = await checkIfPDFPage(tab);
+    const pdfCheckResult = await checkIfPDFPage(tab);
+    const isPDF = pdfCheckResult.isPDF;
+    const isAccessible = pdfCheckResult.accessible;
+    
+    const isSSRN = url.includes('ssrn.com') && paperId && !isPDF;
     
     // Use global backend detection instead of per-tab
     let backend = await BackendManager.getCurrentBackend();
@@ -1375,18 +1599,19 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     // Check if paper exists in backend (simple check)
     if (paperId) {
       try {
-        const paperExistsResponse = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-        if (paperExistsResponse.ok) {
+        const { exists, error } = await hasAnalysisOnBackend(paperId);
+        if (exists) {
           analysisStatus.hasCompleted = true;
+        } else if (error) {
+          showStatus(error, 'warning');
+          // Still allow analysis if there's just a connection error
+          analysisStatus.hasCompleted = false;
         } else {
           analysisStatus.hasCompleted = false;
         }
       } catch (error) {
         console.error('Error checking paper existence:', error);
+        showStatus('An unexpected error occurred while checking paper status', 'warning');
         analysisStatus.hasCompleted = false;
       }
     }
@@ -1399,10 +1624,15 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
 
     // SSRN page with paperID, not PDF
     if (isSSRN) {
-      showAuthorsButton(true);
-      setAuthorsButtonState('Analyze Authors', false, false);
-      analyzeAuthorsBtn.style.display = '';
-      analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
+      // showAuthorsButton(true);
+      // setAuthorsButtonState('Analyze Authors', false, false);
+      // analyzeAuthorsBtn.style.display = '';
+      // analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
+          // Not SSRN, not PDF, or no paperId
+      showStatus('Navigate to a PDF file', 'info');
+      setButtonState('Deep Read!', true, false);
+      analyzeBtn.style.backgroundColor = '#ccc';
+      analyzeBtn.style.display = '';
         if (analysisStatus.hasCompleted) {
         // Show both View Analysis and Analyze Authors
         analyzeBtn.style.display = '';
@@ -1415,69 +1645,79 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         showStatus('Analysis exists for this paper! Click "View Paper Page" or "Analyze Authors".', 'success');
         } else {
         // Only show Analyze Authors
-        showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+        // showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
       }
       return;
     }
 
-    // PDF page - allow analysis for all PDFs, not just ones with existing paperIds
+    // PDF page - simplified three-state button logic
     if (isPDF) {
       // Generate paperId if not already available (for non-SSRN PDFs)
       if (!paperId) {
         paperId = await SharedIdGenerator.generateIdFromUrl(url);
       }
-      // Check persistent analyzing state
-      let analyzingKey = getAnalyzingKey(tab.id, paperId);
-      let analyzingObj = await chrome.storage.local.get([analyzingKey]);
-      let isAnalyzing = analyzingObj[analyzingKey] === true;
       
-      // If analysis is marked as in progress but the actual status shows complete, error, or no analysis exists,
-      // clear the analyzing state and reset UnderAnalysis
-      if (isAnalyzing && (analysisStatus.hasCompleted || analysisStatus.error || (!analysisStatus.inProgress && !analysisStatus.hasCompleted))) {
-        await chrome.storage.local.remove(analyzingKey);
-        isAnalyzing = false;
-        console.log('Cleared stale analyzing state - analysis has completed, errored, or does not exist');
-      }
+      analyzeBtn.style.display = '';
+      showAuthorsButton(false); // Hide authors button for PDFs
       
-      UnderAnalysis = isAnalyzing ? 1 : 0;
-      
-      if (analysisStatus.inProgress) {
-        // Analysis is in progress - show status and start monitoring
-        analyzeBtn.style.display = '';
-        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
-        analyzeBtn.style.backgroundColor = '#FF9800';
-        showStatus('Analysis in progress... Please wait and do not close this popup.', 'progress');
-        // Start monitoring backend logs for progress
-        monitorAnalysisProgress(tab.id, paperId, true);
-        return;
-      } else if (analysisStatus.hasCompleted) {
-        // Show View Paper Page only
-        analyzeBtn.style.display = '';
-        setButtonState('View Paper Page', false, false);
+      // Check if analysis already exists
+      if (analysisStatus.hasCompleted) {
+        // STATE 3: Green "View Results" button
+        setButtonState('View Results', false, false);
         analyzeBtn.style.backgroundColor = '#4CAF50';
         analyzeBtn.onclick = async () => {
           const fullpageUrl = buildPaperIdUrl(paperId);
           chrome.tabs.create({ url: fullpageUrl });
         };
-        // Clear analyzing state if analysis is done
-        await chrome.storage.local.remove(analyzingKey);
-        showStatus('Analysis exists for this paper! Click "View Paper Page".', 'success');
+        showStatus('Analysis completed. Click "View Results" to see the summary.', 'success');
         return;
-      } else if (isAnalyzing) {
-        // Show Analyzing... state and start/resume polling backend logs
-        analyzeBtn.style.display = '';
-        setButtonState('Analyzing... Do Not Close Extension Popup', true, true);
+      }
+      
+      // Check if currently analyzing
+      let analyzingKey = getAnalyzingKey(tab.id, paperId);
+      let analyzingObj = await chrome.storage.local.get([analyzingKey]);
+      let isAnalyzing = analyzingObj[analyzingKey] === true;
+      
+      if (analysisStatus.inProgress || isAnalyzing) {
+        // Analysis in progress - orange button
+        setButtonState('Analyzing...', true, true);
         analyzeBtn.style.backgroundColor = '#FF9800';
-        showStatus('Analyzing... Please wait and do not close this popup.', 'progress');
-        // Start/resume polling backend logs for progress
+        showStatus('Analysis in progress...', 'progress');
         monitorAnalysisProgress(tab.id, paperId, true);
         return;
-      } else {
-        // Only show Deep Read!
-        analyzeBtn.style.display = '';
-        setButtonState('Deep Read!', false, false);
-        analyzeBtn.style.backgroundColor = '#2196F3';
-        analyzeBtn.onclick = async () => {
+      }
+      
+      // Check if content is accessible
+      if (!isAccessible) {
+        // STATE 2: Non-active/disabled "Deep Read!" button
+        setButtonState('Deep Read!', true, false);
+        analyzeBtn.style.backgroundColor = '#ccc';
+        analyzeBtn.style.cursor = 'not-allowed';
+        analyzeBtn.onclick = null;
+        
+        // Provide specific guidance based on the URL/context
+        let statusMessage = 'PDF detected but content is not accessible for analysis.';
+        if (url.includes('drive.google.com')) {
+          statusMessage += ' Try opening the PDF directly or downloading it first.';
+        } else if (url.includes('dropbox.com') || url.includes('onedrive.com') || url.includes('icloud.com')) {
+          statusMessage += ' Try downloading the PDF to your device first.';
+        } else if (pdfCheckResult.titleBased) {
+          statusMessage += ' The PDF might be protected or require login access.';
+        } else {
+          statusMessage += ' Try downloading the PDF or opening it in a new tab first.';
+        }
+        
+        showStatus(statusMessage, 'warning');
+        return;
+      }
+      
+      // STATE 1: Active "Deep Read!" button
+      setButtonState('Deep Read!', false, false);
+      analyzeBtn.style.backgroundColor = '#2196F3';
+      analyzeBtn.style.cursor = 'pointer';
+      showStatus('PDF ready for analysis. Click "Deep Read!" to start.', 'info');
+      
+      analyzeBtn.onclick = async () => {
           // Set persistent analyzing state
           let key = getAnalyzingKey(tab.id, paperId);
           await chrome.storage.local.set({ [key]: true });
@@ -1569,9 +1809,154 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
                 throw new Error('Could not read local PDF file');
               }
             } else {
-              showStatus('Preparing to download PDF from URL...', 'info');
-              // For web URLs, let the backend download the file
-              fileContentB64 = null;
+              // For web URLs, try to read the PDF via content script first
+              try {
+                showStatus('Reading PDF from page context...', 'info');
+                
+                // Function to try reading PDF with retries
+                const tryReadPDFWithRetries = async (maxRetries = 3) => {
+                  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    try {
+                      console.log(`[PDF Reading] Attempt ${attempt}/${maxRetries} to read PDF via content script`);
+                      console.log('[PDF Reading] Current tab URL:', tab.url);
+                      
+                      // First check if content script is available
+                      console.log('[PDF Reading] Checking if content script is available...');
+                      let pingResponse;
+                      try {
+                        pingResponse = await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+                        console.log('[PDF Reading] Ping response:', pingResponse);
+                      } catch (pingError) {
+                        console.log('[PDF Reading] Content script not injected, attempting to inject...');
+                        
+                        // Try to inject content script programmatically
+                        try {
+                          await chrome.scripting.executeScript({
+                            target: { tabId: tab.id },
+                            files: ['content.js']
+                          });
+                          console.log('[PDF Reading] Content script injected successfully');
+                          
+                          // Wait a moment for initialization
+                          await new Promise(resolve => setTimeout(resolve, 500));
+                          
+                          // Try ping again
+                          pingResponse = await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+                          console.log('[PDF Reading] Ping response after injection:', pingResponse);
+                        } catch (injectionError) {
+                          console.error('[PDF Reading] Failed to inject content script:', injectionError);
+                          throw new Error(`Could not inject content script: ${injectionError.message}`);
+                        }
+                      }
+                      
+                      if (!pingResponse || pingResponse.status !== 'ok') {
+                        throw new Error(`Content script not available - ping response: ${JSON.stringify(pingResponse)}`);
+                      }
+                      
+                      // First verify this is actually a PDF page
+                      console.log('[PDF Reading] Checking PDF status...');
+                      
+                      // Check if PDF collector has detected this as PDF
+                      let pdfStatusResponse = null;
+                      if (window.currentPdfInfo) {
+                        pdfStatusResponse = {
+                          isPDF: true,
+                          canAccess: !window.currentPdfInfo.fallback,
+                          source: 'pdf-collector'
+                        };
+                        console.log('[PDF Reading] Using PDF collector status:', pdfStatusResponse);
+                      } else {
+                        // Fallback to legacy content script check
+                        try {
+                          pdfStatusResponse = await chrome.tabs.sendMessage(tab.id, { action: 'checkPDFStatus' });
+                          console.log('[PDF Reading] Legacy PDF status response:', pdfStatusResponse);
+                        } catch (e) {
+                          console.log('[PDF Reading] Could not get PDF status from content script');
+                        }
+                      }
+                      
+                      if (!pdfStatusResponse?.isPDF) {
+                        // If URL suggests PDF but content doesn't match, provide guidance
+                        const url = tab.url.toLowerCase();
+                        const urlSuggestsPDF = url.includes('.pdf');
+                        if (urlSuggestsPDF) {
+                          throw new Error('This looks like a PDF link but leads to a different page. You might need to: 1) Log in first, or 2) Click through to the actual PDF viewer.');
+                        } else {
+                          throw new Error('This page is not detected as a PDF. Please ensure you are on the actual PDF page.');
+                        }
+                      }
+                      
+                      // Ask content script to read PDF content with a timeout
+                      console.log('[PDF Reading] Requesting PDF content from content script...');
+                      const response = await Promise.race([
+                        chrome.tabs.sendMessage(tab.id, { action: 'readPDFContent' }),
+                        new Promise((_, reject) => 
+                          setTimeout(() => reject(new Error('PDF reading timeout after 60 seconds')), 60000)
+                        )
+                      ]);
+                      
+                      console.log('[PDF Reading] Content script response:', { 
+                        success: response?.success, 
+                        hasContent: !!response?.content,
+                        contentSize: response?.content?.length,
+                        error: response?.error 
+                      });
+                      
+                      if (response && response.success) {
+                        console.log('[PDF Reading] Successfully received PDF content from content script');
+                        return response;
+                      } else {
+                        throw new Error(response?.error || 'Content script failed to read PDF');
+                      }
+                      
+                    } catch (attemptError) {
+                      console.warn(`[PDF Reading] Attempt ${attempt} failed:`, attemptError.message);
+                      console.warn('[PDF Reading] Full error:', attemptError);
+                      
+                      if (attempt === maxRetries) {
+                        throw attemptError;
+                      }
+                      
+                      // Wait before retry (exponential backoff)
+                      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                      console.log(`[PDF Reading] Waiting ${delay}ms before retry...`);
+                      await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+                  }
+                };
+                
+                const response = await tryReadPDFWithRetries();
+                fileContentB64 = response.content;
+                showStatus(`PDF read successfully (${Math.round(response.size / 1024)} KB). Starting analysis...`, 'info');
+                console.log('Successfully read PDF via content script, size:', response.size, 'bytes');
+                
+              } catch (e) {
+                console.warn('Could not read PDF via content script after retries, falling back to backend download:', e);
+                
+                // Provide specific error messages based on the error type
+                if (e.message.includes('looks like a PDF link but leads to a different page') ||
+                    e.message.includes('not detected as a PDF') ||
+                    e.message.includes('login page') ||
+                    e.message.includes('authentication') ||
+                    e.message.includes('Not a PDF content type')) {
+                  // Show appropriate error message
+                  if (e.message.includes('looks like a PDF link but leads to a different page')) {
+                    showStatus(e.message, 'error');
+                  } else if (e.message.includes('not detected as a PDF')) {
+                    showStatus(e.message, 'error');
+                  } else if (e.message.includes('login page') || e.message.includes('authentication')) {
+                    showStatus('This appears to be a secure PDF requiring login. Please log in to the website first, then try again.', 'error');
+                  } else {
+                    showStatus('The server returned HTML instead of PDF. This might be a secure document - try logging in to the website first.', 'error');
+                  }
+                  // Don't fall back to backend in these cases as it will definitely fail
+                  fileContentB64 = null;
+                  throw new Error('Cannot proceed with analysis: ' + e.message);
+                } else {
+                  showStatus('PDF read failed. Trying backend download (may fail for secure URLs)...', 'warning');
+                  fileContentB64 = null;
+                }
+              }
             }
             
             // Step 5: Create payload for analysis
@@ -1586,9 +1971,12 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
               research_interests: researchInterests
             };
             
-            // Add file content if available (for local files)
+            // Add file content if available (for local files or successfully read web PDFs)
             if (fileContentB64) {
               basePayload.file_content = fileContentB64;
+              console.log('Including PDF content in payload (size:', fileContentB64.length, 'base64 chars)');
+            } else {
+              console.log('No PDF content available, backend will try to download from URL:', tab.url);
             }
             
             // Add API keys if they have content
@@ -1606,8 +1994,24 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             showStatus('Starting PDF analysis...', 'info');
             await monitorAnalysisProgress(tab.id, actualPaperId, true);
 
+            // If we don't have PDF content and it's not a local file, verify URL is accessible
+            if (!fileContentB64 && !isLocalFile) {
+              try {
+                const response = await fetch(tab.url, { method: 'HEAD' });
+                if (!response.ok) {
+                  throw new Error(`URL returned ${response.status} ${response.statusText}`);
+                }
+              } catch (error) {
+                throw new Error(`Cannot access PDF URL: ${error.message}`);
+              }
+            }
+
             const finalEvt = await analyzeWithSmartBackendStream(basePayload, (msg) => {
-              showStatus(msg, 'info');
+              // Only show info messages if they don't contain error keywords
+              const isError = msg.toLowerCase().includes('error') || 
+                            msg.toLowerCase().includes('failed') ||
+                            msg.toLowerCase().includes('cannot');
+              showStatus(msg, isError ? 'error' : 'info');
             });
 
             // Step 7: Analysis completed
@@ -1628,31 +2032,38 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             console.error('Error in PDF analysis:', error);
             await chrome.storage.local.remove(key);
             UnderAnalysis = 0;
-            showStatus('Analysis failed: ' + (error.message || 'Unknown error'), 'error');
+            
+            // Show appropriate error message based on the type of error
+            let errorMessage = error.message || 'Unknown error';
+            if (errorMessage.includes('Cannot proceed with analysis')) {
+              // Don't modify the message, it's already user-friendly
+            } else if (errorMessage.includes('Cannot access PDF URL')) {
+              errorMessage = `${errorMessage}. Please ensure you are logged in and have access to this document.`;
+            } else if (errorMessage.includes('404')) {
+              errorMessage = 'The PDF could not be found. Please check if the URL is correct and accessible.';
+            } else if (errorMessage.includes('403')) {
+              errorMessage = 'Access to this PDF is forbidden. Please ensure you are logged in and have proper permissions.';
+            } else if (errorMessage.includes('Failed to fetch')) {
+              errorMessage = 'Could not connect to the server. Please check your internet connection.';
+            }
+            
+            showStatus('Analysis failed: ' + errorMessage, 'error');
+            setButtonState('Deep Read!', false, false); // Re-enable the button
+            analyzeBtn.style.backgroundColor = '#2196F3'; // Reset to blue
             updatePopupUI();
           }
         };
         
-        // Check if this is an SSRN PDF or a non-SSRN PDF for appropriate messaging
-        const isSSRNPDF = url.includes('ssrn.com');
-        if (isSSRNPDF) {
-          showStatus('PDF detected. Click "Deep Read!" to start analysis.', 'info');
-        } else {
-          showStatus('PDF detected. Note: This extension works best with SSRN papers, but analysis will proceed. Click "Deep Read!" to start.', 'info');
-        }
         return;
-      }
-    }
+      };
 
     // Not SSRN, not PDF, or no paperId
-    showStatus('Navigate to an SSRN paper (for author analysis) or open a PDF file (for paper analysis).', 'info');
-            setButtonState('Deep Read!', true, false);
-            analyzeBtn.style.backgroundColor = '#ccc';
+    showStatus('Navigate to a PDF file', 'info');
+    setButtonState('Deep Read!', true, false);
+    analyzeBtn.style.backgroundColor = '#ccc';
     analyzeBtn.style.display = '';
     showAuthorsButton(false);
-          }
-
-
+  }
 
   // Patch analyzePaper to only fetch /analysis when status is complete
   const originalAnalyzePaper = analyzePaper;
@@ -1724,12 +2135,12 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
   
 
   
-  // Also check page type when popup is focused (in case user switches tabs)
+  // Also update UI when popup is focused (in case user switches tabs)
   window.addEventListener('focus', async () => {
     try {
-      await checkPageType();
+      await updatePopupUI(); // Use the main UI function instead of checkPageType
     } catch (error) {
-      console.error('Error checking page type on focus:', error);
+      console.error('Error updating UI on focus:', error);
     }
   });
 
@@ -1864,6 +2275,41 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     return true; // Keep message channel open for async response
   });
 
+  // Listen for PDF collector messages
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.status === 'ready' && message.pdf) {
+      console.log('Popup received PDF ready message:', message.pdf);
+      
+      // Handle PDF ready notification from collector
+      if (message.pdf.fallback) {
+        console.log('PDF collection used fallback (URL only)');
+        showStatus('PDF detected (fallback mode)', 'info');
+      } else {
+        console.log('PDF collection successful with bytes');
+        showStatus('PDF detected and processed', 'success');
+      }
+      
+      // Update the UI to reflect PDF availability
+      updatePopupUI();
+      
+      sendResponse({ received: true });
+      return true;
+    }
+    
+    if (message.action === 'pdfReady') {
+      console.log('Popup received pdfReady message for tab:', message.tabId, 'PDF info:', message.pdf);
+      
+      // Store PDF info for this tab
+      window.currentPdfInfo = message.pdf;
+      
+      // Update UI to show PDF is available
+      updatePopupUI();
+      
+      sendResponse({ received: true });
+      return true;
+    }
+  });
+
 
   // Function to display author analysis results
   function displayAuthorAnalysisResults(data) {
@@ -1975,22 +2421,28 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
-  // Backward-compatible wrapper for UI checks - returns boolean
+  // Backward-compatible wrapper for UI checks - returns { exists: boolean, error: string | null }
   async function hasAnalysisOnBackend(paperId) {
     try {
       // Simple check: does paper exist in backend?
       const backend = await BackendManager.getCurrentBackend();
-      if (!backend) return false;
+      if (!backend) {
+        return { exists: false, error: 'No healthy backend available' };
+      }
       
       const response = await fetch(`${backend.url}/storage/paper/${encodeURIComponent(paperId)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' }
       });
       
-      return response.ok;
+      return { exists: response.ok, error: null };
     } catch (error) {
       console.error('Error checking if paper exists:', error);
-      return false;
+      let errorMessage = 'Could not connect to backend';
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        errorMessage = 'Could not connect to backend. Please check your internet connection.';
+      }
+      return { exists: false, error: errorMessage };
     }
   }
 

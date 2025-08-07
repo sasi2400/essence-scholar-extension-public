@@ -1,3 +1,21 @@
+// Preload backend detection to reduce lag
+console.time('Backend Detection Preload');
+window.backendDetectionPromise = null;
+if (typeof BackendManager !== 'undefined') {
+  window.backendDetectionPromise = BackendManager.getCurrentBackend();
+  window.backendDetectionPromise.then(backend => {
+    console.timeEnd('Backend Detection Preload');
+    if (backend) {
+      console.log('🚀 Backend preloaded for fullpage:', backend.name, backend.url);
+    } else {
+      console.warn('⚠️ No backend available during preload');
+    }
+  }).catch(error => {
+    console.timeEnd('Backend Detection Preload');
+    console.error('❌ Backend preload failed:', error);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
@@ -247,17 +265,58 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Available backends:', Object.keys(CONFIG.BACKENDS));
   }
   
-  // Initialize backend detection early
-  if (typeof BackendManager !== 'undefined') {
-    BackendManager.getCurrentBackend().then(backend => {
+  // Optimized backend detection helper - uses preloaded promise when available
+  async function getBackendOptimized() {
+    console.time('Backend Detection Call');
+    let backend;
+    
+    if (window.backendDetectionPromise) {
+      try {
+        backend = await window.backendDetectionPromise;
+        console.timeEnd('Backend Detection Call');
+        if (backend) {
+          console.log('⚡ Fast backend from preload:', backend.name);
+        }
+        return backend;
+      } catch (error) {
+        console.timeEnd('Backend Detection Call');
+        console.warn('⚠️ Preload failed, falling back to direct call:', error);
+      }
+    }
+    
+    // Fallback to direct call
+    backend = await BackendManager.getCurrentBackend();
+    console.timeEnd('Backend Detection Call');
+    if (backend) {
+      console.log('🔄 Backend from direct call:', backend.name);
+    }
+    return backend;
+  }
+
+  // Use preloaded backend detection to reduce lag
+  if (window.backendDetectionPromise) {
+    window.backendDetectionPromise.then(backend => {
       if (backend) {
-        console.log('Initial backend selected for fullpage:', backend.name, backend.url);
+        console.log('✅ Using preloaded backend for fullpage:', backend.name, backend.url);
       } else {
-        console.log('No backend available during fullpage initialization');
+        console.log('⚠️ No backend available from preload');
       }
     }).catch(error => {
-      console.error('Error during fullpage backend detection:', error);
+      console.error('❌ Error using preloaded backend:', error);
     });
+  } else {
+    console.warn('⚠️ Backend preload not available, falling back to direct detection');
+    if (typeof BackendManager !== 'undefined') {
+      BackendManager.getCurrentBackend().then(backend => {
+        if (backend) {
+          console.log('🔄 Fallback backend selected for fullpage:', backend.name, backend.url);
+        } else {
+          console.log('❌ No backend available during fallback initialization');
+        }
+      }).catch(error => {
+        console.error('❌ Error during fallback backend detection:', error);
+      });
+    }
   }
   
   // Homepage elements
@@ -283,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Homepage functions
   async function loadHomepageStats() {
     try {
-      const backend = await BackendManager.getCurrentBackend();
+      const backend = await getBackendOptimized();
       if (!backend) {
         console.error('No backend available for stats');
         return;
@@ -328,7 +387,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function searchPapers(query) {
     try {
-      const backend = await BackendManager.getCurrentBackend();
+      const backend = await getBackendOptimized();
       if (!backend) {
         throw new Error('No backend available');
       }
@@ -491,7 +550,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Try to load from backend as well (but don't override local settings if backend fails)
       try {
-        const backend = await BackendManager.getCurrentBackend();
+        const backend = await getBackendOptimized();
         if (backend) {
           const response = await makeApiRequestWithBackend('/user/settings', {
             method: 'GET'
@@ -601,7 +660,7 @@ document.addEventListener('DOMContentLoaded', function() {
       await chrome.storage.local.set({ userSettings: localSettings });
       
       // Also try to save to backend
-      const backend = await BackendManager.getCurrentBackend();
+      const backend = await getBackendOptimized();
       if (backend) {
         try {
           const response = await makeApiRequestWithBackend('/user/settings', {
@@ -2498,63 +2557,143 @@ document.addEventListener('DOMContentLoaded', function() {
     return 'gemini-2.5-flash';
   }
 
-  // --- Typewriter effect for Essence Scholar title ---
-  function startTitleTypewriter() {
+  // --- Static title setup (no animation) ---
+  function setupStaticTitle() {
     const titleElement = document.getElementById('mainTitle');
     const cursorElement = document.querySelector('.cursor');
     if (!titleElement || !cursorElement) return;
     
-    const fullText = 'Essence Scholar';
-    let currentIndex = 0;
-    titleElement.textContent = '';
-    cursorElement.style.display = 'inline-block';
-
-    function typeNextChar() {
-      if (currentIndex < fullText.length) {
-        titleElement.textContent = fullText.slice(0, currentIndex + 1);
-        currentIndex++;
-        setTimeout(typeNextChar, 80);
-      } else {
-        // Keep cursor blinking at the end
-        cursorElement.style.display = 'inline-block';
-      }
-    }
-    typeNextChar();
+    // Disable CSS animations and show title immediately
+    titleElement.style.animation = 'none';
+    titleElement.style.overflow = 'visible';
+    titleElement.style.whiteSpace = 'normal';
+    titleElement.style.borderRight = 'none';
+    
+    // Set static title and hide cursor
+    titleElement.textContent = 'Essence Scholar';
+    cursorElement.style.display = 'none';
+    
+    console.log('✅ Static title setup completed');
   }
 
-  // --- Dynamic subtitle messages for homepage (unchanged) ---
+  // --- Dynamic subtitle messages for homepage (personalized, all start with "Your research") ---
   const subtitleMessages = [
-    "Your paper pilot, ScholarWing",
-    "Intelligent analysis and insights",
-    "AI-powered research companion",
-    "Transform papers into insights",
-    "Your academic research assistant",
-    "Smart paper analysis at your fingertips"
+    "Your research, your insights, your ScholarWing",
+    "Your research interests, intelligently analyzed",
+    "Your research companion, powered by AI",
+    "Your research transformed into clear insights",
+    "Your research assistant for academic discovery",
+    "Your research, smartly summarized at your fingertips"
   ];
 
   let currentSubtitleIndex = 0;
   let subtitleInterval = null;
+  let isTypingSubtitle = false;
+
+  // Typewriter effect for subtitle messages with stable prefix
+  function typewriterSubtitle(text, element, callback) {
+    if (isTypingSubtitle) return; // Prevent overlapping animations
+    
+    isTypingSubtitle = true;
+    const stablePrefix = "Your research";
+    const animatedPart = text.substring(stablePrefix.length);
+    let currentIndex = 0;
+    
+    // Set the stable prefix immediately
+    element.textContent = stablePrefix;
+    element.style.opacity = '1';
+
+    // Small delay before starting to type the animated part
+    setTimeout(() => {
+      function typeNextChar() {
+        if (currentIndex < animatedPart.length) {
+          // Keep stable prefix + build animated part progressively
+          element.textContent = stablePrefix + animatedPart.slice(0, currentIndex + 1);
+          currentIndex++;
+          setTimeout(typeNextChar, 50); // Fast typing for animated part
+        } else {
+          // Typing complete, wait then start erasing
+          setTimeout(() => {
+            eraseSubtitleKeepingPrefix(element, stablePrefix, callback);
+          }, 2000); // Display for 2 seconds
+        }
+      }
+      
+      typeNextChar();
+    }, 200); // Delay to show stable prefix first
+  }
+
+  function eraseSubtitleKeepingPrefix(element, stablePrefix, callback) {
+    let currentText = element.textContent;
+    let currentLength = currentText.length;
+    const prefixLength = stablePrefix.length;
+
+    function eraseNextChar() {
+      if (currentLength > prefixLength) {
+        element.textContent = currentText.slice(0, currentLength - 1);
+        currentLength--;
+        setTimeout(eraseNextChar, 30); // Faster erasing
+      } else {
+        // Erasing complete, only stable prefix remains
+        element.textContent = stablePrefix; // Keep the stable prefix
+        isTypingSubtitle = false;
+        setTimeout(callback, 500); // Wait before next message
+      }
+    }
+    
+    eraseNextChar();
+  }
+
+  function eraseSubtitle(element, callback) {
+    let currentText = element.textContent;
+    let currentLength = currentText.length;
+
+    function eraseNextChar() {
+      if (currentLength > 0) {
+        element.textContent = currentText.slice(0, currentLength - 1);
+        currentLength--;
+        setTimeout(eraseNextChar, 30); // Faster erasing
+      } else {
+        // Erasing complete - add invisible placeholder to maintain layout
+        element.innerHTML = '&nbsp;'; // Non-breaking space to maintain height
+        isTypingSubtitle = false;
+        setTimeout(callback, 500); // Wait before next message
+      }
+    }
+    
+    eraseNextChar();
+  }
 
   function updateSubtitle() {
     const subtitleElement = document.getElementById('dynamicSubtitle');
-    if (subtitleElement && isHomepage) {
-      subtitleElement.style.opacity = '0';
-      setTimeout(() => {
-        subtitleElement.textContent = subtitleMessages[currentSubtitleIndex];
-        subtitleElement.style.opacity = '1';
+    if (subtitleElement && isHomepage && !isTypingSubtitle) {
+      const currentMessage = subtitleMessages[currentSubtitleIndex];
+      typewriterSubtitle(currentMessage, subtitleElement, () => {
         currentSubtitleIndex = (currentSubtitleIndex + 1) % subtitleMessages.length;
-      }, 500);
+        updateSubtitle(); // Start next message
+      });
     }
   }
 
   function startSubtitleLoop() {
     if (subtitleInterval) clearInterval(subtitleInterval);
-    updateSubtitle();
-    subtitleInterval = setInterval(updateSubtitle, 3000);
+    
+    // Set initial state with stable prefix
+    const subtitleElement = document.getElementById('dynamicSubtitle');
+    if (subtitleElement) {
+      // Set minimum height to prevent layout shifts
+      subtitleElement.style.minHeight = '1.5em'; // Ensure consistent height
+      subtitleElement.style.display = 'block'; // Ensure block display
+      subtitleElement.textContent = 'Your research'; // Start with stable prefix
+    }
+    
+    // Start the first message after delay
+    setTimeout(updateSubtitle, 1000); // Start after 1 second
   }
 
   function stopSubtitleLoop() {
     if (subtitleInterval) clearInterval(subtitleInterval);
+    isTypingSubtitle = false;
   }
 
   // --- Main initialization ---
@@ -2581,8 +2720,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (detectedViewMode === VIEW_MODES.HOMEPAGE) {
       isHomepage = true;
       document.body.classList.add('homepage-mode');
-      startSubtitleLoop();
-      startTitleTypewriter();
+      setupStaticTitle(); // Show title immediately without animation
+      startSubtitleLoop(); // Start animated subtitle messages
       
       await loadHomepageStats();
       await loadSettings();
