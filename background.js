@@ -218,8 +218,8 @@ async function restoreMonitoringState() {
 console.log('[BG] Service worker starting up, restoring monitoring state...');
 restoreMonitoringState();
 
-// Check if this is first install and show onboarding
-checkFirstInstall();
+// Check if this is first install and show onboarding - only on startup, not on every service worker restart
+// This will be handled by chrome.runtime.onInstalled instead
 
 // Log configuration on startup
 console.log('Background script: Smart backend detection enabled');
@@ -545,9 +545,25 @@ async function triggerPDFAnalysis(tabId) {
       chrome.action.setBadgeText({ text: '...' });
       chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
 
-      // Get LLM settings and user settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
-      const userSettings = (await chrome.storage.local.get(['userSettings'])).userSettings || {};
+      // Get LLM settings and user settings with better error handling
+      let llmSettings, userSettings;
+      try {
+        const settingsResult = await chrome.storage.local.get(['llmSettings', 'userSettings']);
+        llmSettings = settingsResult.llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        userSettings = settingsResult.userSettings || {};
+        
+        console.log('[BG] Retrieved settings for analysis:', {
+          hasLlmSettings: !!settingsResult.llmSettings,
+          hasUserSettings: !!settingsResult.userSettings,
+          userScholarUrl: userSettings.googleScholarUrl?.substring(0, 50) + '...',
+          researchInterests: userSettings.researchInterests ? 'present' : 'empty'
+        });
+      } catch (settingsError) {
+        console.error('[BG] Error retrieving settings, using defaults:', settingsError);
+        llmSettings = { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        userSettings = {};
+      }
+      
       const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
       const researchInterests = userSettings.researchInterests || '';
       
@@ -1048,10 +1064,22 @@ async function generateAnalysisId(paperId, userScholarUrl) {
 // Check if this is first install and show onboarding
 async function checkFirstInstall() {
   try {
-    const result = await chrome.storage.local.get(['onboardingCompleted', 'onboardingShown']);
+    const result = await chrome.storage.local.get([
+      'onboardingCompleted', 
+      'onboardingShown', 
+      'userSettings', 
+      'llmSettings'
+    ]);
     
-    if (!result.onboardingCompleted && !result.onboardingShown) {
-      console.log('[BG] First install detected, showing onboarding...');
+    // Be more conservative - only show onboarding if NO settings exist at all
+    // This prevents overwriting existing user configurations
+    const hasAnySettings = result.onboardingCompleted || 
+                          result.onboardingShown || 
+                          result.userSettings || 
+                          result.llmSettings;
+    
+    if (!hasAnySettings) {
+      console.log('[BG] Fresh installation detected (no settings found), showing onboarding...');
       
       // Mark onboarding as shown immediately to prevent duplicate tabs
       await chrome.storage.local.set({ onboardingShown: true });
@@ -1060,7 +1088,13 @@ async function checkFirstInstall() {
       const onboardingUrl = chrome.runtime.getURL('onboarding.html');
       await chrome.tabs.create({ url: onboardingUrl });
     } else {
-      console.log('[BG] Onboarding already completed or shown');
+      console.log('[BG] Existing installation detected, skipping onboarding');
+      console.log('[BG] Found settings:', {
+        onboardingCompleted: !!result.onboardingCompleted,
+        onboardingShown: !!result.onboardingShown,
+        userSettings: !!result.userSettings,
+        llmSettings: !!result.llmSettings
+      });
     }
   } catch (error) {
     console.error('[BG] Error checking first install:', error);
