@@ -21,11 +21,12 @@
 - **Viewer Agnostic**: Works regardless of how PDFs are presented (embedded, wrapped, or direct)
 - **Backward Compatible**: Maintains all existing functionality while improving reliability
 
-### 🐛 **Bug Fixes**
-- Fixed service worker registration issues with ES modules
-- Eliminated DOM heuristic brittleness that caused detection failures
-- Resolved race conditions with slow-loading PDF viewers
-- Improved error handling for edge cases
+### 🐛 **Critical Bug Fixes**
+- **Fixed user settings being lost frequently** - Resolved aggressive onboarding checks overwriting existing configurations
+- **Fixed service worker registration issues** - Added webNavigation permission and ES module compatibility
+- **Eliminated DOM heuristic brittleness** that caused detection failures
+- **Resolved race conditions** with slow-loading PDF viewers
+- **Improved error handling** for edge cases and storage operations
 
 ### 📋 **Migration Notes**
 - All existing functionality preserved
@@ -34,10 +35,12 @@
 - Improved error messaging and status indicators
 
 ### 🔄 **Under the Hood**
-- New `pdf-collector.js` content script for intelligent PDF processing
-- Updated `background.js` with network-layer detection logic
-- Enhanced `popup.js` integration for PDF collector messages
-- Streamlined manifest permissions for webRequest API
+- **New `pdf-collector.js`** content script for intelligent PDF processing
+- **Updated `background.js`** with network-layer detection logic and conservative onboarding
+- **Enhanced `popup.js`** integration for PDF collector messages
+- **Streamlined manifest permissions** for webRequest and webNavigation APIs
+- **Storage protection mechanisms** to prevent settings loss
+- **Diagnostic utilities** for troubleshooting storage issues
 
 ---
 
