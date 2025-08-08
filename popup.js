@@ -1624,28 +1624,23 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
 
     // SSRN page with paperID, not PDF
     if (isSSRN) {
-      // showAuthorsButton(true);
-      // setAuthorsButtonState('Analyze Authors', false, false);
-      // analyzeAuthorsBtn.style.display = '';
-      // analyzeAuthorsBtn.style.backgroundColor = '#9C27B0';
-          // Not SSRN, not PDF, or no paperId
-      showStatus('Navigate to a PDF file', 'info');
-      setButtonState('Deep Read!', true, false);
-      analyzeBtn.style.backgroundColor = '#ccc';
       analyzeBtn.style.display = '';
-        if (analysisStatus.hasCompleted) {
-        // Show both View Analysis and Analyze Authors
-        analyzeBtn.style.display = '';
-          setButtonState('View Paper Page', false, false);
-          analyzeBtn.style.backgroundColor = '#4CAF50';
-          analyzeBtn.onclick = async () => {
-            const fullpageUrl = buildPaperIdUrl(paperId);
-            chrome.tabs.create({ url: fullpageUrl });
-          };
-        showStatus('Analysis exists for this paper! Click "View Paper Page" or "Analyze Authors".', 'success');
-        } else {
-        // Only show Analyze Authors
-        // showStatus('SSRN page detected. Click "Analyze Authors" to analyze author profiles.', 'info');
+      showAuthorsButton(false); // Hide authors button for now (can be enabled later if needed)
+      
+      if (analysisStatus.hasCompleted) {
+        // Show View Paper Page button for completed analysis
+        setButtonState('View Paper Page', false, false);
+        analyzeBtn.style.backgroundColor = '#4CAF50';
+        analyzeBtn.onclick = async () => {
+          const fullpageUrl = buildPaperIdUrl(paperId);
+          chrome.tabs.create({ url: fullpageUrl });
+        };
+        showStatus('Analysis exists for this paper! Click "View Paper Page" to see results.', 'success');
+      } else {
+        // Show disabled analyze button for SSRN pages (PDF analysis not supported on SSRN HTML pages)
+        setButtonState('Deep Read!', true, false);
+        analyzeBtn.style.backgroundColor = '#ccc';
+        showStatus('SSRN page detected. Navigate to the PDF version to analyze content.', 'info');
       }
       return;
     }
