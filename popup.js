@@ -584,8 +584,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Function to inject content script if needed
+  // Function to inject content script if needed (legacy - now uses enhanced version)
   async function ensureContentScript(tabId) {
+    // Use the enhanced version from PDFHandler
+    if (window.PDFHandler && window.PDFHandler.ensureContentScriptWithRetry) {
+      return await window.PDFHandler.ensureContentScriptWithRetry(tabId);
+    }
+    
+    // Fallback to original implementation
     try {
       // First check if content script is already injected
       try {
@@ -1031,6 +1037,18 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to check if a tab contains a PDF and if it's accessible
   async function checkIfPDFPage(tab) {
     try {
+      // Prefer enhanced detector if available
+      if (window.PDFHandler && typeof window.PDFHandler.checkIfPDFPage === 'function') {
+        try {
+          const enhanced = await window.PDFHandler.checkIfPDFPage(tab);
+          if (enhanced && typeof enhanced.isPDF !== 'undefined') {
+            return enhanced;
+          }
+        } catch (e) {
+          console.log('Enhanced PDF check failed, falling back to legacy:', e?.message || e);
+        }
+      }
+
       console.log('Popup: Checking PDF status and accessibility...');
       console.log('Popup: Tab details:', { url: tab.url, title: tab.title });
       
@@ -1682,28 +1700,22 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         return;
       }
       
-      // Check if content is accessible
+      // If accessibility couldn't be confirmed (CORS/viewer), still allow analysis for web PDFs
       if (!isAccessible) {
-        // STATE 2: Non-active/disabled "Deep Read!" button
-        setButtonState('Deep Read!', true, false);
-        analyzeBtn.style.backgroundColor = '#ccc';
-        analyzeBtn.style.cursor = 'not-allowed';
-        analyzeBtn.onclick = null;
-        
-        // Provide specific guidance based on the URL/context
-        let statusMessage = 'PDF detected but content is not accessible for analysis.';
-        if (url.includes('drive.google.com')) {
-          statusMessage += ' Try opening the PDF directly or downloading it first.';
-        } else if (url.includes('dropbox.com') || url.includes('onedrive.com') || url.includes('icloud.com')) {
-          statusMessage += ' Try downloading the PDF to your device first.';
-        } else if (pdfCheckResult.titleBased) {
-          statusMessage += ' The PDF might be protected or require login access.';
+        const likelyAccessible = url.startsWith('http') || url.startsWith('https');
+        const isSSRNDownload = url.includes('download.ssrn.com') || url.includes('response-content-disposition=inline') || url.includes('X-Amz-');
+        if (likelyAccessible || isSSRNDownload) {
+          // Allow proceeding; backend/background will fetch bytes
+          showStatus('PDF detected but direct access is restricted. You can still click Deep Read — the backend will attempt to download it.', 'warning');
         } else {
-          statusMessage += ' Try downloading the PDF or opening it in a new tab first.';
+          // Keep previous disabled behavior for known restricted providers
+          setButtonState('Deep Read!', true, false);
+          analyzeBtn.style.backgroundColor = '#ccc';
+          analyzeBtn.style.cursor = 'not-allowed';
+          analyzeBtn.onclick = null;
+          showStatus('PDF detected but content is not accessible for analysis. Try downloading the PDF or opening it in a new tab first.', 'warning');
+          return;
         }
-        
-        showStatus(statusMessage, 'warning');
-        return;
       }
       
       // STATE 1: Active "Deep Read!" button
@@ -1804,6 +1816,12 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
                 throw new Error('Could not read local PDF file');
               }
             } else {
+              // For web URLs: if SSRN signed link, skip content-script reading and let backend/background fetch
+              const isSignedSSRN = tab.url.includes('download.ssrn.com') || tab.url.includes('X-Amz-') || tab.url.includes('AWS4-HMAC-SHA256');
+              if (isSignedSSRN) {
+                showStatus('PDF is served via a signed link. The backend will download it directly.', 'info');
+                fileContentB64 = null; // force backend download path
+              } else {
               // For web URLs, try to read the PDF via content script first
               try {
                 showStatus('Reading PDF from page context...', 'info');
@@ -1952,6 +1970,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
                   fileContentB64 = null;
                 }
               }
+              }
             }
             
             // Step 5: Create payload for analysis
@@ -1989,8 +2008,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             showStatus('Starting PDF analysis...', 'info');
             await monitorAnalysisProgress(tab.id, actualPaperId, true);
 
-            // If we don't have PDF content and it's not a local file, verify URL is accessible
-            if (!fileContentB64 && !isLocalFile) {
+            // If we don't have PDF content and it's not a local file, verify URL is accessible (skip for SSRN signed links)
+            const isSignedSSRNCheck = tab.url.includes('download.ssrn.com') || tab.url.includes('X-Amz-') || tab.url.includes('AWS4-HMAC-SHA256');
+            if (!fileContentB64 && !isLocalFile && !isSignedSSRNCheck) {
               try {
                 const response = await fetch(tab.url, { method: 'HEAD' });
                 if (!response.ok) {
@@ -2093,6 +2113,270 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     }
   }
 
+  // PDF Detection Diagnostics Tool
+  async function runPDFDiagnostics(tab) {
+    console.log('========== PDF DIAGNOSTICS START ==========');
+    const diagnostics = {
+      timestamp: new Date().toISOString(),
+      tabInfo: {
+        id: tab.id,
+        url: tab.url,
+        title: tab.title,
+        status: tab.status
+      },
+      checks: []
+    };
+    
+    // Check 1: URL Analysis
+    const urlCheck = {
+      name: 'URL Analysis',
+      passed: false,
+      details: {}
+    };
+    
+    const url = tab.url.toLowerCase();
+    urlCheck.details.protocol = new URL(tab.url).protocol;
+    urlCheck.details.hasPdfExtension = url.endsWith('.pdf');
+    urlCheck.details.hasPdfInPath = url.includes('/pdf/') || url.includes('pdf.');
+    urlCheck.details.hasPdfQuery = url.includes('pdf=') || url.includes('type=pdf');
+    urlCheck.details.isLocalFile = tab.url.startsWith('file://');
+    urlCheck.details.isDataUrl = tab.url.startsWith('data:');
+    urlCheck.passed = urlCheck.details.hasPdfExtension || urlCheck.details.isLocalFile;
+    diagnostics.checks.push(urlCheck);
+    
+    // Check 2: Title Analysis
+    const titleCheck = {
+      name: 'Title Analysis',
+      passed: false,
+      details: {}
+    };
+    
+    const title = (tab.title || '').toLowerCase();
+    titleCheck.details.hasPdfExtension = title.includes('.pdf');
+    titleCheck.details.hasPdfViewer = title.includes('pdf viewer') || title.includes('pdf.js');
+    titleCheck.details.hasAdobeReader = title.includes('adobe');
+    titleCheck.details.hasChromeViewer = title.includes('pdf') && title.includes('chrome');
+    titleCheck.passed = Object.values(titleCheck.details).some(v => v);
+    diagnostics.checks.push(titleCheck);
+    
+    // Check 3: Content Script Availability
+    const contentScriptCheck = {
+      name: 'Content Script',
+      passed: false,
+      details: {}
+    };
+    
+    try {
+      const pingResponse = await chrome.tabs.sendMessage(tab.id, 
+        { action: 'ping' }, 
+        { frameId: 0 }
+      );
+      contentScriptCheck.details.available = true;
+      contentScriptCheck.details.response = pingResponse;
+      contentScriptCheck.passed = pingResponse?.status === 'ok';
+    } catch (error) {
+      contentScriptCheck.details.available = false;
+      contentScriptCheck.details.error = error.message;
+      
+      // Try to inject
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        contentScriptCheck.details.injectionAttempt = 'success';
+      } catch (injectError) {
+        contentScriptCheck.details.injectionAttempt = 'failed';
+        contentScriptCheck.details.injectionError = injectError.message;
+      }
+    }
+    diagnostics.checks.push(contentScriptCheck);
+    
+    // Check 4: PDF Detection via Content Script
+    const pdfDetectionCheck = {
+      name: 'PDF Detection',
+      passed: false,
+      details: {}
+    };
+    
+    if (contentScriptCheck.passed) {
+      try {
+        const pdfStatus = await chrome.tabs.sendMessage(tab.id, 
+          { action: 'checkPDFStatus' }, 
+          { frameId: 0 }
+        );
+        pdfDetectionCheck.details = pdfStatus;
+        pdfDetectionCheck.passed = pdfStatus?.isPDF === true;
+      } catch (error) {
+        pdfDetectionCheck.details.error = error.message;
+      }
+    } else {
+      pdfDetectionCheck.details.skipped = 'Content script not available';
+    }
+    diagnostics.checks.push(pdfDetectionCheck);
+    
+    // Check 5: Background Script Detection
+    const backgroundCheck = {
+      name: 'Background Detection',
+      passed: false,
+      details: {}
+    };
+    
+    try {
+      const bgResponse = await chrome.runtime.sendMessage({
+        action: 'checkPDFStatus',
+        tabId: tab.id
+      });
+      backgroundCheck.details = bgResponse;
+      backgroundCheck.passed = bgResponse?.isPDF === true;
+    } catch (error) {
+      backgroundCheck.details.error = error.message;
+    }
+    diagnostics.checks.push(backgroundCheck);
+    
+    // Check 6: HTTP Headers (if not local file)
+    const headersCheck = {
+      name: 'HTTP Headers',
+      passed: false,
+      details: {}
+    };
+    
+    if (!tab.url.startsWith('file://') && !tab.url.startsWith('data:')) {
+      try {
+        const response = await fetch(tab.url, { 
+          method: 'HEAD',
+          credentials: 'include'
+        });
+        
+        headersCheck.details.status = response.status;
+        headersCheck.details.contentType = response.headers.get('content-type');
+        headersCheck.details.contentDisposition = response.headers.get('content-disposition');
+        headersCheck.details.contentLength = response.headers.get('content-length');
+        headersCheck.passed = headersCheck.details.contentType?.includes('pdf') || false;
+      } catch (error) {
+        headersCheck.details.error = error.message;
+        headersCheck.details.cors = error.message.includes('CORS');
+      }
+    } else {
+      headersCheck.details.skipped = 'Local or data URL';
+      headersCheck.passed = true; // Local files don't need header check
+    }
+    diagnostics.checks.push(headersCheck);
+    
+    // Check 7: PDF Content Reading
+    const contentReadCheck = {
+      name: 'Content Reading',
+      passed: false,
+      details: {}
+    };
+    
+    try {
+      const readResult = await window.PDFHandler.readPDFContent(tab);
+      contentReadCheck.details.success = readResult.success;
+      contentReadCheck.details.method = readResult.method;
+      contentReadCheck.details.size = readResult.size;
+      contentReadCheck.details.error = readResult.error;
+      contentReadCheck.passed = readResult.success;
+    } catch (error) {
+      contentReadCheck.details.error = error.message;
+    }
+    diagnostics.checks.push(contentReadCheck);
+    
+    // Calculate overall status
+    const passedChecks = diagnostics.checks.filter(c => c.passed).length;
+    const totalChecks = diagnostics.checks.length;
+    diagnostics.overallStatus = {
+      passed: passedChecks,
+      total: totalChecks,
+      percentage: Math.round((passedChecks / totalChecks) * 100),
+      isPDF: passedChecks >= 3, // At least 3 checks should pass
+      canAnalyze: contentReadCheck.passed || headersCheck.passed
+    };
+    
+    // Generate recommendations
+    diagnostics.recommendations = [];
+    
+    if (!urlCheck.passed && !titleCheck.passed) {
+      diagnostics.recommendations.push('This does not appear to be a PDF file based on URL and title.');
+    }
+    
+    if (!contentScriptCheck.passed) {
+      diagnostics.recommendations.push('Content script injection failed. Try refreshing the page.');
+    }
+    
+    if (headersCheck.details.status === 403 || headersCheck.details.status === 401) {
+      diagnostics.recommendations.push('PDF requires authentication. Please log in to the website.');
+    }
+    
+    if (headersCheck.details.cors) {
+      diagnostics.recommendations.push('CORS restrictions detected. The PDF might still be analyzable.');
+    }
+    
+    if (!contentReadCheck.passed && headersCheck.passed) {
+      diagnostics.recommendations.push('PDF detected but cannot be read directly. Backend download might work.');
+    }
+    
+    // Log results
+    console.log('PDF Diagnostics Results:');
+    console.log('Overall Status:', diagnostics.overallStatus);
+    console.log('Checks:');
+    diagnostics.checks.forEach(check => {
+      console.log(`  ${check.passed ? '✓' : '✗'} ${check.name}:`, check.details);
+    });
+    console.log('Recommendations:', diagnostics.recommendations);
+    console.log('========== PDF DIAGNOSTICS END ==========');
+    
+    return diagnostics;
+  }
+
+  // Helper function to display diagnostics in popup UI
+  function displayPDFDiagnostics(diagnostics) {
+    const statusContainer = document.getElementById('status-container');
+    if (!statusContainer) return;
+    
+    let html = `
+      <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 12px;">
+        <h4 style="margin: 0 0 8px 0;">PDF Detection Diagnostics</h4>
+        <div style="margin-bottom: 8px;">
+          <strong>Overall:</strong> ${diagnostics.overallStatus.passed}/${diagnostics.overallStatus.total} checks passed
+          ${diagnostics.overallStatus.isPDF ? '✓ PDF Detected' : '✗ Not a PDF'}
+        </div>
+        <div style="margin-bottom: 8px;">
+          <strong>Checks:</strong>
+          <ul style="margin: 4px 0; padding-left: 20px;">
+    `;
+    
+    diagnostics.checks.forEach(check => {
+      const icon = check.passed ? '✓' : '✗';
+      const color = check.passed ? 'green' : 'red';
+      html += `<li style="color: ${color};">${icon} ${check.name}</li>`;
+    });
+    
+    html += `
+          </ul>
+        </div>
+    `;
+    
+    if (diagnostics.recommendations.length > 0) {
+      html += `
+        <div>
+          <strong>Recommendations:</strong>
+          <ul style="margin: 4px 0; padding-left: 20px;">
+      `;
+      diagnostics.recommendations.forEach(rec => {
+        html += `<li>${rec}</li>`;
+      });
+      html += `
+          </ul>
+        </div>
+      `;
+    }
+    
+    html += `</div>`;
+    
+    statusContainer.innerHTML = html;
+  }
+
   // Replace initialization to use updatePopupUI
   async function initializePopup() {
     try {
@@ -2136,6 +2420,17 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       await updatePopupUI(); // Use the main UI function instead of checkPageType
     } catch (error) {
       console.error('Error updating UI on focus:', error);
+    }
+  });
+
+  // Add keyboard shortcut for PDF diagnostics (Ctrl+Shift+D)
+  document.addEventListener('keydown', async (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        const diagnostics = await runPDFDiagnostics(tab);
+        displayPDFDiagnostics(diagnostics);
+      }
     }
   });
 

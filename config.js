@@ -5,7 +5,7 @@ const CONFIG = {
     LOCAL_DEV: {
       url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 2,
+      priority: 1,
       enabled: true
     },
     CLOUD_RUN: {

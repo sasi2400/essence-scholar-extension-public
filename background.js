@@ -82,67 +82,288 @@ async function generateIdFromUrl(url) {
 }
 
 // =============================================================================
-// NEW: Network-Layer PDF Detection
+// ENHANCED: Network-Layer PDF Detection with State Management
 // =============================================================================
 
-const pdfTabs = new Set();
+// Enhanced PDF detection state management
+const pdfDetectionState = new Map();
 
-/**
- * Tag a tab as "isPDF" the moment we see a navigation that
- * returns Content-Type: application/pdf  *or*  ends with ".pdf".
- * Works for network & local file:// URLs alike.
- */
+// Improved webRequest listener for PDF detection
 if (chrome.webRequest && chrome.webRequest.onHeadersReceived) {
   try {
     chrome.webRequest.onHeadersReceived.addListener(
       details => {
         if (details.type !== 'main_frame') return;
-
-        const ct = details.responseHeaders?.find(
-          h => h.name.toLowerCase() === 'content-type'
-        )?.value ?? '';
-
-        const isPdf = ct.includes('pdf') || details.url.toLowerCase().endsWith('.pdf');
         
-        if (isPdf) {
-          console.log('[BG] PDF detected via webRequest:', details.url);
-          pdfTabs.add(details.tabId);
+        // Check Content-Type header
+        const contentTypeHeader = details.responseHeaders?.find(
+          h => h.name.toLowerCase() === 'content-type'
+        );
+        const contentType = contentTypeHeader?.value || '';
+        
+        // Check Content-Disposition for PDF hints
+        const dispositionHeader = details.responseHeaders?.find(
+          h => h.name.toLowerCase() === 'content-disposition'
+        );
+        const disposition = dispositionHeader?.value || '';
+        
+        // Multiple PDF detection criteria
+        const isPDF = 
+          contentType.includes('application/pdf') ||
+          contentType.includes('application/x-pdf') ||
+          disposition.includes('.pdf') ||
+          details.url.toLowerCase().endsWith('.pdf');
+        
+        if (isPDF) {
+          console.log('[BG PDF] PDF detected via headers:', {
+            url: details.url.substring(0, 100),
+            contentType,
+            tabId: details.tabId
+          });
           
-          // Tell the content script to start collecting
+          // Store PDF detection info
+          pdfDetectionState.set(details.tabId, {
+            isPDF: true,
+            url: details.url,
+            contentType,
+            timestamp: Date.now()
+          });
+          
+          // Notify content script with delay to ensure it's loaded
           setTimeout(() => {
-            chrome.tabs.sendMessage(details.tabId, {action: 'pdfDetected'}).catch(err => {
-              console.log('[BG] Could not notify content script (tab may still be loading):', err.message);
+            chrome.tabs.sendMessage(details.tabId, {
+              action: 'pdfDetected',
+              details: {
+                url: details.url,
+                contentType,
+                method: 'webRequest'
+              }
+            }).catch(err => {
+              console.log('[BG PDF] Could not notify content script:', err.message);
             });
-          }, 100); // Small delay to ensure content script is loaded
+          }, 500);
         }
       },
-      {urls: ['<all_urls>'], types: ['main_frame']},
+      { urls: ['<all_urls>'], types: ['main_frame'] },
       ['responseHeaders']
     );
-    console.log('[BG] webRequest listener registered successfully');
+    console.log('[BG PDF] webRequest listener registered successfully');
   } catch (error) {
-    console.error('[BG] Failed to register webRequest listener:', error);
+    console.error('[BG PDF] Failed to register webRequest listener:', error);
   }
 } else {
-  console.warn('[BG] webRequest API not available, falling back to URL-based detection');
+  console.warn('[BG PDF] webRequest API not available, falling back to URL-based detection');
 }
 
-/** Cleanup on tab close / reload */
+// Clean up PDF detection state on tab removal
 chrome.tabs.onRemoved.addListener(tabId => {
-  pdfTabs.delete(tabId);
-  console.log('[BG] Cleaned up PDF tab on removal:', tabId);
+  pdfDetectionState.delete(tabId);
+  console.log('[BG PDF] Cleaned up PDF state for tab:', tabId);
 });
 
-// Add defensive check for webNavigation API availability
-if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
+// Clean up on navigation
+if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
+  chrome.webNavigation.onBeforeNavigate.addListener(details => {
+    if (details.frameId === 0) {
+      pdfDetectionState.delete(details.tabId);
+      console.log('[BG PDF] Cleared PDF state on navigation for tab:', details.tabId);
+    }
+  });
+} else if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
   chrome.webNavigation.onCommitted.addListener(e => {
     if (e.transitionType === 'reload') {
-      pdfTabs.delete(e.tabId);
-      console.log('[BG] Cleaned up PDF tab on reload:', e.tabId);
+      pdfDetectionState.delete(e.tabId);
+      console.log('[BG PDF] Cleared PDF state on reload for tab:', e.tabId);
     }
   });
 } else {
-  console.warn('[BG] webNavigation API not available');
+  console.warn('[BG PDF] webNavigation API not available');
+}
+
+// Simple backend management for background script
+const BackendManager = {
+  async getCurrentBackend() {
+    try {
+      // Try to get backend from storage
+      const result = await chrome.storage.local.get(['currentBackend']);
+      if (result.currentBackend && result.currentBackend.url) {
+        return result.currentBackend;
+      }
+      
+      // Fallback to default backend if available
+      if (typeof CONFIG !== 'undefined' && CONFIG.CURRENT_BACKEND) {
+        return CONFIG.CURRENT_BACKEND;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[BackendManager] Error getting backend:', error);
+      return null;
+    }
+  }
+};
+
+// Helper function to make API requests with backend
+async function makeApiRequestWithBackend(endpoint, options, backend) {
+  if (!backend || !backend.url) {
+    throw new Error('No valid backend available');
+  }
+  
+  const url = endpoint.startsWith('http') ? endpoint : `${backend.url}${endpoint}`;
+  
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  });
+  
+  return response;
+}
+
+// Function to handle PDF analysis
+async function handlePDFAnalysis(request, sender, sendResponse) {
+  const tabId = request.tabId || sender.tab?.id;
+  
+  try {
+    console.log('[BG PDF Analysis] Starting analysis for tab:', tabId);
+    
+    // Get PDF info
+    const pdfInfo = pdfDetectionState.get(tabId);
+    const tabState = activeTabs.get(tabId);
+    
+    if (!pdfInfo && !tabState?.pdfInfo) {
+      throw new Error('No PDF information available for this tab');
+    }
+    
+    const url = request.url || pdfInfo?.url || tabState?.pdfInfo?.url;
+    const paperId = await generateIdFromUrl(url);
+    
+    // Check if already analyzing
+    if (analysisInProgress.has(tabId)) {
+      sendResponse({ 
+        success: false, 
+        error: 'Analysis already in progress' 
+      });
+      return;
+    }
+    
+    analysisInProgress.add(tabId);
+    
+    // Get settings
+    const settings = await chrome.storage.local.get(['llmSettings', 'userSettings']);
+    const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash' };
+    const userSettings = settings.userSettings || {};
+    
+    // Get backend
+    const backend = await BackendManager.getCurrentBackend();
+    if (!backend) {
+      throw new Error('No backend available');
+    }
+    
+    // Prepare payload
+    const payload = {
+      content: {
+        paperUrl: url,
+        paperId: paperId
+      },
+      model: llmSettings.model,
+      user_scholar_url: userSettings.googleScholarUrl || '',
+      research_interests: userSettings.researchInterests || ''
+    };
+    
+    // Add PDF content if available
+    if (request.fileContent) {
+      payload.file_content = request.fileContent;
+    } else if (tabState?.pdfInfo?.content) {
+      payload.file_content = tabState.pdfInfo.content;
+    }
+
+    // Background fallback: try downloading the PDF bytes here if we still don't have content
+    if (!payload.file_content) {
+      try {
+        const b64 = await fetchPdfBytesToBase64(url);
+        if (b64 && b64.length > 0) {
+          payload.file_content = b64;
+          console.log('[BG PDF] Attached downloaded PDF bytes to payload');
+        }
+      } catch (downloadErr) {
+        console.warn('[BG PDF] Could not fetch PDF bytes; backend will try URL:', downloadErr?.message || downloadErr);
+      }
+    }
+    
+    // Add API keys
+    if (llmSettings.geminiKey) payload.google_api_key = llmSettings.geminiKey;
+    if (llmSettings.openaiKey) payload.openai_api_key = llmSettings.openaiKey;
+    if (llmSettings.claudeKey) payload.claude_api_key = llmSettings.claudeKey;
+    
+    // Send to backend
+    const response = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }, backend);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Backend error: ${errorText}`);
+    }
+    
+    const result = await response.json();
+    
+    // Store result
+    const storageKey = `analysis_${paperId}`;
+    await chrome.storage.local.set({
+      [storageKey]: {
+        timestamp: new Date().toISOString(),
+        paperId: paperId,
+        data: result,
+        url: url
+      }
+    });
+    
+    // Clean up
+    analysisInProgress.delete(tabId);
+    
+    // Send success response
+    sendResponse({
+      success: true,
+      paperId: paperId,
+      data: result
+    });
+    
+    // Update badge
+    chrome.action.setBadgeText({ text: '✓' });
+    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+    
+  } catch (error) {
+    console.error('[BG PDF Analysis] Error:', error);
+    analysisInProgress.delete(tabId);
+    
+    sendResponse({
+      success: false,
+      error: error.message
+    });
+    
+    // Update badge
+    chrome.action.setBadgeText({ text: '!' });
+    chrome.action.setBadgeBackgroundColor({ color: '#F44336' });
+  }
+}
+
+// Helper: fetch PDF bytes in background and return base64
+async function fetchPdfBytesToBase64(url) {
+  const res = await fetch(url, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to download PDF: ${res.status}`);
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const sub = bytes.subarray(i, i + CHUNK);
+    bin += String.fromCharCode.apply(null, sub);
+  }
+  return btoa(bin);
 }
 
 // =============================================================================
@@ -929,7 +1150,68 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
     return true;
   }
 
-  // Handle messages from PDF collector
+  // Enhanced PDF message handlers
+  
+  // Check PDF status for a tab
+  if (request.action === 'checkPDFStatus') {
+    const tabId = request.tabId || sender.tab?.id;
+    const pdfInfo = pdfDetectionState.get(tabId);
+    
+    if (pdfInfo) {
+      sendResponse({
+        isPDF: true,
+        url: pdfInfo.url,
+        contentType: pdfInfo.contentType,
+        method: 'background-cache'
+      });
+    } else {
+      sendResponse({ isPDF: false });
+    }
+    return true;
+  }
+  
+  // Get PDF content from collector
+  if (request.action === 'getPDFFromCollector') {
+    const tabId = request.tabId;
+    const tabState = activeTabs.get(tabId);
+    
+    if (tabState?.pdfInfo?.content) {
+      sendResponse({
+        success: true,
+        content: tabState.pdfInfo.content,
+        size: tabState.pdfInfo.size,
+        method: 'pdf-collector'
+      });
+    } else {
+      sendResponse({ success: false, error: 'No PDF content available' });
+    }
+    return true;
+  }
+  
+  // Store PDF content from collector
+  if (request.action === 'storePDFContent' && sender.tab) {
+    const tabId = sender.tab.id;
+    const tabState = activeTabs.get(tabId) || {};
+    
+    tabState.pdfInfo = {
+      content: request.content,
+      size: request.size,
+      url: request.url,
+      timestamp: Date.now()
+    };
+    
+    activeTabs.set(tabId, tabState);
+    sendResponse({ success: true });
+    return true;
+  }
+  
+  // Enhanced manual analysis with PDF support
+  if (request.action === 'analyzePDF') {
+    handlePDFAnalysis(request, sender, sendResponse);
+    return true;
+  }
+  
+  // Handle messages from PDF collector (legacy support)
   if (request.status === 'ready' && request.pdf) {
     console.log('[BG] PDF collector reported ready:', request.pdf);
     
