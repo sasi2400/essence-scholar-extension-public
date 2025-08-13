@@ -3089,18 +3089,42 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Create a temporary element to set the content, then make authors clickable
                 paperMeta.innerHTML = metaInfo;
                 if (authorsArray.length > 0) {
-                  // Update with clickable authors
-                  const authorLinks = authorsArray.map(author => {
-                    const authorId = author.replace(/\s+/g, '-').toLowerCase().replace(/[^a-z0-9-]/g, '');
-                    return `<a href="#" 
-                               style="color: #007bff; text-decoration: none;"
-                               onmouseover="this.style.textDecoration='underline'"
-                               onmouseout="this.style.textDecoration='none'"
-                               onclick="event.preventDefault(); navigateToAuthorProfile('${authorId}', '${author}')">
-                              ${author}
-                            </a>`;
-                  }).join(', ');
-                  paperMeta.innerHTML = `Paper ID: ${analysis.content.paperId || ''} | Authors: ${authorLinks} | Analyzed: ${analyzed}${modelInfo}`;
+                  // Use the proper makeAuthorsClickable function to get real database IDs
+                  try {
+                    const paperId = analysis.content.paperId;
+                    if (paperId) {
+                      // Create a temporary container for authors
+                      const tempAuthorsContainer = document.createElement('div');
+                      tempAuthorsContainer.id = 'tempAuthorsContainer';
+                      paperMeta.appendChild(tempAuthorsContainer);
+                      
+                      // Make authors clickable with real database IDs (handle promise without await)
+                      makeAuthorsClickable(authorsArray, 'tempAuthorsContainer', paperId).then(() => {
+                        // Extract the clickable authors HTML and replace the original authors text
+                        const clickableAuthors = tempAuthorsContainer.innerHTML;
+                        if (clickableAuthors.includes('Authors:')) {
+                          const authorsPart = clickableAuthors.replace('<strong>Authors:</strong> ', '');
+                          metaInfo = `Paper ID: ${analysis.content.paperId || ''} | ${authorsPart} | Analyzed: ${analyzed}${modelInfo}`;
+                          paperMeta.innerHTML = metaInfo;
+                        }
+                        
+                        // Remove the temporary container
+                        tempAuthorsContainer.remove();
+                      }).catch(error => {
+                        console.error('Error making authors clickable:', error);
+                        // Fallback to plain text on error
+                        paperMeta.innerHTML = metaInfo;
+                        tempAuthorsContainer.remove();
+                      });
+                    } else {
+                      // Fallback to plain text if no paper ID
+                      paperMeta.innerHTML = metaInfo;
+                    }
+                  } catch (error) {
+                    console.error('Error making authors clickable:', error);
+                    // Fallback to plain text on error
+                    paperMeta.innerHTML = metaInfo;
+                  }
                 }
               }
             }
@@ -5003,52 +5027,51 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       let authorLinks = [];
       
-      // If we have a paperId, fetch the real database author IDs
-      if (paperId) {
-        console.log(`🔍 Fetching real author IDs for paper: ${paperId}`);
-        
-        const backend = await BackendManager.getCurrentBackend();
-        console.log('🔧 Backend received:', backend);
-        if (backend) {
-          try {
-            const authorUrl = `${backend.url}/paper/${paperId}/authors`;
-            console.log(`🌐 Fetching from: ${authorUrl}`);
-            const response = await fetch(authorUrl);
-            if (response.ok) {
-              const data = await response.json();
-              const authorsWithIds = data.authors || [];
-              
-              // Create clickable links with real database IDs
-              authorLinks = authorsWithIds.map(author => {
-                const authorUrl = buildAuthorProfileUrl(author.id);
-                return `<a href="${authorUrl}" class="author-link" data-author-id="${author.id}">${author.name}</a>`;
-              });
-              
-              console.log(`✅ Found ${authorsWithIds.length} authors with database IDs`);
-            } else {
-              console.warn('Failed to fetch author IDs, falling back to string-based IDs');
-              throw new Error('Failed to fetch author IDs');
-            }
-          } catch (error) {
-            console.warn('Error fetching author IDs:', error);
-            throw error;
-          }
-        } else {
-          throw new Error('No backend available');
-        }
-      } else {
-        throw new Error('No paper ID provided');
+      // We must have a paperId to get real database author IDs
+      if (!paperId) {
+        throw new Error('Paper ID is required to fetch real author IDs');
       }
       
-      // If we couldn't get real IDs, fall back to string-based conversion
-      if (authorLinks.length === 0) {
-        console.log('📝 Falling back to string-based author IDs');
-        authorLinks = authorsArray.map(author => {
-          const authorId = author.replace(/\s+/g, '-').toLowerCase().replace(/[^a-z0-9-]/g, '');
-          const authorUrl = buildAuthorProfileUrl(authorId);
-          return `<a href="${authorUrl}" class="author-link" data-author-name="${author}">${author}</a>`;
-        });
+      console.log(`🔍 Fetching real author IDs for paper: ${paperId}`);
+      
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        throw new Error('No backend available');
       }
+      
+      console.log('🔧 Backend received:', backend);
+      
+      const authorUrl = `${backend.url}/paper/${paperId}/authors`;
+      console.log(`🌐 Fetching from: ${authorUrl}`);
+      const response = await fetch(authorUrl);
+      console.log(`📡 Response status: ${response.status}, ok: ${response.ok}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch author IDs: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`📊 Author data received:`, data);
+      const authorsWithIds = data.authors || [];
+      
+      if (authorsWithIds.length === 0) {
+        throw new Error('No authors found in database for this paper');
+      }
+      
+      // Create clickable links with real database IDs (must be numbers)
+      authorLinks = authorsWithIds.map(author => {
+        if (typeof author.id !== 'number') {
+          console.error(`❌ Invalid author ID type: ${author.id} (${typeof author.id}) for author: ${author.name}`);
+          throw new Error(`Invalid author ID type: ${author.id} for author: ${author.name}`);
+        }
+        
+        console.log(`👤 Processing author: ${author.name} with ID: ${author.id} (type: ${typeof author.id})`);
+        const authorUrl = buildAuthorProfileUrl(author.id);
+        return `<a href="${authorUrl}" class="author-link" data-author-id="${author.id}">${author.name}</a>`;
+      });
+      
+      console.log(`✅ Found ${authorsWithIds.length} authors with database IDs:`, authorLinks);
       
       // Update the element with clickable authors
       authorsElement.innerHTML = `<strong>Authors:</strong> ${authorLinks.join(', ')}`;
@@ -5058,8 +5081,13 @@ document.addEventListener('DOMContentLoaded', function() {
       authorLinkElements.forEach(link => {
         link.addEventListener('click', (e) => {
           e.preventDefault();
-          const authorId = link.dataset.authorId || link.dataset.authorName?.replace(/\s+/g, '-').toLowerCase().replace(/[^a-z0-9-]/g, '');
-          const authorName = link.dataset.authorName || link.textContent;
+          const authorId = link.dataset.authorId;
+          const authorName = link.textContent;
+          
+          if (!authorId || isNaN(parseInt(authorId))) {
+            console.error(`❌ Invalid author ID: ${authorId}`);
+            return;
+          }
           
           console.log(`🔗 Opening author profile: ID=${authorId}, Name=${authorName}`);
           
@@ -5070,10 +5098,10 @@ document.addEventListener('DOMContentLoaded', function() {
       });
       
     } catch (error) {
-      console.error('Error making authors clickable:', error);
+      console.error('❌ Error making authors clickable:', error);
       
-      // Fallback: display authors as plain text
-      authorsElement.innerHTML = `<strong>Authors:</strong> ${authorsArray.join(', ')}`;
+      // Show error message instead of fallback to string-based IDs
+      authorsElement.innerHTML = `<strong>Authors:</strong> <span style="color: #dc3545;">Error loading author data: ${error.message}</span>`;
     }
   }
 

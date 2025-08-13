@@ -122,6 +122,31 @@
       background-color: #ccc;
       color: white;
     }
+    
+    /* Backend loading styles */
+    .backend-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #666;
+    }
+    
+    .backend-loading .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #2196F3;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 12px;
+    }
+    
+    .backend-loading .loading-text {
+      font-size: 14px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -176,7 +201,7 @@
     </div>
 
     <div class="button-container">
-      <button id="analyze-btn" class="analyze-btn">
+      <button id="analyze-btn" class="analyze-btn" style="display: none;">
         <span class="button-icon" style="display: none;">⏳</span>
         <span class="button-text">Analyze Current Paper</span>
       </button>
@@ -186,7 +211,11 @@
         <span class="button-text">Analyze Authors</span>
       </button>
       
-
+      <!-- Loading state while waiting for backend -->
+      <div id="backend-loading" class="backend-loading" style="display: block;">
+        <div class="spinner"></div>
+        <div class="loading-text">Connecting to backend...</div>
+      </div>
     </div>
   </div>
 

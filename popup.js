@@ -940,6 +940,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
+  // Update backend loading state
+  function updateBackendLoadingState(isLoading = true, message = 'Connecting to backend...') {
+    const backendLoading = document.getElementById('backend-loading');
+    const loadingText = backendLoading?.querySelector('.loading-text');
+    
+    if (backendLoading) {
+      backendLoading.style.display = isLoading ? 'block' : 'none';
+    }
+    
+    if (loadingText) {
+      loadingText.textContent = message;
+    }
+  }
+
   // Update configuration status display
   async function updateConfigurationStatus() {
     const configStatusDiv = document.getElementById('config-status');
@@ -1591,8 +1605,21 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
    * Once /analysis/paperID is 200, UnderAnalysis is again 0 and depending on the above scenarios, users see the popup
    */
   async function updatePopupUI() {
+    // Show loading state initially
+    updateBackendLoadingState(true, 'Connecting to backend...');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const analyzeAuthorsBtn = document.getElementById('analyze-authors-btn');
+    
+    if (analyzeBtn) analyzeBtn.style.display = 'none';
+    if (analyzeAuthorsBtn) analyzeAuthorsBtn.style.display = 'none';
+    
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url) return;
+    if (!tab || !tab.url) {
+      updateBackendLoadingState(false);
+      showStatus('No active tab found', 'error');
+      return;
+    }
+    
     const url = tab.url;
     const paperId = await extractSsrnIdOrUrl(url);
     const pdfCheckResult = await checkIfPDFPage(tab);
@@ -1601,22 +1628,32 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     
     const isSSRN = url.includes('ssrn.com') && paperId && !isPDF;
     
+    // Update loading message while checking backend
+    updateBackendLoadingState(true, 'Checking backend availability...');
+    
     // Use global backend detection instead of per-tab
     let backend = await BackendManager.getCurrentBackend();
     
     if (!backend) {
-      showStatus('❌ No Backend Available.', 'error');
+      updateBackendLoadingState(false);
+      displayBackendStatus('❌ Backend Unavailable');
+      showStatus('Unable to connect to the analysis backend. Please check your internet connection or try again later.', 'error');
       setButtonState('Deep Read!', true, false);
       analyzeBtn.style.backgroundColor = '#ccc';
-      analyzeBtn.style.display = '';
+      analyzeBtn.style.display = 'block';
       return;
     }
+    
+    // Backend is available - hide loading and proceed with UI setup
+    updateBackendLoadingState(false);
+    displayBackendStatus('✅ Backend Connected');
     
     let analysisStatus = { inProgress: false, hasCompleted: false };
     
     // Check if paper exists in backend (simple check)
     if (paperId) {
       try {
+        updateBackendLoadingState(true, 'Checking for existing analysis...');
         const { exists, error } = await hasAnalysisOnBackend(paperId);
         if (exists) {
           analysisStatus.hasCompleted = true;
@@ -1631,6 +1668,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         console.error('Error checking paper existence:', error);
         showStatus('An unexpected error occurred while checking paper status', 'warning');
         analysisStatus.hasCompleted = false;
+      } finally {
+        // Hide loading state after check is complete
+        updateBackendLoadingState(false);
       }
     }
         
@@ -1642,7 +1682,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
 
     // SSRN page with paperID, not PDF
     if (isSSRN) {
-      analyzeBtn.style.display = '';
+      analyzeBtn.style.display = 'block';
       showAuthorsButton(false); // Hide authors button for now (can be enabled later if needed)
       
       if (analysisStatus.hasCompleted) {
@@ -1670,7 +1710,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
         paperId = await SharedIdGenerator.generateIdFromUrl(url);
       }
       
-      analyzeBtn.style.display = '';
+      analyzeBtn.style.display = 'block';
       showAuthorsButton(false); // Hide authors button for PDFs
       
       // Check if analysis already exists
@@ -2073,10 +2113,10 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       };
 
     // Not SSRN, not PDF, or no paperId
-    showStatus('Navigate to a PDF file', 'info');
+    showStatus('Navigate to a PDF file to analyze its content.', 'info');
     setButtonState('Deep Read!', true, false);
     analyzeBtn.style.backgroundColor = '#ccc';
-    analyzeBtn.style.display = '';
+    analyzeBtn.style.display = 'block';
     showAuthorsButton(false);
   }
 
@@ -2382,6 +2422,9 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     try {
       displayBackendStatus('🔍 Checking Backend...');
       
+      // Show loading state immediately
+      updateBackendLoadingState(true, 'Initializing...');
+      
       // Start backend detection asynchronously and update UI immediately
       const backendPromise = BackendManager.getCurrentBackend();
       
@@ -2404,6 +2447,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       await updatePopupUI();
     } catch (error) {
       console.error('Popup: Initialization error:', error);
+      displayBackendStatus('❌ Backend Error');
       updateBackendStatusDisplay(null, error.message);
     }
   }
