@@ -1,5 +1,238 @@
-// Import configuration and smart backend detection
-importScripts('config.js');
+// Service worker configuration for Essence Scholar Extension
+const CONFIG = {
+  // Backend configuration with priority order
+  BACKENDS: {
+    LOCAL_DEV: {
+      url: 'http://localhost:8080',
+      name: 'Local Development',
+      priority: 2,
+      enabled: true
+    },
+    CLOUD_RUN: {
+      url: 'https://ssrn-summarizer-backend-v1-6-1-pisqy7uvxq-uc.a.run.app',
+      name: 'Cloud Run',
+      priority: 1,
+      enabled: true
+    }
+  },
+  
+  // Current backend (will be set dynamically)
+  BACKEND_URL: null,
+  CURRENT_BACKEND: null,
+  
+  // API endpoints
+  CHAT_ENDPOINT: '/chat',
+  HEALTH_ENDPOINT: '/health',
+  ANALYZE_AUTHORS_ENDPOINT: '/analyze-authors',
+  AUTHOR_DATA_ENDPOINT: '/authors',
+  ALL_AUTHOR_DATA_ENDPOINT: '/authors/all',
+  ANALYZE_STREAM_ENDPOINT: '/analyze-stream',
+  
+  // Timeouts
+  REQUEST_TIMEOUT: 60000, // 60 seconds for local
+  CLOUD_REQUEST_TIMEOUT: 120000, // 120 seconds for cloud
+  RETRY_ATTEMPTS: 3,
+  RETRY_DELAY: 1000, // 1 second
+  HEALTH_CHECK_TIMEOUT: 1000, // 1 second for health checks
+  
+  // Analysis settings
+  MAX_CONTENT_LENGTH: 50000, // characters
+  ANALYSIS_CACHE_DURATION: 5 * 60 * 1000, // 5 minutes in milliseconds
+  
+  // Backend detection settings
+  BACKEND_CACHE_DURATION: 5 * 60 * 1000, // Cache backend choice for 5 minutes
+  AUTO_DETECT_BACKENDS: false, // Disable automatic backend detection for efficiency
+  PREFER_LOCAL: true, // Prefer local backends over cloud
+  
+  // Backend failure tracking
+  MAX_CONSECUTIVE_FAILURES: 2, // Show update message after 2 consecutive failures
+  FAILURE_RESET_DURATION: 10 * 60 * 1000, // Reset failure count after 10 minutes
+};
+
+// Service worker compatible BackendManager
+class ServiceWorkerBackendManager {
+  // Track consecutive failures
+  static _consecutiveFailures = 0;
+  static _lastFailureTime = 0;
+  static _updateMessageShown = false;
+
+  // Get the priority 1 backend directly (no health checks)
+  static getPriorityOneBackend() {
+    const backends = Object.entries(CONFIG.BACKENDS)
+      .filter(([key, backend]) => backend.enabled)
+      .sort(([, a], [, b]) => a.priority - b.priority);
+    
+    if (backends.length > 0) {
+      const [key, backend] = backends[0];
+      console.log(`🎯 Using priority 1 backend: ${backend.name} (${backend.url})`);
+      return { key, ...backend };
+    }
+    
+    console.log('❌ No enabled backends found');
+    return null;
+  }
+
+  // Get current backend (simplified - just return priority 1)
+  static async getCurrentBackend() {
+    // Get priority 1 backend (no health checks)
+    const backend = ServiceWorkerBackendManager.getPriorityOneBackend();
+    return backend;
+  }
+
+  // Force refresh backend choice (simplified)
+  static async refreshBackend() {
+    console.log('🔄 Forced backend refresh');
+    return await ServiceWorkerBackendManager.getCurrentBackend();
+  }
+
+  // Track backend failure and show update message if needed
+  static trackBackendFailure(error = null) {
+    const now = Date.now();
+    
+    // Reset failure count if enough time has passed
+    if (now - ServiceWorkerBackendManager._lastFailureTime > CONFIG.FAILURE_RESET_DURATION) {
+      ServiceWorkerBackendManager._consecutiveFailures = 0;
+      ServiceWorkerBackendManager._updateMessageShown = false;
+    }
+    
+    ServiceWorkerBackendManager._consecutiveFailures++;
+    ServiceWorkerBackendManager._lastFailureTime = now;
+    
+    console.log(`❌ Backend failure #${ServiceWorkerBackendManager._consecutiveFailures} tracked`);
+    
+    // Show update message after 2 consecutive failures
+    if (ServiceWorkerBackendManager._consecutiveFailures >= CONFIG.MAX_CONSECUTIVE_FAILURES && !ServiceWorkerBackendManager._updateMessageShown) {
+      ServiceWorkerBackendManager._updateMessageShown = true;
+      ServiceWorkerBackendManager.showUpdateMessage();
+    }
+  }
+
+  // Show user-friendly update message
+  static showUpdateMessage() {
+    console.log('⚠️ Showing extension update message to user');
+    
+    // Create a user-friendly message
+    const message = {
+      type: 'extension_update_required',
+      title: 'Extension Update Required',
+      message: 'Your extension needs to be updated to work with the latest backend. Please update the extension from the Chrome Web Store.',
+      action: 'update_extension',
+      timestamp: Date.now()
+    };
+    
+    // Try to show the message in different contexts
+    try {
+      // Method 1: Send message to popup if available
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: 'showUpdateMessage',
+          message: message
+        }).catch(() => {
+          // Ignore errors if popup is not available
+        });
+      }
+      
+      // Method 2: Store message for popup to read
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({
+          'extension_update_message': message
+        }).catch(() => {
+          // Ignore storage errors
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error showing update message:', error);
+    }
+  }
+
+  // Reset failure tracking (call this on successful requests)
+  static resetFailureTracking() {
+    ServiceWorkerBackendManager._consecutiveFailures = 0;
+    ServiceWorkerBackendManager._lastFailureTime = 0;
+    ServiceWorkerBackendManager._updateMessageShown = false;
+    console.log('✅ Backend failure tracking reset');
+  }
+
+  // Get current failure status
+  static getFailureStatus() {
+    return {
+      consecutiveFailures: ServiceWorkerBackendManager._consecutiveFailures,
+      lastFailureTime: ServiceWorkerBackendManager._lastFailureTime,
+      updateMessageShown: ServiceWorkerBackendManager._updateMessageShown,
+      shouldShowUpdate: ServiceWorkerBackendManager._consecutiveFailures >= CONFIG.MAX_CONSECUTIVE_FAILURES
+    };
+  }
+
+  // Legacy method for compatibility (now just returns priority 1)
+  static async detectBestBackend() {
+    return ServiceWorkerBackendManager.getPriorityOneBackend();
+  }
+
+  // Legacy method for compatibility (now just returns priority 1)
+  static async checkBackendHealth(backend) {
+    // Skip health checks for efficiency
+    console.log(`⏭️ Skipping health check for ${backend.name} (efficiency mode)`);
+    return true;
+  }
+
+  // Legacy method for compatibility
+  static getBackendsByPriority() {
+    return Object.entries(CONFIG.BACKENDS)
+      .filter(([key, backend]) => backend.enabled)
+      .sort(([, a], [, b]) => a.priority - b.priority)
+      .map(([key, backend]) => ({ key, ...backend }));
+  }
+}
+
+// Helper function to make API requests with explicit backend
+async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
+  if (!backend) {
+    throw new Error('No backend provided');
+  }
+  const url = `${backend.url}${endpoint}`;
+  const timeout = backend.url.includes('localhost') 
+    ? CONFIG.REQUEST_TIMEOUT 
+    : CONFIG.CLOUD_REQUEST_TIMEOUT;
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+    clearTimeout(timeoutId);
+    
+    // Reset failure tracking on successful response
+    if (response.ok) {
+      ServiceWorkerBackendManager.resetFailureTracking();
+    } else {
+      // Track failure for non-OK responses
+      ServiceWorkerBackendManager.trackBackendFailure(new Error(`HTTP ${response.status}: ${response.statusText}`));
+    }
+    
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    // Track failure for network errors
+    ServiceWorkerBackendManager.trackBackendFailure(error);
+    
+    if (error.name === 'AbortError') {
+      // Request timed out
+      console.log('⏰ Request timed out');
+    } else {
+      // Request failed
+      console.log('❌ Request failed:', error.message);
+    }
+    throw error;
+  }
+}
 
 // Inline ID generation functions for service worker compatibility
 async function generateSHA256Hash(text) {
@@ -257,7 +490,7 @@ async function handlePDFAnalysis(request, sender, sendResponse) {
     const userSettings = settings.userSettings || {};
     
     // Get backend
-    const backend = await BackendManager.getCurrentBackend();
+          const backend = await ServiceWorkerBackendManager.getCurrentBackend();
     if (!backend) {
       throw new Error('No backend available');
     }
@@ -375,6 +608,7 @@ let activeTabs = new Map();
 let analysisInProgress = new Set();
 let analysisQueue = [];
 let isProcessingQueue = false;
+let pdfTabs = new Set(); // Track tabs with PDF content
 
 // Analysis monitoring state
 let activeMonitors = new Map();
@@ -789,7 +1023,7 @@ async function triggerPDFAnalysis(tabId) {
       const researchInterests = userSettings.researchInterests || '';
       
       // Use global backend
-      let backend = await BackendManager.getCurrentBackend();
+      let backend = await ServiceWorkerBackendManager.getCurrentBackend();
       
       // Make API request to backend
       let serverResponse;
@@ -808,7 +1042,7 @@ async function triggerPDFAnalysis(tabId) {
         }, backend);
       } catch (apiError) {
         console.error(`API request failed for tab ${tabId} on backend ${backend?.name}:`, apiError);
-        backend = await BackendManager.getCurrentBackend();
+        backend = await ServiceWorkerBackendManager.getCurrentBackend();
         // Retry once with new backend
         serverResponse = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
           method: 'POST',
@@ -1207,7 +1441,31 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   
   // Enhanced manual analysis with PDF support
   if (request.action === 'analyzePDF') {
-    handlePDFAnalysis(request, sender, sendResponse);
+    // Handle PDF analysis request
+    try {
+      const tabId = sender.tab?.id;
+      if (!tabId) {
+        sendResponse({ error: 'No tab context available' });
+        return true;
+      }
+      
+      if (analysisInProgress.has(tabId)) {
+        console.log(`PDF analysis already in progress for tab ${tabId}`);
+        sendResponse({ success: true, inProgress: true });
+        return true;
+      }
+      
+      // Show badge indicator
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
+      
+      // Start the analysis
+      addToAnalysisQueue(tabId, sender.tab.url);
+      sendResponse({ success: true, queued: true });
+    } catch (error) {
+      console.error('Error starting PDF analysis:', error);
+      sendResponse({ error: error.message });
+    }
     return true;
   }
   
@@ -1288,7 +1546,7 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   } else if (request.action === 'testBackend') {
     // Test backend detection
     try {
-      const backend = await BackendManager.getCurrentBackend();
+      const backend = await ServiceWorkerBackendManager.getCurrentBackend();
       sendResponse({ 
         success: true, 
         backendAvailable: !!backend,

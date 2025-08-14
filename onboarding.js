@@ -290,8 +290,8 @@ async function checkBackendStatus() {
   try {
     console.log('Onboarding: Checking backend status...');
     
-    // Try to find a working backend
-    const backend = await BackendManager.getCurrentBackend();
+    // Use priority 1 backend from config
+    const backend = BackendManager.getPriorityOneBackend();
     
     if (backend) {
       // Test if backend is actually responsive
