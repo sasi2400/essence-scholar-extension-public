@@ -804,6 +804,40 @@
       color: #2c3e50;
       font-size: 28px;
     }
+    
+    /* Credit display styles */
+    .credit-display {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      margin: 0 0 20px 0;
+      text-align: center;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    
+    .credit-display .credit-label {
+      font-weight: 500;
+    }
+    
+    .credit-display .credit-amount {
+      font-size: 18px;
+      font-weight: bold;
+      color: #FFD700;
+      padding: 4px 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+    
+    .credit-display .credit-info {
+      font-size: 12px;
+      opacity: 0.9;
+    }
     .button-group {
       display: flex;
       gap: 12px;
@@ -2300,6 +2334,13 @@
           <button id="clearBtn" class="button" style="background-color: #28a745;">Go to Homepage</button>
         </div>
     </div>
+    
+    <!-- Credit Display -->
+    <div id="credit-display" class="credit-display" style="display: none;">
+      <span class="credit-label">Available Credits:</span>
+      <span class="credit-amount" id="credit-amount">--</span>
+      <span class="credit-info">Credits refresh daily</span>
+    </div>
 
     <!-- <div id="uploadSection" class="upload-section">
       <input type="file" id="pdfUpload" accept=".pdf" style="display: none;">
@@ -2348,6 +2389,13 @@
           <button id="onboardingBtn2" class="button" style="background-color: #17a2b8;">Setup Guide</button>
           <button id="clearBtn2" class="button" style="background-color: #28a745;">Go to Homepage</button>
         </div>
+      </div>
+      
+      <!-- Credit Display for New Layout -->
+      <div id="credit-display-new" class="credit-display" style="grid-column: 1 / -1; margin-bottom: 20px; display: none;">
+        <span class="credit-label">Available Credits:</span>
+        <span class="credit-amount" id="credit-amount-new">--</span>
+        <span class="credit-info">Credits refresh daily</span>
       </div>
       
       <!-- Left Panel (67% width) -->

@@ -603,6 +603,13 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Content script not found, injecting...');
       }
       
+      // Check URL accessibility before injection
+      const tab = await chrome.tabs.get(tabId);
+      if (window.PDFHandler && window.PDFHandler.isUrlAccessibleForContentScript && 
+          !window.PDFHandler.isUrlAccessibleForContentScript(tab.url)) {
+        throw new Error(`Cannot inject content script into ${tab.url.split('://')[0]}:// URL`);
+      }
+      
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
         files: ['content.js']
@@ -961,29 +968,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     try {
       const result = await chrome.storage.local.get(['llmSettings']);
-      const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      const settings = result.llmSettings || { model: 'gemini-2.5-flash' };
       
-      const model = settings.model;
-      let hasValidConfig = false;
+      // No API key validation needed - backend handles all LLM API keys
+      configStatusDiv.style.display = 'none';
       
-      // Check if user has configured appropriate API key for selected model
-      if (model.startsWith('gemini-') && settings.geminiKey) {
-        hasValidConfig = true;
-      } else if (model.startsWith('gpt-') && settings.openaiKey) {
-        hasValidConfig = true;
-      } else if (model.startsWith('claude-') && settings.claudeKey) {
-        hasValidConfig = true;
-      }
-      
-      if (hasValidConfig) {
-        configStatusDiv.style.display = 'none';
-      } else {
-        configStatusDiv.style.display = 'block';
-        const modelType = model.startsWith('gemini-') ? 'Google AI' : 
-                         model.startsWith('gpt-') ? 'OpenAI' : 
-                         model.startsWith('claude-') ? 'Claude' : 'LLM';
-        configStatusDiv.innerHTML = `<div class="warning">⚠️ Please configure your ${modelType} API key in Settings</div>`;
-      }
+      // Fetch and display user credits
+      await fetchAndDisplayCredits();
     } catch (error) {
       console.error('Error checking configuration status:', error);
     }
@@ -1273,12 +1264,6 @@ document.addEventListener('DOMContentLoaded', function() {
   // Settings modal logic
   const settingsModal = document.getElementById('settings-modal');
   const modelSelect = document.getElementById('model-select');
-  const geminiKeySection = document.getElementById('gemini-key-section');
-  const geminiKeyInput = document.getElementById('gemini-key-input');
-  const openaiKeySection = document.getElementById('openai-key-section');
-  const openaiKeyInput = document.getElementById('openai-key-input');
-  const claudeKeySection = document.getElementById('claude-key-section');
-  const claudeKeyInput = document.getElementById('claude-key-input');
   const settingsSaveBtn = document.getElementById('settings-save-btn');
   const settingsCancelBtn = document.getElementById('settings-cancel-btn');
 
@@ -1287,23 +1272,13 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsBtn.addEventListener('click', () => {
       // Load settings from storage
       chrome.storage.local.get(['llmSettings'], (result) => {
-        const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+        const settings = result.llmSettings || { model: 'gemini-2.5-flash' };
         
         console.log('🔍 Popup: Loading LLM settings from storage:', {
-          model: settings.model,
-          geminiKey: settings.geminiKey ? `${settings.geminiKey.substring(0, 10)}...` : 'empty',
-          openaiKey: settings.openaiKey ? `${settings.openaiKey.substring(0, 10)}...` : 'empty',
-          claudeKey: settings.claudeKey ? `${settings.claudeKey.substring(0, 10)}...` : 'empty'
+          model: settings.model
         });
         
         modelSelect.value = settings.model || 'gemini-2.5-flash';
-        geminiKeyInput.value = settings.geminiKey || '';
-        openaiKeyInput.value = settings.openaiKey || '';
-        claudeKeyInput.value = settings.claudeKey || '';
-        // Show appropriate API key section
-        geminiKeySection.style.display = settings.model.startsWith('gemini-') ? 'block' : 'none';
-        openaiKeySection.style.display = settings.model.startsWith('gpt-') ? 'block' : 'none';
-        claudeKeySection.style.display = settings.model.startsWith('claude-') ? 'block' : 'none';
         settingsModal.style.display = 'flex';
       });
     });
@@ -1316,52 +1291,20 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // Show/hide API key inputs based on model selection
-  if (modelSelect) {
-    modelSelect.addEventListener('change', () => {
-      const selectedModel = modelSelect.value;
-      // Show appropriate API key section based on model
-      geminiKeySection.style.display = selectedModel.startsWith('gemini-') ? 'block' : 'none';
-      openaiKeySection.style.display = selectedModel.startsWith('gpt-') ? 'block' : 'none';
-      claudeKeySection.style.display = selectedModel.startsWith('claude-') ? 'block' : 'none';
-    });
-  }
+  // Model selection change handler - no API key sections to show/hide
 
   // Save settings
   if (settingsSaveBtn) {
     settingsSaveBtn.addEventListener('click', () => {
       const model = modelSelect.value;
-      const geminiKey = geminiKeyInput.value.trim();
-      const openaiKey = openaiKeyInput.value.trim();
-      const claudeKey = claudeKeyInput.value.trim();
-      
-      // Validate API keys for all models
-      if (model.startsWith('gemini-') && !geminiKey) {
-        alert('Please enter your Google AI API key to use Gemini models');
-        return;
-      }
-      if (model.startsWith('gpt-') && !openaiKey) {
-        alert('Please enter your OpenAI API key to use GPT models');
-        return;
-      }
-      if (model.startsWith('claude-') && !claudeKey) {
-        alert('Please enter your Claude API key to use Claude models');
-        return;
-      }
       
       const settingsToSave = { 
-        model, 
-        geminiKey,
-        openaiKey, 
-        claudeKey,
+        model,
         lastUpdated: new Date().toISOString()
       };
       
       console.log('🔍 Popup: Saving LLM settings:', {
-        model: settingsToSave.model,
-        geminiKey: settingsToSave.geminiKey ? `${settingsToSave.geminiKey.substring(0, 10)}...` : 'empty',
-        openaiKey: settingsToSave.openaiKey ? `${settingsToSave.openaiKey.substring(0, 10)}...` : 'empty',
-        claudeKey: settingsToSave.claudeKey ? `${settingsToSave.claudeKey.substring(0, 10)}...` : 'empty'
+        model: settingsToSave.model
       });
       
       chrome.storage.local.set({ 
@@ -1375,6 +1318,88 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Function to fetch and display user credits
+  async function fetchAndDisplayCredits() {
+    try {
+      // Get the Essence Scholar API key from storage
+      const result = await chrome.storage.local.get(['essenceScholarApiKey']);
+      const apiKey = result.essenceScholarApiKey;
+      
+      console.log('API key from storage:', apiKey ? 'Found' : 'Not found');
+      console.log('API key length:', apiKey ? apiKey.length : 0);
+      
+      if (!apiKey) {
+        console.log('No API key found, hiding credit display');
+        document.getElementById('credit-display').style.display = 'none';
+        return;
+      }
+      
+      // Get backend URL
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No backend available for credit fetch');
+        return;
+      }
+      
+      console.log('Using backend:', backend.name, 'at URL:', backend.url);
+      
+      // Test backend connectivity first
+      try {
+        const healthResponse = await fetch(`${backend.url}/health`, { method: 'GET' });
+        console.log('Backend health check status:', healthResponse.status);
+      } catch (healthError) {
+        console.error('Backend health check failed:', healthError);
+      }
+      
+      // Fetch user profile (which includes credits)
+      console.log('Fetching credits from:', `${backend.url}/auth/profile`);
+      console.log('Using API key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'None');
+      
+      const response = await fetch(`${backend.url}/auth/profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (response.ok) {
+        const userData = await response.json();
+        console.log('Full user data response:', userData);
+        const credits = userData.user?.credits || 0;
+        
+        // Update credit display
+        const creditAmount = document.getElementById('credit-amount');
+        const creditDisplay = document.getElementById('credit-display');
+        
+        if (creditAmount && creditDisplay) {
+          creditAmount.textContent = credits;
+          creditDisplay.style.display = 'block';
+          
+          // Add color coding based on credit level
+          if (credits > 50) {
+            creditAmount.style.color = '#4CAF50'; // Green for high credits
+          } else if (credits > 20) {
+            creditAmount.style.color = '#FF9800'; // Orange for medium credits
+          } else {
+            creditAmount.style.color = '#F44336'; // Red for low credits
+          }
+        }
+        
+        console.log('Credits updated:', credits);
+      } else {
+        console.log('Failed to fetch credits:', response.status);
+        document.getElementById('credit-display').style.display = 'none';
+      }
+    } catch (error) {
+      console.error('Error fetching credits:', error);
+      document.getElementById('credit-display').style.display = 'none';
+    }
+  }
+  
   // Function to clear stale analysis status
   async function clearStaleAnalysisStatus() {
     try {
@@ -1826,7 +1851,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
             const selectedModel = settings.llmSettings?.model || 'gemini-2.5-flash';
             const userScholarUrl = settings.userSettings?.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
             const researchInterests = settings.userSettings?.researchInterests || '';
-            const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+            const llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash' };
 
             // Step 4: Check if this is a local file or web URL
             let fileContentB64 = null;
@@ -1881,6 +1906,12 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
                         console.log('[PDF Reading] Ping response:', pingResponse);
                       } catch (pingError) {
                         console.log('[PDF Reading] Content script not injected, attempting to inject...');
+                        
+                        // Check if URL is accessible for content script injection
+                        if (window.PDFHandler && window.PDFHandler.isUrlAccessibleForContentScript && 
+                            !window.PDFHandler.isUrlAccessibleForContentScript(tab.url)) {
+                          throw new Error(`Cannot inject content script into ${tab.url.split('://')[0]}:// URL`);
+                        }
                         
                         // Try to inject content script programmatically
                         try {
@@ -2033,16 +2064,7 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
               console.log('No PDF content available, backend will try to download from URL:', tab.url);
             }
             
-            // Add API keys if they have content
-            if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-              basePayload.google_api_key = llmSettings.geminiKey;
-            }
-            if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-              basePayload.openai_api_key = llmSettings.openaiKey;
-            }
-            if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-              basePayload.claude_api_key = llmSettings.claudeKey;
-            }
+            // No API keys needed - backend handles all LLM API keys
             
             // Step 6: Start analysis via streaming endpoint
             showStatus('Starting PDF analysis...', 'info');
@@ -2218,8 +2240,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
       contentScriptCheck.details.available = false;
       contentScriptCheck.details.error = error.message;
       
-      // Try to inject
+      // Try to inject (check URL accessibility first)
       try {
+        if (window.PDFHandler && window.PDFHandler.isUrlAccessibleForContentScript && 
+            !window.PDFHandler.isUrlAccessibleForContentScript(tab.url)) {
+          throw new Error(`Cannot inject content script into ${tab.url.split('://')[0]}:// URL`);
+        }
+        
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           files: ['content.js']
@@ -3082,4 +3109,13 @@ If the issue persists, this may be a compatibility issue with the current SSRN p
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return hashHex.substring(0, 32);
   }
+  
+  // Set up credit refresh interval (every 30 seconds)
+  setInterval(async () => {
+    try {
+      await fetchAndDisplayCredits();
+    } catch (error) {
+      console.error('Error refreshing credits:', error);
+    }
+  }, 30000); // 30 seconds
 });

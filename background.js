@@ -526,10 +526,7 @@ async function handlePDFAnalysis(request, sender, sendResponse) {
       }
     }
     
-    // Add API keys
-    if (llmSettings.geminiKey) payload.google_api_key = llmSettings.geminiKey;
-    if (llmSettings.openaiKey) payload.openai_api_key = llmSettings.openaiKey;
-    if (llmSettings.claudeKey) payload.claude_api_key = llmSettings.claudeKey;
+    // No API keys needed - backend handles all LLM API keys
     
     // Send to backend
     const response = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
@@ -1004,7 +1001,7 @@ async function triggerPDFAnalysis(tabId) {
       let llmSettings, userSettings;
       try {
         const settingsResult = await chrome.storage.local.get(['llmSettings', 'userSettings']);
-        llmSettings = settingsResult.llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        llmSettings = settingsResult.llmSettings || { model: 'gemini' };
         userSettings = settingsResult.userSettings || {};
         
         console.log('[BG] Retrieved settings for analysis:', {
@@ -1015,7 +1012,7 @@ async function triggerPDFAnalysis(tabId) {
         });
       } catch (settingsError) {
         console.error('[BG] Error retrieving settings, using defaults:', settingsError);
-        llmSettings = { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        llmSettings = { model: 'gemini' };
         userSettings = {};
       }
       
@@ -1034,10 +1031,8 @@ async function triggerPDFAnalysis(tabId) {
             content: paperContent || { paperUrl },
             model: llmSettings.model,
             user_scholar_url: userScholarUrl,
-            research_interests: researchInterests,
-            google_api_key: llmSettings.geminiKey || undefined,
-            openai_api_key: llmSettings.openaiKey || undefined,
-            claude_api_key: llmSettings.claudeKey || undefined
+            research_interests: researchInterests
+            // API keys managed by backend
           })
         }, backend);
       } catch (apiError) {
@@ -1050,10 +1045,8 @@ async function triggerPDFAnalysis(tabId) {
             content: paperContent || { paperUrl },
             model: llmSettings.model,
             user_scholar_url: userScholarUrl,
-            research_interests: researchInterests,
-            google_api_key: llmSettings.geminiKey || undefined,
-            openai_api_key: llmSettings.openaiKey || undefined,
-            claude_api_key: llmSettings.claudeKey || undefined
+            research_interests: researchInterests
+            // API keys managed by backend
           })
         }, backend);
       }
