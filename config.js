@@ -211,6 +211,47 @@ function getApiUrlWithBackend(endpoint, backend) {
   return `${backend.url}${endpoint}`;
 }
 
+// Helper function to get API key from storage
+async function getApiKey() {
+  let apiKey = null;
+  
+  // 1. Try chrome.storage.local with key 'essenceScholarApiKey' (from saveSettings)
+  try {
+    const localResult = await chrome.storage.local.get(['essenceScholarApiKey']);
+    if (localResult.essenceScholarApiKey) {
+      apiKey = localResult.essenceScholarApiKey;
+    }
+  } catch (error) {
+    console.log('Error accessing chrome.storage.local:', error);
+  }
+  
+  // 2. Try chrome.storage.sync with key 'essence_scholar_api_key' (from onboarding)
+  if (!apiKey) {
+    try {
+      const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+      if (syncResult.essence_scholar_api_key) {
+        apiKey = syncResult.essence_scholar_api_key;
+      }
+    } catch (error) {
+      console.log('Error accessing chrome.storage.sync:', error);
+    }
+  }
+  
+  // 3. Try localStorage as fallback (from onboarding)
+  if (!apiKey) {
+    try {
+      const localStorageKey = localStorage.getItem('essence_scholar_api_key');
+      if (localStorageKey) {
+        apiKey = localStorageKey;
+      }
+    } catch (error) {
+      console.log('Error accessing localStorage:', error);
+    }
+  }
+  
+  return apiKey;
+}
+
 // Helper function to make API requests with explicit backend
 async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   if (!backend) {
@@ -225,17 +266,27 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   const manifest = chrome?.runtime?.getManifest?.();
   const extensionVersion = manifest ? `v${manifest.version}` : 'unknown';
   
+  // Get API key for authentication
+  const apiKey = await getApiKey();
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Extension-Version': extensionVersion,
+      ...options.headers
+    };
+    
+    // Add Authorization header if API key is available
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Extension-Version': extensionVersion,
-        ...options.headers
-      }
+      headers
     });
     clearTimeout(timeoutId);
     
@@ -297,13 +348,23 @@ function makeStreamRequest(endpoint, bodyObj = {}, onEvent = () => {}) {
       const manifest = chrome?.runtime?.getManifest?.();
       const extensionVersion = manifest ? `v${manifest.version}` : 'unknown';
       
+      // Get API key for authentication
+      const apiKey = await getApiKey();
+      
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'X-Extension-Version': extensionVersion
+      };
+      
+      // Add Authorization header if API key is available
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream',
-          'X-Extension-Version': extensionVersion
-        },
+        headers,
         body: JSON.stringify(bodyObj)
       });
       
