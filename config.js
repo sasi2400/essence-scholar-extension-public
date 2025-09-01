@@ -5,11 +5,11 @@ const CONFIG = {
     LOCAL_DEV: {
       url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 1,
+      priority: 2,
       enabled: true
     },
     CLOUD_RUN: {
-      url: 'https://ssrn-summarizer-backend-v1-6-1-pisqy7uvxq-uc.a.run.app',
+      url: 'https://ssrn-summarizer-backend-v1-7-0-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
       priority: 1,
       enabled: true
