@@ -4999,9 +4999,8 @@ document.addEventListener('DOMContentLoaded', function() {
           // Check each researcher type for existing analysis
           for (const researcher of juniorResearchers) {
             try {
-              const response = await fetch(`${backend.url}/junior-analysis`, {
+              const response = await makeApiRequestWithBackend('/junior-analysis', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   paper_id: paperId,
                   user_scholar_url: scholarUrl,
@@ -5009,7 +5008,7 @@ document.addEventListener('DOMContentLoaded', function() {
                   model: getModelName(llmSettings.model),
                   research_interests: researchInterests
                 })
-              });
+              }, backend);
               
               if (response.ok) {
                 existingAnalyses.add(researcher.id);
@@ -5159,13 +5158,10 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log(`🔄 REFRESH DEBUG - Making request to: ${refreshUrl}`);
       
       // Call the refresh endpoint
-      const response = await fetch(refreshUrl, {
+      const response = await makeApiRequestWithBackend('/junior-analysis-refresh', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(requestBody)
-      });
+      }, backend);
       
       console.log(`🔄 REFRESH DEBUG - Response status: ${response.status} ${response.statusText}`);
       
@@ -5293,11 +5289,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // First, check which analyses exist and which need to be generated
       const analysisStatusPromises = selectedResearchers.map(async (researcherType) => {
         try {
-          const response = await fetch(`${backend.url}/junior-analysis`, {
+          const response = await makeApiRequestWithBackend('/junior-analysis', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
             body: JSON.stringify({
               paper_id: paperId,
               user_scholar_url: scholarUrl,
@@ -5305,7 +5298,7 @@ document.addEventListener('DOMContentLoaded', function() {
               model: getModelName(llmSettings.model),
               research_interests: researchInterests
             })
-          });
+          }, backend);
           
           if (response.ok) {
             const data = await response.json();
@@ -5508,13 +5501,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       console.log(`🔄 Generating analysis for ${researcherType}...`);
       
-      const response = await fetch(`${backend.url}/junior-analysis-generate`, {
+      const response = await makeApiRequestWithBackend('/junior-analysis-generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(generateRequest)
-      });
+      }, backend);
       
       if (!response.ok) {
         const errorText = await response.text();
