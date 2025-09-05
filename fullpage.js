@@ -429,6 +429,45 @@ document.addEventListener('DOMContentLoaded', function() {
   const pdfUploadHomepage = document.getElementById('pdfUploadHomepage');
   const uploadBtnHomepage = document.getElementById('uploadBtnHomepage');
 
+  // Setup collapsible stats functionality
+  function setupCollapsibleStats() {
+    const statsHeader = document.getElementById('statsHeader');
+    const statsContent = document.getElementById('statsContent');
+    const statsArrow = document.getElementById('statsArrow');
+    const statsLoading = document.getElementById('statsLoading');
+    
+    if (!statsHeader || !statsContent || !statsArrow) {
+      console.warn('Stats elements not found');
+      return;
+    }
+    
+    statsHeader.addEventListener('click', async () => {
+      const isExpanded = statsContent.style.display !== 'none';
+      
+      if (!isExpanded) {
+        // Show loading and load stats
+        statsLoading.style.display = 'block';
+        statsArrow.style.transform = 'rotate(180deg)';
+        
+        try {
+          await loadHomepageStats();
+          statsContent.style.display = 'block';
+        } catch (error) {
+          console.error('Failed to load stats:', error);
+          // Show error state or fallback
+          displayStats({ papers: 0, authors: 0, analyses: 0 }, false);
+          statsContent.style.display = 'block';
+        } finally {
+          statsLoading.style.display = 'none';
+        }
+      } else {
+        // Collapse
+        statsContent.style.display = 'none';
+        statsArrow.style.transform = 'rotate(0deg)';
+      }
+    });
+  }
+
   // Homepage functions
   async function loadHomepageStats() {
     try {
@@ -3573,8 +3612,8 @@ document.addEventListener('DOMContentLoaded', function() {
       setupStaticTitle(); // Show title immediately without animation
       startSubtitleLoop(); // Start animated subtitle messages
       
-      // Load stats (now fast with caching, can be blocking for immediate display)
-      await loadHomepageStats();
+      // Don't load stats by default to reduce storage endpoint calls
+      // await loadHomepageStats();
       
       // Load settings immediately (non-blocking, fast from Chrome storage)
       loadSettings().catch(error => {
@@ -3585,6 +3624,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       setupModelSelection();
       setupJuniorResearchers();
+      setupCollapsibleStats();
       
         // Load credits using the waiting mechanism to ensure functions are ready
   window.loadCreditsWhenReady().catch(error => {

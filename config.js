@@ -412,5 +412,6 @@ if (typeof window !== 'undefined') {
   window.makeApiRequestWithBackend = makeApiRequestWithBackend;
   window.makeApiRequest = makeApiRequest;
   window.makeStreamRequest = makeStreamRequest;
+
   window.BackendManager = BackendManager;
 }
