@@ -5,13 +5,13 @@ const CONFIG = {
     LOCAL_DEV: {
       url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 2,
+      priority: 1,
       enabled: true
     },
     CLOUD_RUN: {
       url: 'https://ssrn-summarizer-backend-v1-6-1-pisqy7uvxq-uc.a.run.app',
       name: 'Cloud Run',
-      priority: 1,
+      priority: 2,
       enabled: true
     }
   },
@@ -186,6 +186,35 @@ class ServiceWorkerBackendManager {
 }
 
 // Helper function to make API requests with explicit backend
+// Helper function to get API key from storage (for background script)
+async function getApiKeyBackground() {
+  let apiKey = null;
+  
+  // 1. Try chrome.storage.local with key 'essenceScholarApiKey' (from saveSettings)
+  try {
+    const localResult = await chrome.storage.local.get(['essenceScholarApiKey']);
+    if (localResult.essenceScholarApiKey) {
+      apiKey = localResult.essenceScholarApiKey;
+    }
+  } catch (error) {
+    console.log('Error accessing chrome.storage.local:', error);
+  }
+  
+  // 2. Try chrome.storage.sync with key 'essence_scholar_api_key' (from onboarding)
+  if (!apiKey) {
+    try {
+      const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+      if (syncResult.essence_scholar_api_key) {
+        apiKey = syncResult.essence_scholar_api_key;
+      }
+    } catch (error) {
+      console.log('Error accessing chrome.storage.sync:', error);
+    }
+  }
+  
+  return apiKey;
+}
+
 async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
   if (!backend) {
     throw new Error('No backend provided');
@@ -195,16 +224,26 @@ async function makeApiRequestWithBackend(endpoint, options = {}, backend) {
     ? CONFIG.REQUEST_TIMEOUT 
     : CONFIG.CLOUD_REQUEST_TIMEOUT;
   
+  // Get API key for authentication
+  const apiKey = await getApiKeyBackground();
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers
+    };
+    
+    // Add Authorization header if API key is available
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      }
+      headers
     });
     clearTimeout(timeoutId);
     
@@ -444,12 +483,22 @@ async function makeApiRequestWithBackend(endpoint, options, backend) {
   
   const url = endpoint.startsWith('http') ? endpoint : `${backend.url}${endpoint}`;
   
+  // Get API key for authentication
+  const apiKey = await getApiKeyBackground();
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+  
+  // Add Authorization header if API key is available
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+  
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
+    headers
   });
   
   return response;
@@ -526,10 +575,7 @@ async function handlePDFAnalysis(request, sender, sendResponse) {
       }
     }
     
-    // Add API keys
-    if (llmSettings.geminiKey) payload.google_api_key = llmSettings.geminiKey;
-    if (llmSettings.openaiKey) payload.openai_api_key = llmSettings.openaiKey;
-    if (llmSettings.claudeKey) payload.claude_api_key = llmSettings.claudeKey;
+    // No API keys needed - backend handles all LLM API keys
     
     // Send to backend
     const response = await makeApiRequestWithBackend(CONFIG.ANALYZE_STREAM_ENDPOINT, {
@@ -1004,7 +1050,7 @@ async function triggerPDFAnalysis(tabId) {
       let llmSettings, userSettings;
       try {
         const settingsResult = await chrome.storage.local.get(['llmSettings', 'userSettings']);
-        llmSettings = settingsResult.llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        llmSettings = settingsResult.llmSettings || { model: 'gemini' };
         userSettings = settingsResult.userSettings || {};
         
         console.log('[BG] Retrieved settings for analysis:', {
@@ -1015,7 +1061,7 @@ async function triggerPDFAnalysis(tabId) {
         });
       } catch (settingsError) {
         console.error('[BG] Error retrieving settings, using defaults:', settingsError);
-        llmSettings = { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+        llmSettings = { model: 'gemini' };
         userSettings = {};
       }
       
@@ -1034,10 +1080,8 @@ async function triggerPDFAnalysis(tabId) {
             content: paperContent || { paperUrl },
             model: llmSettings.model,
             user_scholar_url: userScholarUrl,
-            research_interests: researchInterests,
-            google_api_key: llmSettings.geminiKey || undefined,
-            openai_api_key: llmSettings.openaiKey || undefined,
-            claude_api_key: llmSettings.claudeKey || undefined
+            research_interests: researchInterests
+            // API keys managed by backend
           })
         }, backend);
       } catch (apiError) {
@@ -1050,10 +1094,8 @@ async function triggerPDFAnalysis(tabId) {
             content: paperContent || { paperUrl },
             model: llmSettings.model,
             user_scholar_url: userScholarUrl,
-            research_interests: researchInterests,
-            google_api_key: llmSettings.geminiKey || undefined,
-            openai_api_key: llmSettings.openaiKey || undefined,
-            claude_api_key: llmSettings.claudeKey || undefined
+            research_interests: researchInterests
+            // API keys managed by backend
           })
         }, backend);
       }

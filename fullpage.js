@@ -16,6 +16,96 @@ if (typeof BackendManager !== 'undefined') {
   });
 }
 
+// Global placeholder functions - will be replaced with actual implementations later
+window.fetchAndDisplayCredits = async function() { 
+  console.log('⏳ fetchAndDisplayCredits called but not loaded yet. Try again in a moment.');
+  return Promise.resolve(); // Return resolved promise to avoid .catch() errors
+};
+window.loadCreditsInstantly = async function() { 
+  console.log('⏳ loadCreditsInstantly called but not loaded yet. Try again in a moment.');
+  return Promise.resolve(); // Return resolved promise to avoid .catch() errors
+};
+window.displayCredits = function(credits, userInfo) { 
+  console.log('⏳ displayCredits called but not loaded yet. Try again in a moment.'); 
+};
+window.ensureHomepageCreditDisplay = function() { 
+  console.log('⏳ ensureHomepageCreditDisplay called but not loaded yet. Try again in a moment.'); 
+};
+
+// Helper function to wait for real functions to load
+window.waitForCreditFunctions = function(maxWaitMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    console.log('⏳ Waiting for credit functions to load...');
+    
+    const checkInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      
+      // Check if the real functions are loaded (multiple checks for reliability)
+      const fetchReady = window.fetchAndDisplayCredits && window.fetchAndDisplayCredits.toString().length > 200;
+      const loadReady = window.loadCreditsInstantly && window.loadCreditsInstantly.toString().length > 200;
+      const displayReady = window.displayCredits && window.displayCredits.toString().length > 100;
+      
+      if (fetchReady && loadReady && displayReady) {
+        clearInterval(checkInterval);
+        console.log(`✅ Credit functions are now loaded! (took ${elapsed}ms)`);
+        resolve(true);
+      } else if (elapsed > maxWaitMs) {
+        clearInterval(checkInterval);
+        console.warn(`⚠️ Timeout waiting for credit functions to load after ${elapsed}ms`);
+        console.log('Function states:', {
+          fetchAndDisplayCredits: fetchReady,
+          loadCreditsInstantly: loadReady, 
+          displayCredits: displayReady
+        });
+        reject(new Error('Timeout waiting for functions'));
+      } else if (elapsed % 1000 === 0) {
+        // Log progress every second
+        console.log(`⏳ Still waiting... (${elapsed/1000}s elapsed)`);
+      }
+    }, 100); // Check every 100ms
+  });
+};
+
+// Safe credit loading function available immediately
+window.loadCreditsWhenReady = async function() {
+  try {
+    console.log('🔄 Loading credits (waiting for functions to be ready)...');
+    await window.waitForCreditFunctions();
+    console.log('🚀 Functions ready, loading credits...');
+    await window.loadCreditsInstantly();
+    console.log('✅ Credits loaded successfully!');
+  } catch (error) {
+    console.error('❌ Failed to load credits:', error.message);
+  }
+};
+
+// Ensure credit functions are loaded as soon as BackendManager is available
+if (typeof BackendManager !== 'undefined') {
+  setTimeout(function loadCreditFunctions() {
+    // Wait for credit functions to be properly defined before using them
+    window.waitForCreditFunctions(5000).then(() => {
+      console.log('🚀 Credit functions loaded and verified');
+    }).catch((error) => {
+      console.warn('⚠️ Credit functions failed to load in time:', error.message);
+    });
+  }, 1000); // Delay to ensure BackendManager is fully initialized
+}
+
+// Immediate status check function
+window.checkCreditsStatus = function() {
+  console.log('🔍 === CREDITS STATUS CHECK ===');
+  console.log('Functions available:', {
+    fetchAndDisplayCredits: typeof window.fetchAndDisplayCredits,
+    loadCreditsInstantly: typeof window.loadCreditsInstantly,
+    displayCredits: typeof window.displayCredits,
+    ensureHomepageCreditDisplay: typeof window.ensureHomepageCreditDisplay
+  });
+  console.log('DOM ready:', document.readyState);
+  console.log('Try calling the functions in about 1-2 seconds when the script finishes loading.');
+  console.log('🔍 === END STATUS ===');
+};
+
 document.addEventListener('DOMContentLoaded', function() {
   // Persistent analysis status utility functions
   const STATUS_KEY = 'analysisStatus';
@@ -339,51 +429,788 @@ document.addEventListener('DOMContentLoaded', function() {
   const pdfUploadHomepage = document.getElementById('pdfUploadHomepage');
   const uploadBtnHomepage = document.getElementById('uploadBtnHomepage');
 
+  // Setup collapsible stats functionality
+  function setupCollapsibleStats() {
+    const statsHeader = document.getElementById('statsHeader');
+    const statsContent = document.getElementById('statsContent');
+    const statsArrow = document.getElementById('statsArrow');
+    const statsLoading = document.getElementById('statsLoading');
+    
+    if (!statsHeader || !statsContent || !statsArrow) {
+      console.warn('Stats elements not found');
+      return;
+    }
+    
+    statsHeader.addEventListener('click', async () => {
+      const isExpanded = statsContent.style.display !== 'none';
+      
+      if (!isExpanded) {
+        // Show loading and load stats
+        statsLoading.style.display = 'block';
+        statsArrow.style.transform = 'rotate(180deg)';
+        
+        try {
+          await loadHomepageStats();
+          statsContent.style.display = 'block';
+        } catch (error) {
+          console.error('Failed to load stats:', error);
+          // Show error state or fallback
+          displayStats({ papers: 0, authors: 0, analyses: 0 }, false);
+          statsContent.style.display = 'block';
+        } finally {
+          statsLoading.style.display = 'none';
+        }
+      } else {
+        // Collapse
+        statsContent.style.display = 'none';
+        statsArrow.style.transform = 'rotate(0deg)';
+      }
+    });
+  }
+
   // Homepage functions
   async function loadHomepageStats() {
     try {
+      const startTime = performance.now();
+      console.log(`📊 [${new Date().toISOString()}] Loading homepage stats (with caching)...`);
+      
+      // Check for cached storage info first
+      const cachedData = await getCachedStorageInfo();
+      if (cachedData) {
+        console.log('⚡ Using cached storage info (instant display):', cachedData.stats);
+        displayStats(cachedData.stats, false); // false = no animation for cached data
+        
+        // Check if cache is still fresh (less than 5 minutes old)
+        const cacheAge = Date.now() - cachedData.timestamp;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (cacheAge < fiveMinutes) {
+          const endTime = performance.now();
+          console.log(`✅ Cache is fresh (${Math.round(cacheAge / 1000)}s old), skipping backend request (took ${(endTime - startTime).toFixed(2)}ms)`);
+          return; // Use cached data, no backend request needed
+        } else {
+          console.log(`🔄 Cache is stale (${Math.round(cacheAge / 1000)}s old), updating from backend...`);
+        }
+      } else {
+        console.log('🆕 No cached data found, fetching from backend...');
+      }
+      
+      // Fetch fresh data from backend
       const backend = await getBackendOptimized();
       if (!backend) {
         console.error('No backend available for stats');
+        // If we have cached data, keep using it even if backend is unavailable
+        if (cachedData) {
+          console.log('📦 Backend unavailable, keeping cached stats');
+          return;
+        }
+        // Otherwise set fallback values
+        displayStats({ papers: 0, authors: 0, analyses: 0 }, false);
         return;
       }
 
       const response = await fetch(`${backend.url}/storage/info`);
       if (response.ok) {
         const data = await response.json();
+        const stats = {
+          papers: data.persistent_storage.papers || 0,
+          authors: data.persistent_storage.authors || 0,
+          analyses: data.persistent_storage.analyses || 0
+        };
         
-        // Update all stats with animated counters
-        const papersCount = data.persistent_storage.papers || 0;
-        const authorsCount = data.persistent_storage.authors || 0;
-        const analysesCount = data.persistent_storage.analyses || 0;
+        // Cache the fresh data
+        await cacheStorageInfo(stats);
         
-        if (totalPapers) {
-          animateCounter(totalPapers, 0, papersCount, 1000);
+        // Display with animation only if we didn't show cached data
+        const shouldAnimate = !cachedData;
+        displayStats(stats, shouldAnimate);
+        
+        const endTime = performance.now();
+        console.log(`📊 Fresh stats loaded from backend (took ${(endTime - startTime).toFixed(2)}ms):`, stats);
+      } else {
+        console.error('Backend returned non-OK response:', response.status);
+        // If backend fails but we have cached data, keep using it
+        if (!cachedData) {
+          displayStats({ papers: 0, authors: 0, analyses: 0 }, false);
         }
-        
-        if (totalAuthors) {
-          animateCounter(totalAuthors, 0, authorsCount, 1200);
-        }
-        
-        if (analyzedPapers) {
-          animateCounter(analyzedPapers, 0, analysesCount, 1400);
-        }
-        
-        // Debug logging
-        console.log('📊 Homepage Stats:', {
-          totalPapers: papersCount,
-          totalAuthors: authorsCount,
-          analyzedPapers: analysesCount
-        });
       }
     } catch (error) {
       console.error('Error loading homepage stats:', error);
-      // Set fallback values if there's an error
-      if (totalPapers) totalPapers.textContent = '0';
-      if (totalAuthors) totalAuthors.textContent = '0';
-      if (analyzedPapers) analyzedPapers.textContent = '0';
+      // Check if we have cached data as fallback
+      const cachedData = await getCachedStorageInfo();
+      if (cachedData) {
+        console.log('📦 Error occurred, using cached data as fallback');
+        displayStats(cachedData.stats, false);
+      } else {
+        // Set fallback values if no cache available
+        displayStats({ papers: 0, authors: 0, analyses: 0 }, false);
+      }
     }
   }
+  
+  // Helper function to display stats with optional animation
+  function displayStats(stats, animate = true) {
+    if (animate) {
+      // Use animated counters for fresh data
+      if (totalPapers) {
+        animateCounter(totalPapers, 0, stats.papers, 1000);
+      }
+      
+      if (totalAuthors) {
+        animateCounter(totalAuthors, 0, stats.authors, 1200);
+      }
+      
+      if (analyzedPapers) {
+        animateCounter(analyzedPapers, 0, stats.analyses, 1400);
+      }
+    } else {
+      // Instant display for cached data
+      if (totalPapers) totalPapers.textContent = stats.papers.toLocaleString();
+      if (totalAuthors) totalAuthors.textContent = stats.authors.toLocaleString();
+      if (analyzedPapers) analyzedPapers.textContent = stats.analyses.toLocaleString();
+    }
+  }
+  
+  // Cache management functions
+  async function getCachedStorageInfo() {
+    try {
+      const result = await chrome.storage.local.get(['cachedStorageInfo']);
+      return result.cachedStorageInfo || null;
+    } catch (error) {
+      console.error('Error getting cached storage info:', error);
+      return null;
+    }
+  }
+  
+  async function cacheStorageInfo(stats) {
+    try {
+      const cacheData = {
+        stats: stats,
+        timestamp: Date.now()
+      };
+      await chrome.storage.local.set({ cachedStorageInfo: cacheData });
+      console.log('💾 Cached storage info for future fast loading:', stats);
+    } catch (error) {
+      console.error('Error caching storage info:', error);
+    }
+  }
+  
+  // Credits cache management functions
+  async function getCachedCredits() {
+    try {
+      const result = await chrome.storage.local.get(['cachedCredits']);
+      return result.cachedCredits || null;
+    } catch (error) {
+      console.error('Error getting cached credits:', error);
+      return null;
+    }
+  }
+  
+  async function cacheCredits(credits, userInfo) {
+    try {
+      const cacheData = {
+        credits: credits,
+        userInfo: userInfo,
+        timestamp: Date.now()
+      };
+      await chrome.storage.local.set({ cachedCredits: cacheData });
+      console.log('💾 Cached credits for future fast loading:', { credits, userInfo });
+    } catch (error) {
+      console.error('Error caching credits:', error);
+    }
+  }
+  
+  // Ultra-fast cache-first credit loading function
+  async function loadCreditsInstantly() {
+    try {
+      console.log('⚡ Loading credits instantly from cache...');
+      
+      // Check cache FIRST - no API key validation, no backend checks
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('🚀 INSTANT: Displaying cached credits immediately');
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+        
+        // Schedule background refresh only if cache is stale (>5min)
+        const cacheAge = Date.now() - cachedCredits.timestamp;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (cacheAge > fiveMinutes) {
+          console.log(`🔄 Cache is ${Math.round(cacheAge / 1000)}s old, scheduling background refresh...`);
+          // Background refresh after 2 seconds to not block UI
+          setTimeout(() => {
+            if (typeof window.fetchAndDisplayCredits === 'function' && window.fetchAndDisplayCredits.toString().length > 200) {
+              window.fetchAndDisplayCredits().catch(error => {
+                console.log('📦 Background credit refresh failed, keeping cache:', error.message);
+              });
+            }
+          }, 2000);
+        } else {
+          console.log(`✅ Cache is fresh (${Math.round(cacheAge / 1000)}s old), no refresh needed`);
+        }
+        return;
+      }
+      
+      // No cache found - try to load from backend but with minimal delay
+      console.log('🆕 No cache found, attempting quick background load...');
+      setTimeout(() => {
+        if (typeof window.fetchAndDisplayCredits === 'function' && window.fetchAndDisplayCredits.toString().length > 200) {
+          window.fetchAndDisplayCredits().catch(error => {
+            console.log('📡 Initial credit load failed:', error.message);
+            // Show placeholder if no cache and backend fails
+            if (typeof displayCreditsPlaceholder === 'function') {
+              displayCreditsPlaceholder();
+            }
+          });
+        }
+      }, 100); // Minimal delay to not block UI
+      
+    } catch (error) {
+      console.error('❌ Error in loadCreditsInstantly:', error);
+      // Show placeholder on any error
+      displayCreditsPlaceholder();
+    }
+  }
+  
+  // Function to show placeholder credits when no cache and backend fails
+  function displayCreditsPlaceholder() {
+    console.log('📝 Showing credit placeholder...');
+    ensureHomepageCreditDisplay();
+    
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    if (creditHomepage) {
+      const creditAmountHomepage = document.getElementById('credit-amount-homepage');
+      if (creditAmountHomepage) {
+        creditAmountHomepage.textContent = '--';
+        creditHomepage.style.display = 'block';
+        creditHomepage.style.background = 'linear-gradient(135deg, #6c757d, #495057)';
+        creditHomepage.style.opacity = '0.7';
+        
+        const labelElement = creditHomepage.querySelector('.credit-label');
+        if (labelElement) {
+          labelElement.textContent = 'Credits Loading...';
+        }
+        
+        creditHomepage.title = 'Credits are being loaded. Click to retry.';
+        creditHomepage.onclick = () => {
+          console.log('🔄 User clicked to retry credits loading');
+          loadCreditsInstantly();
+        };
+      }
+    }
+  }
+  
+  // Function to ensure homepage credit display exists
+  function ensureHomepageCreditDisplay() {
+    // Check if homepage credit display already exists
+    if (document.getElementById('credit-display-homepage')) {
+      return; // Already exists
+    }
+    
+    // Find the homepage header or a good location to place the credit display
+    const homepageHeader = document.querySelector('.homepage-header');
+    const homepageContent = document.querySelector('.homepage-content');
+    
+    if (homepageHeader || homepageContent) {
+      // Create the credit display element
+      const creditDisplayHomepage = document.createElement('div');
+      creditDisplayHomepage.id = 'credit-display-homepage';
+      creditDisplayHomepage.className = 'credit-display';
+      creditDisplayHomepage.style.cssText = `
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        color: #2c3e50;
+        padding: 8px 12px;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        z-index: 1000;
+        transition: all 0.3s ease;
+        min-width: 120px;
+        max-width: 180px;
+        font-size: 12px;
+      `;
+      
+      creditDisplayHomepage.innerHTML = `
+        <span class="credit-label" style="margin-right: 6px; font-size: 11px; font-weight: 500; opacity: 0.8;">Credits:</span>
+        <span id="credit-amount-homepage" style="font-weight: 700; font-size: 13px;">--</span>
+      `;
+      
+      // Add click handler
+      creditDisplayHomepage.style.cursor = 'pointer';
+      creditDisplayHomepage.onclick = () => {
+        if (typeof window.refreshCreditsCache === 'function') {
+          window.refreshCreditsCache();
+        }
+      };
+      
+      // Append to body for fixed positioning
+      document.body.appendChild(creditDisplayHomepage);
+      
+      // Add beautiful entrance animation
+      setTimeout(() => {
+        creditDisplayHomepage.style.animation = 'slideInFromRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+      }, 100);
+      
+      // Add CSS animation styles
+      if (!document.getElementById('credit-animations')) {
+        const style = document.createElement('style');
+        style.id = 'credit-animations';
+        style.textContent = `
+          @keyframes slideInFromRight {
+            from {
+              transform: translateX(100px);
+              opacity: 0;
+            }
+            to {
+              transform: translateX(0);
+              opacity: 1;
+            }
+          }
+          
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+      
+      console.log('✅ Created modern floating credit display in bottom-right corner with animations');
+    } else {
+      console.warn('⚠️ Could not find homepage header or content to add credit display');
+    }
+  }
+  
+  // Enhanced credits display function
+  function displayCredits(credits, userInfo = {}) {
+    // Ensure homepage credit display exists
+    ensureHomepageCreditDisplay();
+    
+    const creditAmount = document.getElementById('credit-amount');
+
+    const creditDisplay = document.getElementById('credit-display');
+
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    
+    // Format credits with comma separator for readability
+    const formattedCredits = credits.toLocaleString();
+    
+    // Determine credit level and styling
+    let color, level, backgroundColor;
+    if (credits > 100) {
+      color = '#4CAF50'; // Green for high credits
+      level = 'High';
+      backgroundColor = 'rgba(76, 175, 80, 0.1)';
+    } else if (credits > 50) {
+      color = '#FF9800'; // Orange for medium credits
+      level = 'Medium';
+      backgroundColor = 'rgba(255, 152, 0, 0.1)';
+    } else {
+      color = '#F44336'; // Red for low credits
+      level = 'Low';
+      backgroundColor = 'rgba(244, 67, 54, 0.1)';
+    }
+    
+    if (creditAmount && creditDisplay) {
+      creditAmount.textContent = formattedCredits;
+      creditDisplay.style.display = 'flex';
+      creditAmount.style.color = color;
+      
+      // Enhanced styling
+      creditDisplay.style.background = `linear-gradient(135deg, ${backgroundColor}, ${color}20)`;
+      creditDisplay.style.border = `2px solid ${color}40`;
+      creditDisplay.style.boxShadow = `0 4px 12px ${color}30`;
+      
+      // Add user info to label if available
+      const labelElement = creditDisplay.querySelector('.credit-label');
+      if (labelElement && userInfo.name) {
+        labelElement.textContent = `${userInfo.name}'s Credits:`;
+      }
+      
+      // Enhanced tooltip
+      creditDisplay.title = userInfo.name || userInfo.email 
+        ? `User: ${userInfo.name || userInfo.email}\\nCredits: ${formattedCredits} (${level} level)\\nClick to refresh`
+        : `Credits: ${formattedCredits} (${level} level)\\nClick to refresh`;
+        
+      // Add click handler for manual refresh
+      creditDisplay.style.cursor = 'pointer';
+      creditDisplay.onclick = () => {
+        if (typeof window.refreshCreditsCache === 'function') {
+          window.refreshCreditsCache();
+        }
+      };
+    }
+    
+
+    
+    // Update homepage credit display (modern floating design)
+    if (creditHomepage) {
+      const creditAmountHomepage = document.getElementById('credit-amount-homepage');
+      if (creditAmountHomepage) {
+        creditAmountHomepage.textContent = formattedCredits;
+        creditHomepage.style.display = 'block';
+        
+        // Update colors based on credit level with modern approach
+        let accentColor, bgOpacity;
+        if (credits > 100) {
+          accentColor = '#059669'; // Green
+          bgOpacity = '0.98';
+        } else if (credits > 50) {
+          accentColor = '#ea580c'; // Orange
+          bgOpacity = '0.96';
+        } else {
+          accentColor = '#dc2626'; // Red
+          bgOpacity = '0.95';
+        }
+        
+        creditAmountHomepage.style.color = accentColor;
+        creditHomepage.style.background = `rgba(255, 255, 255, ${bgOpacity})`;
+        creditHomepage.style.border = `1px solid ${accentColor}20`;
+        creditHomepage.style.boxShadow = `0 10px 40px ${accentColor}15, 0 4px 12px rgba(0, 0, 0, 0.1)`;
+        
+        // Add subtle hover effect
+        creditHomepage.onmouseenter = () => {
+          creditHomepage.style.transform = 'translateY(-2px)';
+          creditHomepage.style.boxShadow = `0 12px 50px ${accentColor}25, 0 6px 16px rgba(0, 0, 0, 0.15)`;
+        };
+        creditHomepage.onmouseleave = () => {
+          creditHomepage.style.transform = 'translateY(0)';
+          creditHomepage.style.boxShadow = `0 10px 40px ${accentColor}15, 0 4px 12px rgba(0, 0, 0, 0.1)`;
+        };
+        
+        // Update label with user info if available
+        const labelElementHomepage = creditHomepage.querySelector('.credit-label');
+        if (labelElementHomepage && userInfo.name) {
+          labelElementHomepage.textContent = `${userInfo.name.split(' ')[0]}'s Credits`;
+        }
+        
+        // Enhanced tooltip
+        creditHomepage.title = userInfo.name || userInfo.email 
+          ? `${userInfo.name || userInfo.email}\\n${formattedCredits} credits (${level} level)\\nClick to refresh`
+          : `${formattedCredits} credits (${level} level)\\nClick to refresh`;
+      }
+    }
+    
+    console.log(`💳 Credits displayed: ${formattedCredits} (${level} level) for ${userInfo.name || 'user'}`);
+  }
+  
+  // Expose cache management functions for debugging
+  window.refreshStatsCache = async function() {
+    console.log('🔄 Manually refreshing stats cache...');
+    await chrome.storage.local.remove(['cachedStorageInfo']);
+    await loadHomepageStats();
+    console.log('✅ Stats cache refreshed');
+  };
+  
+  window.checkStatsCache = async function() {
+    const cached = await getCachedStorageInfo();
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      console.log('📊 Stats cache info:', {
+        stats: cached.stats,
+        age: `${Math.round(age / 1000)}s`,
+        fresh: age < 5 * 60 * 1000
+      });
+    } else {
+      console.log('📊 No stats cache found');
+    }
+  };
+  
+  // Credits cache debugging functions
+  window.refreshCreditsCache = async function() {
+    console.log('🔄 Manually refreshing credits cache...');
+    await chrome.storage.local.remove(['cachedCredits']);
+    if (typeof window.fetchAndDisplayCredits === 'function') {
+      await window.fetchAndDisplayCredits();
+    }
+    console.log('✅ Credits cache refreshed');
+  };
+  
+  window.checkCreditsCache = async function() {
+    const cached = await getCachedCredits();
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      console.log('💳 Credits cache info:', {
+        credits: cached.credits,
+        userInfo: cached.userInfo,
+        age: `${Math.round(age / 1000)}s`,
+        fresh: age < 5 * 60 * 1000
+      });
+    } else {
+      console.log('💳 No credits cache found');
+    }
+  };
+  
+  // Debug function to check credit display elements
+  window.debugCreditsDisplay = function() {
+    console.log('💳 === CREDITS DISPLAY DEBUG ===');
+    
+    const creditDisplay = document.getElementById('credit-display');
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    const creditAmount = document.getElementById('credit-amount');
+    const creditAmountHomepage = document.getElementById('credit-amount-homepage');
+    
+    console.log('Credit Display Elements:', {
+      creditDisplay: !!creditDisplay,
+      creditHomepage: !!creditHomepage,
+      creditAmount: !!creditAmount,
+      creditAmountHomepage: !!creditAmountHomepage
+    });
+    
+    if (creditDisplay) {
+      console.log('credit-display style:', {
+        display: creditDisplay.style.display,
+        computedDisplay: window.getComputedStyle(creditDisplay).display,
+        visibility: window.getComputedStyle(creditDisplay).visibility,
+        opacity: window.getComputedStyle(creditDisplay).opacity,
+        position: window.getComputedStyle(creditDisplay).position
+      });
+    }
+    
+
+    
+    if (creditHomepage) {
+      console.log('credit-display-homepage style:', {
+        display: creditHomepage.style.display,
+        computedDisplay: window.getComputedStyle(creditHomepage).display,
+        visibility: window.getComputedStyle(creditHomepage).visibility,
+        opacity: window.getComputedStyle(creditHomepage).opacity,
+        position: window.getComputedStyle(creditHomepage).position
+      });
+    } else {
+      console.log('🔄 Homepage credit display not found, will be created when credits are displayed');
+    }
+    
+    // Check current view mode
+    console.log('Current view info:', {
+      viewMode: typeof viewMode !== 'undefined' ? viewMode : 'undefined',
+      bodyClasses: document.body.className,
+      isHomepage: typeof isHomepage !== 'undefined' ? isHomepage : 'undefined'
+    });
+    
+    console.log('💳 === END CREDITS DISPLAY DEBUG ===');
+  };
+  
+  // Manual function to show credits (for debugging)
+  window.forceShowCredits = function() {
+    console.log('🔧 Forcing credits display...');
+    
+    // Ensure homepage credit display exists
+    ensureHomepageCreditDisplay();
+    
+    const creditDisplay = document.getElementById('credit-display');
+
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    
+    if (creditDisplay) {
+      creditDisplay.style.display = 'flex';
+      creditDisplay.style.visibility = 'visible';
+      creditDisplay.style.opacity = '1';
+      console.log('✅ Forced credit-display to show');
+    }
+    
+
+    
+    if (creditHomepage) {
+      creditHomepage.style.display = 'block';
+      creditHomepage.style.visibility = 'visible';
+      creditHomepage.style.opacity = '1';
+      console.log('✅ Forced credit-display-homepage to show');
+    }
+  };
+  
+  // Debugging function to check API key storage
+  window.debugApiKey = async function() {
+    console.log('🔍 === API KEY DEBUG ===');
+    
+    // Check chrome.storage.local
+    try {
+      const localResult = await chrome.storage.local.get(['essenceScholarApiKey']);
+      console.log('chrome.storage.local (essenceScholarApiKey):', localResult.essenceScholarApiKey ? `Found: ${localResult.essenceScholarApiKey.substring(0, 10)}...` : 'Not found');
+    } catch (error) {
+      console.log('chrome.storage.local error:', error);
+    }
+    
+    // Check chrome.storage.sync
+    try {
+      const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+      console.log('chrome.storage.sync (essence_scholar_api_key):', syncResult.essence_scholar_api_key ? `Found: ${syncResult.essence_scholar_api_key.substring(0, 10)}...` : 'Not found');
+    } catch (error) {
+      console.log('chrome.storage.sync error:', error);
+    }
+    
+    // Check localStorage
+    try {
+      const localStorageKey = localStorage.getItem('essence_scholar_api_key');
+      console.log('localStorage (essence_scholar_api_key):', localStorageKey ? `Found: ${localStorageKey.substring(0, 10)}...` : 'Not found');
+    } catch (error) {
+      console.log('localStorage error:', error);
+    }
+    
+    console.log('🔍 === END API KEY DEBUG ===');
+  };
+  
+  // Manual credits refresh for debugging
+  window.refreshCredits = async function() {
+    console.log('🔄 Manually refreshing credits...');
+    if (typeof window.fetchAndDisplayCredits === 'function') {
+      await window.fetchAndDisplayCredits();
+    } else {
+      console.error('fetchAndDisplayCredits function not available yet');
+    }
+    console.log('✅ Credits refresh attempt complete');
+  };
+  
+  // Comprehensive credit testing function
+  window.testCredits = function() {
+    console.log('🧪 === COMPREHENSIVE CREDITS TEST ===');
+    
+    // Test function availability
+    console.log('Function availability:', {
+      fetchAndDisplayCredits: typeof window.fetchAndDisplayCredits,
+      loadCreditsInstantly: typeof window.loadCreditsInstantly,
+      displayCredits: typeof window.displayCredits,
+      ensureHomepageCreditDisplay: typeof window.ensureHomepageCreditDisplay,
+      refreshCreditsCache: typeof window.refreshCreditsCache,
+      checkCreditsCache: typeof window.checkCreditsCache
+    });
+    
+    // Test DOM elements
+    console.log('DOM elements:', {
+      'credit-display': !!document.getElementById('credit-display'),
+      'credit-display-homepage': !!document.getElementById('credit-display-homepage')
+    });
+    
+    // Test if we can create homepage display
+    if (typeof window.ensureHomepageCreditDisplay === 'function') {
+      console.log('Creating homepage credit display...');
+      window.ensureHomepageCreditDisplay();
+    }
+    
+    // Test cache
+    if (typeof window.checkCreditsCache === 'function') {
+      console.log('Checking cache...');
+      window.checkCreditsCache();
+    }
+    
+    console.log('🧪 === END CREDITS TEST ===');
+    console.log('Try running: loadCreditsInstantly() or refreshCreditsCache()');
+  };
+  
+  // Simple test with sample data for immediate results
+  window.showSampleCredits = function() {
+    console.log('🎯 Showing sample credits for testing...');
+    
+    // Ensure homepage display exists
+    if (typeof window.ensureHomepageCreditDisplay === 'function') {
+      window.ensureHomepageCreditDisplay();
+    }
+    
+    // Show sample credits immediately
+    if (typeof window.displayCredits === 'function') {
+      window.displayCredits(1000, { name: 'Sasan Mansouri', email: 'sasi2400@gmail.com' });
+      console.log('✅ Sample credits displayed! Check bottom-right corner.');
+    } else {
+      console.error('displayCredits function not available');
+    }
+  };
+  
+  // Test both functions side by side
+  window.compareFunctions = async function() {
+    console.log('🆚 COMPARING testApiKey vs fetchAndDisplayCredits');
+    console.log('================================');
+    
+    console.log('1️⃣ Running testApiKey...');
+    await window.testApiKey();
+    
+    console.log('\\n2️⃣ Running fetchAndDisplayCredits...');
+    if (typeof window.fetchAndDisplayCredits === 'function') {
+      await window.fetchAndDisplayCredits();
+    }
+    
+    console.log('\\n🔍 Check the outputs above to see any differences');
+  };
+  
+  // Test API key validity
+  window.testApiKey = async function() {
+    console.log('🧪 Testing API key validity...');
+    
+    // Get API key using same logic as fetchAndDisplayCredits
+    let apiKey = null;
+    
+    try {
+      const localResult = await chrome.storage.local.get(['essenceScholarApiKey']);
+      if (localResult.essenceScholarApiKey) {
+        apiKey = localResult.essenceScholarApiKey;
+      }
+    } catch (error) {
+      console.log('Error checking chrome.storage.local:', error);
+    }
+    
+    if (!apiKey) {
+      try {
+        const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+        if (syncResult.essence_scholar_api_key) {
+          apiKey = syncResult.essence_scholar_api_key;
+        }
+      } catch (error) {
+        console.log('Error checking chrome.storage.sync:', error);
+      }
+    }
+    
+    if (!apiKey) {
+      console.log('❌ No API key found');
+      return;
+    }
+    
+    console.log('🔑 Testing API key:', apiKey.substring(0, 15) + '...');
+    
+    // Test the API key directly
+    try {
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('❌ No backend available');
+        return;
+      }
+      
+      const response = await fetch(`${backend.url}/auth/profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('🔍 API Test Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ API key is valid! User data:', {
+          name: data.user?.name,
+          email: data.user?.email,
+          credits: data.user?.credits
+        });
+      } else {
+        const errorText = await response.text();
+        console.log('❌ API key test failed:', {
+          status: response.status,
+          error: errorText
+        });
+      }
+    } catch (error) {
+      console.error('❌ API key test error:', error);
+    }
+  };
 
   async function searchPapers(query) {
     try {
@@ -518,66 +1345,202 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function loadSettings() {
     try {
-      console.log('Loading settings...');
+      const startTime = performance.now();
+      console.log(`⚡ [${new Date().toISOString()}] Loading settings (optimized for speed)...`);
       
-      // Always try local storage first for immediate loading
+      // Debug: Check if DOM elements are available
+      console.log('🔍 DOM elements check:', {
+        googleScholarUrl: !!googleScholarUrl,
+        researchInterests: !!researchInterests,
+        googleScholarUrlElement: !!document.getElementById('googleScholarUrl'),
+        researchInterestsElement: !!document.getElementById('researchInterests')
+      });
+      
+      // ALWAYS load from Chrome storage first for immediate, fast UI updates
       const result = await chrome.storage.local.get(['userSettings']);
       const localSettings = result.userSettings || {};
-      console.log('Local settings found:', localSettings);
+      console.log('📁 Local settings found:', localSettings);
       
-      if (googleScholarUrl) {
+      // Get fresh references to DOM elements in case they weren't available at script load time
+      const googleScholarUrlElement = googleScholarUrl || document.getElementById('googleScholarUrl');
+      const researchInterestsElement = researchInterests || document.getElementById('researchInterests');
+      
+      // Immediately update UI with local settings (fast path)
+      if (googleScholarUrlElement) {
         const scholarUrl = localSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
-        googleScholarUrl.value = scholarUrl;
-        console.log('📚 Loaded Scholar URL from storage:', localSettings.googleScholarUrl);
-        console.log('📚 Set Google Scholar URL input to:', scholarUrl);
+        googleScholarUrlElement.value = scholarUrl;
+        console.log('🔗 INSTANT UPDATE: Set Google Scholar URL from local storage:', scholarUrl);
+        console.log('🔗 Element visibility:', {
+          display: window.getComputedStyle(googleScholarUrlElement).display,
+          visibility: window.getComputedStyle(googleScholarUrlElement).visibility,
+          opacity: window.getComputedStyle(googleScholarUrlElement).opacity
+        });
         // Cache the scholar URL for sync access
         window.localScholarUrlCache = scholarUrl;
       } else {
-        console.warn('Google Scholar URL element not found');
+        console.warn('⚠️ Google Scholar URL element not found - this may be why settings are not showing');
       }
       
-      if (researchInterests) {
-        researchInterests.value = localSettings.researchInterests || '';
-        console.log('Set Research Interests:', localSettings.researchInterests ? 'Content loaded' : 'Empty');
+      if (researchInterestsElement) {
+        const interests = localSettings.researchInterests || '';
+        researchInterestsElement.value = interests;
+        console.log('📝 INSTANT UPDATE: Set research interests from local storage:', interests ? 'Content loaded' : 'Empty');
+        console.log('📝 Element visibility:', {
+          display: window.getComputedStyle(researchInterestsElement).display,
+          visibility: window.getComputedStyle(researchInterestsElement).visibility,
+          opacity: window.getComputedStyle(researchInterestsElement).opacity
+        });
       } else {
-        console.warn('Research Interests element not found');
+        console.warn('⚠️ Research Interests element not found - this may be why settings are not showing');
       }
       
       // Show indicator if research interests were generated
       if (localSettings.isGenerated && localSettings.generatedAt) {
-        console.log('Loaded generated research profile from:', new Date(localSettings.generatedAt).toLocaleString());
+        console.log('🤖 Loaded generated research profile from:', new Date(localSettings.generatedAt).toLocaleString());
       }
       
-      // Try to load from backend as well (but don't override local settings if backend fails)
-      try {
-        const backend = await getBackendOptimized();
-        if (backend) {
-          const response = await makeApiRequestWithBackend('/user/settings', {
-            method: 'GET'
-          }, backend);
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Backend settings found:', data);
-            
-            // Only update if backend has data and local storage is empty
-            if (data.google_scholar_url && !localSettings.googleScholarUrl) {
-              if (googleScholarUrl) googleScholarUrl.value = data.google_scholar_url;
-            }
-            if (data.research_interests && !localSettings.researchInterests) {
-              if (researchInterests) researchInterests.value = data.research_interests;
-            }
-          }
-        }
-      } catch (error) {
-        console.log('Backend settings not available, using local storage only');
-      }
+      const endTime = performance.now();
+      console.log(`✅ [${new Date().toISOString()}] Settings loaded instantly from Chrome storage (took ${(endTime - startTime).toFixed(2)}ms)`);
       
-      console.log('Settings loaded successfully');
+      // Background sync with backend (non-blocking for better performance)
+      // This keeps backend in sync but doesn't block the UI
+      if (localSettings.googleScholarUrl || localSettings.researchInterests) {
+        // We have local settings - sync with backend in background
+        setTimeout(() => {
+          syncSettingsWithBackend(localSettings, false).catch(error => {
+            console.log('🔄 Background settings sync with backend failed (non-critical):', error.message);
+          });
+        }, 100); // Small delay to avoid blocking UI
+      } else {
+        // No local settings - try to get from backend as fallback (but this should be rare after onboarding)
+        setTimeout(() => {
+          loadSettingsFromBackendAsFallback().catch(error => {
+            console.log('📡 Fallback backend settings load failed (non-critical):', error.message);
+          });
+        }, 100);
+      }
     } catch (error) {
-      console.error('Error loading settings:', error);
+      console.error('❌ Error in loadSettings:', error);
+      // Even if there's an error, try to load defaults
+      const googleScholarUrlElement = googleScholarUrl || document.getElementById('googleScholarUrl');
+      if (googleScholarUrlElement && !googleScholarUrlElement.value) {
+        googleScholarUrlElement.value = 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
+      }
     }
   }
+  
+  // Separate function for backend fallback loading (only used when no local settings exist)
+  async function loadSettingsFromBackendAsFallback() {
+    try {
+      const backend = await getBackendOptimized();
+      if (!backend) {
+        console.log('🚫 No backend available for fallback settings load');
+        return;
+      }
+      
+      console.log('📡 Attempting fallback load from backend...');
+      const response = await makeApiRequestWithBackend('/user/settings', {
+        method: 'GET'
+      }, backend);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📡 Backend fallback settings loaded:', data);
+        
+        const localSettings = {};
+        let hasUpdates = false;
+        
+        // Get fresh references to DOM elements
+        const googleScholarUrlElement = googleScholarUrl || document.getElementById('googleScholarUrl');
+        const researchInterestsElement = researchInterests || document.getElementById('researchInterests');
+        
+        // Update UI and local storage with backend data
+        if (googleScholarUrlElement && data.google_scholar_url && !googleScholarUrlElement.value) {
+          googleScholarUrlElement.value = data.google_scholar_url;
+          localSettings.googleScholarUrl = data.google_scholar_url;
+          hasUpdates = true;
+        }
+        
+        if (researchInterestsElement && data.research_interests && !researchInterestsElement.value) {
+          researchInterestsElement.value = data.research_interests;
+          localSettings.researchInterests = data.research_interests;
+          hasUpdates = true;
+        }
+        
+        // Save backend data to local storage for future fast loading
+        if (hasUpdates) {
+          await chrome.storage.local.set({ userSettings: localSettings });
+          console.log('💾 Saved backend fallback settings to local storage for future fast loading');
+        }
+      }
+    } catch (error) {
+      console.log('❌ Backend fallback settings load failed:', error.message);
+    }
+  }
+  
+  // OPTIMIZED SETTINGS ARCHITECTURE:
+  // ================================
+  // PROBLEM SOLVED: User settings during onboarding are stored in Chrome storage, 
+  // but fullpage was always reading from backend first, causing unnecessary delays.
+  //
+  // NEW HYBRID APPROACH:
+  // 1. PRIMARY: Chrome storage for instant, fast UI updates (no network delays)
+  // 2. SECONDARY: Background sync with backend (non-blocking, keeps backend in sync)
+  // 3. FALLBACK: Backend only used when Chrome storage is empty (rare after onboarding)
+  //
+  // PERFORMANCE BENEFITS:
+  // - Instant settings loading (no network round-trip)
+  // - Non-blocking background sync
+  // - Consistent storage strategy between onboarding and fullpage
+  // - Maintains backend persistence without blocking UI
+  async function syncSettingsWithBackend(localSettings, overrideLocal = false) {
+    try {
+      console.log('🔄 Starting background settings sync with backend...');
+      const backend = await getBackendOptimized();
+      if (!backend) {
+        console.log('🚫 No backend available for settings sync');
+        return;
+      }
+      
+      // Skip GET request since backend returns placeholder data - just push local settings
+      // This is more efficient and avoids unnecessary delays
+      console.log('⬆️ Pushing local settings to backend for persistence...');
+      
+      const settingsToSync = {
+        google_scholar_url: localSettings.googleScholarUrl || '',
+        research_interests: localSettings.researchInterests || ''
+      };
+      
+      const syncResponse = await makeApiRequestWithBackend('/user/settings', {
+        method: 'POST',
+        body: JSON.stringify(settingsToSync)
+      }, backend);
+      
+      if (syncResponse.ok) {
+        console.log('✅ Settings successfully synced to backend');
+      } else {
+        console.log('⚠️ Backend sync failed (non-critical):', syncResponse.status);
+      }
+    } catch (error) {
+      console.log('❌ Background settings sync failed (non-critical):', error.message);
+    }
+  }
+  
+  // Expose sync function for manual control/debugging
+  window.forceSyncSettings = async function(overrideLocal = false) {
+    try {
+      const settings = await chrome.storage.local.get(['userSettings']);
+      if (settings.userSettings) {
+        console.log('Manually syncing settings with backend...');
+        await syncSettingsWithBackend(settings.userSettings, overrideLocal);
+        console.log('Manual sync complete');
+      } else {
+        console.log('No local settings to sync');
+      }
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+    }
+  };
   
   // Debug function to check storage contents
   window.debugStorage = async function() {
@@ -586,7 +1549,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // const userSettings = await chrome.storage.local.get(['userSettings']);
       // const llmSettings = await chrome.storage.local.get(['llmSettings']);
       // Get LLM settings and user settings
-      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+      const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini' };
       const userSettings = (await chrome.storage.local.get(['userSettings'])) || {};
       const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
       const researchInterests = userSettings.researchInterests || '';
@@ -649,7 +1612,7 @@ document.addEventListener('DOMContentLoaded', function() {
   
   async function saveGeneratedProfile(googleScholarUrl, generatedProfile) {
     try {
-      // Save to local storage
+      // Save to local storage first (primary, fast)
       const localSettings = {
         googleScholarUrl: googleScholarUrl,
         researchInterests: generatedProfile,
@@ -658,28 +1621,14 @@ document.addEventListener('DOMContentLoaded', function() {
         isGenerated: true
       };
       await chrome.storage.local.set({ userSettings: localSettings });
+      console.log('Generated profile saved to local storage (primary)');
       
-      // Also try to save to backend
-      const backend = await getBackendOptimized();
-      if (backend) {
-        try {
-          const response = await makeApiRequestWithBackend('/user/settings', {
-            method: 'POST',
-            body: JSON.stringify({
-              google_scholar_url: googleScholarUrl,
-              research_interests: generatedProfile
-            })
-          }, backend);
-          
-          if (response.ok) {
-            console.log('Generated profile saved to backend');
-          }
-        } catch (error) {
-          console.log('Backend save failed, but local storage is updated');
-        }
-      }
+      // Sync to backend in background (non-blocking)
+      syncSettingsWithBackend(localSettings, false).catch(error => {
+        console.log('Background backend sync failed for generated profile (non-critical):', error.message);
+      });
       
-      console.log('Generated profile saved to storage');
+      console.log('Generated profile saved successfully');
     } catch (error) {
       console.error('Error saving generated profile:', error);
     }
@@ -704,37 +1653,21 @@ document.addEventListener('DOMContentLoaded', function() {
       
       console.log('Settings to save:', settings);
 
-      // Try to save to backend first
-      const backend = await BackendManager.getCurrentBackend();
-      if (backend) {
-        try {
-          const response = await fetch(`${backend.url}/user/settings`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(settings)
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Settings saved to backend:', data);
-          }
-        } catch (error) {
-          console.log('Backend settings not available, using local storage');
-        }
-      }
-      
-      // Also save to local storage as backup
+      // Save to local storage first for immediate use (fast)
       const localSettings = {
         googleScholarUrl: settings.google_scholar_url,
         researchInterests: settings.research_interests,
         updatedAt: new Date().toISOString()
       };
-      console.log('📚 Saving to local storage:', localSettings);
+      console.log('📚 Saving to local storage (primary):', localSettings);
       await chrome.storage.local.set({ userSettings: localSettings });
       console.log('📚 Settings saved to local storage successfully');
       console.log('📚 Scholar URL saved as:', localSettings.googleScholarUrl);
+      
+      // Sync to backend in background (non-blocking for better UX)
+      syncSettingsWithBackend(localSettings, false).catch(error => {
+        console.log('Background backend sync failed (non-critical):', error.message);
+      });
       
       // Also save current model selection if available
       const currentModelResult = await chrome.storage.local.get(['llmSettings']);
@@ -1426,24 +2359,15 @@ document.addEventListener('DOMContentLoaded', function() {
           
           while (retryCount < maxRetries) {
             settings = await chrome.storage.local.get(['userSettings', 'llmSettings']);
-            llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+            llmSettings = settings.llmSettings || { model: 'gemini-2.5-flash' };
             
-            // Check if we have the API key for the selected model
+            // No API key validation needed - backend handles all LLM API keys
             const selectedModel = llmSettings.model || 'gemini-2.5-flash';
-            const hasRequiredKey = (selectedModel.startsWith('claude-') && llmSettings.claudeKey && llmSettings.claudeKey.trim()) ||
-                                 (selectedModel.startsWith('gpt-') && llmSettings.openaiKey && llmSettings.openaiKey.trim()) ||
-                                 (selectedModel.startsWith('gemini-') && llmSettings.geminiKey && llmSettings.geminiKey.trim());
             
-            console.log(`🔍 Fullpage: Retry ${retryCount + 1}/${maxRetries} - Model: ${selectedModel}, Has required key: ${hasRequiredKey}`);
-            console.log(`🔍 Fullpage: Current keys - Claude: ${llmSettings.claudeKey ? 'present' : 'missing'}, OpenAI: ${llmSettings.openaiKey ? 'present' : 'missing'}, Gemini: ${llmSettings.geminiKey ? 'present' : 'missing'}`);
+            console.log(`🔍 Fullpage: Retry ${retryCount + 1}/${maxRetries} - Model: ${selectedModel}`);
             
-            if (hasRequiredKey || retryCount === maxRetries - 1) {
-              break; // We have the key or this is our last attempt
-            }
-            
-            console.log(`🔍 Fullpage: API key not found, retrying... (${retryCount + 1}/${maxRetries})`);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-            retryCount++;
+            // No need to retry for API keys - break immediately
+            break;
           }
           
           const researchInterests = settings.userSettings?.researchInterests || '';
@@ -1452,10 +2376,7 @@ document.addEventListener('DOMContentLoaded', function() {
           
           // Debug logging to see what's loaded from storage
           console.log('🔍 Fullpage: LLM Settings loaded from storage:', {
-            model: llmSettings.model,
-            geminiKey: llmSettings.geminiKey ? `${llmSettings.geminiKey.substring(0, 10)}...` : 'empty',
-            openaiKey: llmSettings.openaiKey ? `${llmSettings.openaiKey.substring(0, 10)}...` : 'empty',
-            claudeKey: llmSettings.claudeKey ? `${llmSettings.claudeKey.substring(0, 10)}...` : 'empty'
+            model: llmSettings.model
           });
           
           // Get junior researchers selection
@@ -1471,23 +2392,8 @@ document.addEventListener('DOMContentLoaded', function() {
             junior_researchers: juniorResearchersSelection // Include junior researchers selection
           };
           
-          // Only add API keys if they have actual content
-          if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-            requestBody.google_api_key = llmSettings.geminiKey;
-          }
-          if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-            requestBody.openai_api_key = llmSettings.openaiKey;
-          }
-          if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-            requestBody.claude_api_key = llmSettings.claudeKey;
-          }
-          
-          // Debug logging to see what's being sent
-          console.log('🔍 Fullpage: Request body API keys:', {
-            google_api_key: requestBody.google_api_key ? `${requestBody.google_api_key.substring(0, 10)}...` : 'undefined',
-            openai_api_key: requestBody.openai_api_key ? `${requestBody.openai_api_key.substring(0, 10)}...` : 'undefined',
-            claude_api_key: requestBody.claude_api_key ? `${requestBody.claude_api_key.substring(0, 10)}...` : 'undefined'
-          });
+          // No API keys needed - backend handles all LLM API keys
+          console.log('🔍 Fullpage: Request body prepared - API keys managed by backend');
           
           // Use streaming endpoint for better user experience
           const serverResponse = await makeStreamRequest(CONFIG.ANALYZE_STREAM_ENDPOINT, requestBody, (event) => {
@@ -1818,12 +2724,9 @@ document.addEventListener('DOMContentLoaded', function() {
       const storageResult = await chrome.storage.local.get(['llmSettings']);
       console.log("🔍 Chat: Raw storage result:", storageResult);
       
-      const llmSettings = storageResult.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+      const llmSettings = storageResult.llmSettings || { model: 'gemini-2.5-flash' };
       console.log("🔍 Chat: LLM settings loaded:", {
         model: llmSettings.model,
-        hasGeminiKey: !!llmSettings.geminiKey,
-        hasOpenaiKey: !!llmSettings.openaiKey,
-        hasClaudeKey: !!llmSettings.claudeKey,
         lastUpdated: llmSettings.lastUpdated || 'unknown'
       });
       
@@ -1839,22 +2742,8 @@ document.addEventListener('DOMContentLoaded', function() {
         model: getModelName(llmSettings.model)
       };
       
-      // Only add API keys if they have actual content (same pattern as analysis code)
-      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-        requestBody.google_api_key = llmSettings.geminiKey;
-      }
-      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-        requestBody.openai_api_key = llmSettings.openaiKey;
-      }
-      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-        requestBody.claude_api_key = llmSettings.claudeKey;
-      }
-      
-      console.log("🔍 Chat: API keys added:", {
-        google_api_key: !!requestBody.google_api_key,
-        openai_api_key: !!requestBody.openai_api_key,
-        claude_api_key: !!requestBody.claude_api_key
-      });
+      // No API keys needed - backend handles all LLM API keys
+      console.log("🔍 Chat: Request body prepared - API keys managed by backend");
       console.log("🔍 Chat: Request body prepared:", requestBody);
       const response = await makeApiRequest(CONFIG.CHAT_ENDPOINT, {
         method: 'POST',
@@ -2310,7 +3199,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (requestedScholarUrl) {
         try {
                   // Get LLM settings and user settings
-          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini', geminiKey: '', openaiKey: '', claudeKey: '' };
+          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini' };
           const userSettings = (await chrome.storage.local.get(['userSettings'])) || {};
           const userScholarUrl = userSettings.googleScholarUrl || 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
           const researchInterests = userSettings.researchInterests || '';
@@ -2723,19 +3612,31 @@ document.addEventListener('DOMContentLoaded', function() {
       setupStaticTitle(); // Show title immediately without animation
       startSubtitleLoop(); // Start animated subtitle messages
       
-      await loadHomepageStats();
-      await loadSettings();
+      // Don't load stats by default to reduce storage endpoint calls
+      // await loadHomepageStats();
+      
+      // Load settings immediately (non-blocking, fast from Chrome storage)
+      loadSettings().catch(error => {
+        console.error('⚠️ Settings loading failed (non-critical):', error.message);
+      });
+      
       await loadModelSettings();
       
       setupModelSelection();
       setupJuniorResearchers();
+      setupCollapsibleStats();
+      
+        // Load credits using the waiting mechanism to ensure functions are ready
+  window.loadCreditsWhenReady().catch(error => {
+    console.log('⚠️ Credits loading failed (non-critical):', error.message);
+  });
       
       if (searchInput) {
         searchInput.focus();
       }
       
       console.log('✅ Initialized homepage mode');
-      return;
+      return
     }
 
     // SCENARIO 2: Individual Author Profile view
@@ -2780,6 +3681,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // Set up author profile UI
         setupAuthorProfileUI(authorData);
         setupButtonEventListeners();
+        
+        // Fetch and display user credits
+        await fetchAndDisplayCredits();
         
       } catch (error) {
         console.error('Error loading author profile:', error);
@@ -3450,15 +4354,15 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Model card clicked:', this.dataset.model);
         const selectedModel = this.dataset.model;
         
-        // Check if API key is required and available
-        const needsApiKey = await checkApiKeyRequirement(selectedModel);
-        console.log('Needs API key:', needsApiKey);
+        // // Check if API key is required and available
+        // const needsApiKey = await checkApiKeyRequirement(selectedModel);
+        // console.log('Needs API key:', needsApiKey);
         
-        if (needsApiKey) {
-          // Show API key modal
-          showApiKeyModal(selectedModel);
-          return;
-        }
+        // if (needsApiKey) {
+        //   // Show API key modal
+        //   showApiKeyModal(selectedModel);
+        //   return;
+        // }
         
         // Remove selection from all cards
         modelCards.forEach(c => c.classList.remove('selected'));
@@ -3483,158 +4387,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // Call setup function after DOM is ready
   // Note: setupModelSelection will be called after the page initializes
   
-  // API Key validation functions
-  async function checkApiKeyRequirement(selectedModel) {
-    try {
-      const result = await chrome.storage.local.get(['llmSettings']);
-      const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
-      
-      // Check if user has configured appropriate API key for selected model
-      if (selectedModel.startsWith('gemini-') && !settings.geminiKey) {
-        return true; // Needs API key
-      } else if (selectedModel.startsWith('gpt-') && !settings.openaiKey) {
-        return true; // Needs API key
-      } else if (selectedModel.startsWith('claude-') && !settings.claudeKey) {
-        return true; // Needs API key
-      }
-      
-      return false; // No API key needed or already configured
-    } catch (error) {
-      console.error('Error checking API key requirement:', error);
-      return true; // Default to requiring API key on error
-    }
-  }
+  // API Key validation removed - backend handles all LLM API keys
   
-  function showApiKeyModal(selectedModel) {
-    const modal = document.getElementById('api-key-modal');
-    const message = document.getElementById('api-key-message');
-    const geminiSection = document.getElementById('gemini-key-section');
-    const openaiSection = document.getElementById('openai-key-section');
-    const claudeSection = document.getElementById('claude-key-section');
-    
-    // Hide all sections first
-    geminiSection.style.display = 'none';
-    openaiSection.style.display = 'none';
-    claudeSection.style.display = 'none';
-    
-    // Show appropriate section based on model
-    if (selectedModel.startsWith('gemini-')) {
-      message.textContent = 'To use Gemini models, you need to provide a Google AI API key.';
-      geminiSection.style.display = 'block';
-    } else if (selectedModel.startsWith('gpt-')) {
-      message.textContent = 'To use GPT models, you need to provide an OpenAI API key.';
-      openaiSection.style.display = 'block';
-    } else if (selectedModel.startsWith('claude-')) {
-      message.textContent = 'To use Claude models, you need to provide a Claude API key.';
-      claudeSection.style.display = 'block';
-    }
-    
-    // Store the selected model for later use
-    modal.dataset.selectedModel = selectedModel;
-    
-    // Show the modal
-    modal.style.display = 'flex';
-    
-    // Set up modal event listeners
-    setupApiKeyModalListeners();
-  }
+  // API key modal removed - no longer needed
   
-  function setupApiKeyModalListeners() {
-    const modal = document.getElementById('api-key-modal');
-    const cancelBtn = document.getElementById('api-key-cancel-btn');
-    const saveBtn = document.getElementById('api-key-save-btn');
-    const geminiInput = document.getElementById('gemini-key-input');
-    const openaiInput = document.getElementById('openai-key-input');
-    const claudeInput = document.getElementById('claude-key-input');
-    
-    // Cancel button - close modal and revert selection
-    cancelBtn.onclick = () => {
-      modal.style.display = 'none';
-      // Revert the model selection
-      const modelCards = document.querySelectorAll('.model-card');
-      modelCards.forEach(c => c.classList.remove('selected'));
-      loadModelSettings(); // Reload the previously selected model
-    };
-    
-    // Save button - validate and save API key
-    saveBtn.onclick = async () => {
-      const selectedModel = modal.dataset.selectedModel;
-      let apiKey = '';
-      
-      // Get the appropriate API key based on model
-      if (selectedModel.startsWith('gemini-')) {
-        apiKey = geminiInput.value.trim();
-        if (!apiKey) {
-          alert('Please enter your Google AI API key to use Gemini models');
-          return;
-        }
-      } else if (selectedModel.startsWith('gpt-')) {
-        apiKey = openaiInput.value.trim();
-        if (!apiKey) {
-          alert('Please enter your OpenAI API key to use GPT models');
-          return;
-        }
-      } else if (selectedModel.startsWith('claude-')) {
-        apiKey = claudeInput.value.trim();
-        if (!apiKey) {
-          alert('Please enter your Claude API key to use Claude models');
-          return;
-        }
-      }
-      
-      try {
-        // Get existing settings
-        const result = await chrome.storage.local.get(['llmSettings']);
-        const settings = result.llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
-        
-        // Update the appropriate API key
-        if (selectedModel.startsWith('gemini-')) {
-          settings.geminiKey = apiKey;
-        } else if (selectedModel.startsWith('gpt-')) {
-          settings.openaiKey = apiKey;
-        } else if (selectedModel.startsWith('claude-')) {
-          settings.claudeKey = apiKey;
-        }
-        
-        // Update the model
-        settings.model = selectedModel;
-        settings.lastUpdated = new Date().toISOString();
-        
-        // Save settings
-        await chrome.storage.local.set({ llmSettings: settings });
-        
-        // Close modal
-        modal.style.display = 'none';
-        
-        // Update the UI to show the selected model
-        const modelCards = document.querySelectorAll('.model-card');
-        modelCards.forEach(c => c.classList.remove('selected'));
-        const selectedCard = document.querySelector(`[data-model="${selectedModel}"]`);
-        if (selectedCard) {
-          selectedCard.classList.add('selected');
-        }
-        
-        // Show success indicator
-        if (selectedCard) {
-          selectedCard.style.transform = 'scale(1.05)';
-          setTimeout(() => {
-            selectedCard.style.transform = '';
-          }, 200);
-        }
-        
-        console.log('API key saved and model selected:', selectedModel);
-        
-        // Clear the input fields
-        geminiInput.value = '';
-        openaiInput.value = '';
-        claudeInput.value = '';
-        
-      } catch (error) {
-        console.error('Error saving API key:', error);
-        alert('Error saving API key. Please try again.');
-      }
-    };
-  }
+  // API key modal listeners removed - no longer needed
   
   // Add function to fetch author data using the new author endpoints
   async function fetchAuthorDataFromBackend(paperId, requestedScholarUrl = null) {
@@ -3760,6 +4517,200 @@ document.addEventListener('DOMContentLoaded', function() {
     if (stored) return stored;
     return 'https://scholar.google.de/citations?user=jgW3WbcAAAAJ&hl=en';
   }
+  
+  // Function to fetch and display user credits with caching
+  async function fetchAndDisplayCredits() {
+    try {
+      const startTime = performance.now();
+      console.log(`💳 [${new Date().toISOString()}] Loading user credits (with caching)...`);
+      
+      // Check for cached credits first
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('⚡ Using cached credits (instant display):', cachedCredits.credits);
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+        
+        // Check if cache is still fresh (less than 5 minutes old)
+        const cacheAge = Date.now() - cachedCredits.timestamp;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (cacheAge < fiveMinutes) {
+          const endTime = performance.now();
+          console.log(`✅ Credits cache is fresh (${Math.round(cacheAge / 1000)}s old), skipping backend request (took ${(endTime - startTime).toFixed(2)}ms)`);
+          return; // Use cached data, no backend request needed
+        } else {
+          console.log(`🔄 Credits cache is stale (${Math.round(cacheAge / 1000)}s old), updating from backend...`);
+        }
+      } else {
+        console.log('🆕 No cached credits found, fetching from backend...');
+      }
+      
+      console.log('🔑 Fetching API key from multiple storage locations...');
+      
+      // Try multiple storage locations for API key (fix inconsistency)
+      let apiKey = null;
+      
+      // 1. Try chrome.storage.local with key 'essenceScholarApiKey' (from saveSettings)
+      try {
+        const localResult = await chrome.storage.local.get(['essenceScholarApiKey']);
+        if (localResult.essenceScholarApiKey) {
+          apiKey = localResult.essenceScholarApiKey;
+          console.log('🔑 Found API key in chrome.storage.local (essenceScholarApiKey)');
+        }
+      } catch (error) {
+        console.log('Error checking chrome.storage.local:', error);
+      }
+      
+      // 2. Try chrome.storage.sync with key 'essence_scholar_api_key' (from onboarding)
+      if (!apiKey) {
+        try {
+          const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+          if (syncResult.essence_scholar_api_key) {
+            apiKey = syncResult.essence_scholar_api_key;
+            console.log('🔑 Found API key in chrome.storage.sync (essence_scholar_api_key)');
+          }
+        } catch (error) {
+          console.log('Error checking chrome.storage.sync:', error);
+        }
+      }
+      
+      // 3. Try localStorage as fallback (from onboarding)
+      if (!apiKey) {
+        try {
+          const localStorageKey = localStorage.getItem('essence_scholar_api_key');
+          if (localStorageKey) {
+            apiKey = localStorageKey;
+            console.log('🔑 Found API key in localStorage (essence_scholar_api_key)');
+          }
+        } catch (error) {
+          console.log('Error checking localStorage:', error);
+        }
+      }
+      
+      console.log('🔑 Final API key result:', apiKey ? `Found (${apiKey.substring(0, 10)}...)` : 'Not found');
+      
+      if (!apiKey) {
+        console.log('❌ No API key found in any storage location, hiding credit displays');
+        const creditDisplays = document.querySelectorAll('#credit-display, #main-credit-display');
+        creditDisplays.forEach(display => display.style.display = 'none');
+        return;
+      }
+      
+      // Get backend URL
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No backend available for credit fetch');
+        return;
+      }
+      
+      console.log('🔍 fetchAndDisplayCredits using backend:', {
+        name: backend.name,
+        url: backend.url,
+        key: backend.key
+      });
+      
+      // Test backend connectivity first
+      try {
+        const healthResponse = await fetch(`${backend.url}/health`, { method: 'GET' });
+        console.log('Backend health check status:', healthResponse.status);
+      } catch (healthError) {
+        console.error('Backend health check failed:', healthError);
+      }
+      
+      // Fetch user profile (which includes credits)
+      console.log('🌐 Fetching credits from:', `${backend.url}/auth/profile`);
+      console.log('🔑 Using API key:', apiKey ? `${apiKey.substring(0, 15)}...` : 'None');
+      console.log('📋 Request headers:', {
+        'Authorization': `Bearer ${apiKey ? apiKey.substring(0, 15) + '...' : 'None'}`,
+        'Content-Type': 'application/json'
+      });
+      
+      const response = await fetch(`${backend.url}/auth/profile`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response statusText:', response.statusText);
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      // Log request URL and compare with test
+      console.log('🔗 Full request URL:', `${backend.url}/auth/profile`);
+      console.log('🆚 Compare with testApiKey - should be identical');
+      
+      if (response.ok) {
+        const userData = await response.json();
+        console.log('Full user data response:', userData);
+        const credits = userData.user?.credits || 0;
+        const userInfo = {
+          name: userData.user?.name || '',
+          email: userData.user?.email || ''
+        };
+        
+        // Cache the fresh credits data
+        await cacheCredits(credits, userInfo);
+        
+        // Display the credits
+        displayCredits(credits, userInfo);
+        
+        const endTime = performance.now();
+        console.log(`💳 Fresh credits loaded from backend (took ${(endTime - startTime).toFixed(2)}ms):`, credits);
+      } else {
+        console.error(`❌ Failed to fetch credits - HTTP ${response.status}`);
+        
+        if (response.status === 401) {
+          console.error('🔐 API key is invalid or expired. Please check your API key in onboarding.');
+          console.error('🔍 Debug info:', {
+            apiKeyPresent: !!apiKey,
+            apiKeyLength: apiKey ? apiKey.length : 0,
+            apiKeyPrefix: apiKey ? apiKey.substring(0, 10) : 'none'
+          });
+        } else if (response.status === 402) {
+          console.error('💳 Insufficient credits or payment required');
+        } else if (response.status === 429) {
+          console.error('⏱️ Rate limit exceeded, try again later');
+        } else {
+          console.error('🌐 Unexpected backend error');
+        }
+        
+        // If backend fails but we have cached data, keep using it
+        if (!cachedCredits) {
+          const creditDisplays = document.querySelectorAll('#credit-display');
+          creditDisplays.forEach(display => display.style.display = 'none');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching credits:', error);
+      // Check if we have cached data as fallback
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('💾 Error occurred, using cached credits as fallback');
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+      } else {
+        // Hide credit displays if no cache available
+        const creditDisplays = document.querySelectorAll('#credit-display');
+        creditDisplays.forEach(display => display.style.display = 'none');
+      }
+    }
+  }
+  
+  // Update status check function to show they're ready
+  window.checkCreditsStatus = function() {
+    console.log('🔍 === CREDITS STATUS CHECK ===');
+    console.log('✅ All functions loaded and ready!');
+    console.log('Functions available:', {
+      fetchAndDisplayCredits: typeof window.fetchAndDisplayCredits,
+      loadCreditsInstantly: typeof window.loadCreditsInstantly,
+      displayCredits: typeof window.displayCredits,
+      ensureHomepageCreditDisplay: typeof window.ensureHomepageCreditDisplay,
+      showSampleCredits: typeof window.showSampleCredits,
+      testCredits: typeof window.testCredits
+    });
+    console.log('🔍 === END STATUS ===');
+  };
 
   // Function to fetch analysis from backend by analysisID directly
   async function fetchAnalysisByAnalysisId(analysisId) {
@@ -4083,14 +5034,13 @@ document.addEventListener('DOMContentLoaded', function() {
           const researchInterests = userSettings.userSettings?.researchInterests || '';
           
           // Get current LLM settings
-          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash', geminiKey: '', openaiKey: '', claudeKey: '' };
+          const llmSettings = (await chrome.storage.local.get(['llmSettings'])).llmSettings || { model: 'gemini-2.5-flash' };
           
           // Check each researcher type for existing analysis
           for (const researcher of juniorResearchers) {
             try {
-              const response = await fetch(`${backend.url}/junior-analysis`, {
+              const response = await makeApiRequestWithBackend('/junior-analysis', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   paper_id: paperId,
                   user_scholar_url: scholarUrl,
@@ -4098,7 +5048,7 @@ document.addEventListener('DOMContentLoaded', function() {
                   model: getModelName(llmSettings.model),
                   research_interests: researchInterests
                 })
-              });
+              }, backend);
               
               if (response.ok) {
                 existingAnalyses.add(researcher.id);
@@ -4241,38 +5191,17 @@ document.addEventListener('DOMContentLoaded', function() {
         research_interests: researchInterests
       };
       
-      // Add API keys if available
-      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-        requestBody.google_api_key = llmSettings.geminiKey;
-        console.log(`🔄 REFRESH DEBUG - Added Gemini API key`);
-      }
-      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-        requestBody.openai_api_key = llmSettings.openaiKey;
-        console.log(`🔄 REFRESH DEBUG - Added OpenAI API key`);
-      }
-      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-        requestBody.claude_api_key = llmSettings.claudeKey;
-        console.log(`🔄 REFRESH DEBUG - Added Claude API key`);
-      }
-      
-      console.log(`🔄 REFRESH DEBUG - Request body prepared:`, {
-        ...requestBody,
-        google_api_key: requestBody.google_api_key ? 'PRESENT' : 'MISSING',
-        openai_api_key: requestBody.openai_api_key ? 'PRESENT' : 'MISSING',
-        claude_api_key: requestBody.claude_api_key ? 'PRESENT' : 'MISSING'
-      });
+      // No API keys needed - backend handles all LLM API keys
+      console.log(`🔄 REFRESH DEBUG - Request body prepared - API keys managed by backend`);
       
       const refreshUrl = `${backend.url}/junior-analysis-refresh`;
       console.log(`🔄 REFRESH DEBUG - Making request to: ${refreshUrl}`);
       
       // Call the refresh endpoint
-      const response = await fetch(refreshUrl, {
+      const response = await makeApiRequestWithBackend('/junior-analysis-refresh', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(requestBody)
-      });
+      }, backend);
       
       console.log(`🔄 REFRESH DEBUG - Response status: ${response.status} ${response.statusText}`);
       
@@ -4400,11 +5329,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // First, check which analyses exist and which need to be generated
       const analysisStatusPromises = selectedResearchers.map(async (researcherType) => {
         try {
-          const response = await fetch(`${backend.url}/junior-analysis`, {
+          const response = await makeApiRequestWithBackend('/junior-analysis', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
             body: JSON.stringify({
               paper_id: paperId,
               user_scholar_url: scholarUrl,
@@ -4412,7 +5338,7 @@ document.addEventListener('DOMContentLoaded', function() {
               model: getModelName(llmSettings.model),
               research_interests: researchInterests
             })
-          });
+          }, backend);
           
           if (response.ok) {
             const data = await response.json();
@@ -4600,16 +5526,7 @@ document.addEventListener('DOMContentLoaded', function() {
         paper_authors: paperStorageData.metadata?.authors || []
       };
       
-      // Add API keys if available
-      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-        analysisRequest.google_api_key = llmSettings.geminiKey;
-      }
-      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-        analysisRequest.openai_api_key = llmSettings.openaiKey;
-      }
-      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-        analysisRequest.claude_api_key = llmSettings.claudeKey;
-      }
+      // No API keys needed - backend handles all LLM API keys
       
       // Call the dedicated junior-analysis-generate endpoint
       const generateRequest = {
@@ -4620,26 +5537,14 @@ document.addEventListener('DOMContentLoaded', function() {
         model: llmSettings.model || 'gemini-2.5-flash'
       };
       
-      // Add API keys if available
-      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-        generateRequest.google_api_key = llmSettings.geminiKey;
-      }
-      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-        generateRequest.openai_api_key = llmSettings.openaiKey;
-      }
-      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-        generateRequest.claude_api_key = llmSettings.claudeKey;
-      }
+      // No API keys needed - backend handles all LLM API keys
       
       console.log(`🔄 Generating analysis for ${researcherType}...`);
       
-      const response = await fetch(`${backend.url}/junior-analysis-generate`, {
+      const response = await makeApiRequestWithBackend('/junior-analysis-generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify(generateRequest)
-      });
+      }, backend);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -4771,16 +5676,7 @@ document.addEventListener('DOMContentLoaded', function() {
         model: getModelName(llmSettings.model)
       };
       
-      // Add API keys if available
-      if (llmSettings.geminiKey && llmSettings.geminiKey.trim()) {
-        requestBody.google_api_key = llmSettings.geminiKey;
-      }
-      if (llmSettings.openaiKey && llmSettings.openaiKey.trim()) {
-        requestBody.openai_api_key = llmSettings.openaiKey;
-      }
-      if (llmSettings.claudeKey && llmSettings.claudeKey.trim()) {
-        requestBody.claude_api_key = llmSettings.claudeKey;
-      }
+      // No API keys needed - backend handles all LLM API keys
       
       console.log('🔍 New Chat: Sending request with model:', requestBody.model);
 
@@ -4890,6 +5786,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Load initial analysis content
       await updateAnalysisContent();
       
+      // Fetch and display user credits
+      await fetchAndDisplayCredits();
+      
     } catch (error) {
       console.error('❌ Error loading paper metadata:', error);
       
@@ -4914,6 +5813,19 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   })(); // End of initializePage async IIFE
+
+  // Handle browser back/forward button navigation
+  window.addEventListener('popstate', function(event) {
+    console.log('🔙 Extension: Browser back/forward button clicked!');
+    console.log('🔍 Extension: Current URL:', window.location.href);
+    console.log('🔍 Extension: URL search params:', window.location.search);
+    console.log('🔍 Extension: Event state:', event.state);
+    console.log('🔍 Extension: Current viewMode before reinit:', viewMode);
+    // Re-run the initialization to detect the new view mode from URL
+    initializePage().catch(error => {
+      console.error('❌ Extension: Error during popstate reinitialization:', error);
+    });
+  });
 
   // Global debug functions
   window.debugNewLayout = function() {
@@ -5460,5 +6372,469 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('✅ Individual Author Profile UI setup complete');
   }
+  
+  // Credit functions implementation - moved here to ensure they're always loaded
+  // Credits cache management functions
+  async function getCachedCredits() {
+    try {
+      const result = await chrome.storage.local.get(['cachedCredits']);
+      return result.cachedCredits || null;
+    } catch (error) {
+      console.error('Error getting cached credits:', error);
+      return null;
+    }
+  }
+  
+  async function cacheCredits(credits, userInfo) {
+    try {
+      const cacheData = {
+        credits: credits,
+        userInfo: userInfo,
+        timestamp: Date.now()
+      };
+      await chrome.storage.local.set({ cachedCredits: cacheData });
+      console.log('💾 Cached credits for future fast loading:', { credits, userInfo });
+    } catch (error) {
+      console.error('Error caching credits:', error);
+    }
+  }
+  
+  // Ultra-fast cache-first credit loading function
+  async function loadCreditsInstantly() {
+    try {
+      console.log('⚡ Loading credits instantly from cache...');
+      
+      // Check cache FIRST - no API key validation, no backend checks
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('🚀 INSTANT: Displaying cached credits immediately');
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+        
+        // Schedule background refresh only if cache is stale (>5min)
+        const cacheAge = Date.now() - cachedCredits.timestamp;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (cacheAge > fiveMinutes) {
+          console.log(`🔄 Cache is ${Math.round(cacheAge / 1000)}s old, scheduling background refresh...`);
+          // Background refresh after 2 seconds to not block UI
+          setTimeout(() => {
+            if (typeof window.fetchAndDisplayCredits === 'function' && window.fetchAndDisplayCredits.toString().length > 200) {
+              window.fetchAndDisplayCredits().catch(error => {
+                console.log('📦 Background credit refresh failed, keeping cache:', error.message);
+              });
+            }
+          }, 2000);
+        } else {
+          console.log(`✅ Cache is fresh (${Math.round(cacheAge / 1000)}s old), no refresh needed`);
+        }
+        return;
+      }
+      
+      // No cache found - try to load from backend but with minimal delay
+      console.log('🆕 No cache found, attempting quick background load...');
+      setTimeout(() => {
+        if (typeof window.fetchAndDisplayCredits === 'function' && window.fetchAndDisplayCredits.toString().length > 200) {
+          window.fetchAndDisplayCredits().catch(error => {
+            console.log('📡 Initial credit load failed:', error.message);
+            // Show placeholder if no cache and backend fails
+            if (typeof displayCreditsPlaceholder === 'function') {
+              displayCreditsPlaceholder();
+            }
+          });
+        }
+      }, 100); // Minimal delay to not block UI
+      
+    } catch (error) {
+      console.error('❌ Error in loadCreditsInstantly:', error);
+      // Show placeholder on any error
+      displayCreditsPlaceholder();
+    }
+  }
+  
+  // Function to show placeholder credits when no cache and backend fails
+  function displayCreditsPlaceholder() {
+    console.log('📝 Showing credit placeholder...');
+    ensureHomepageCreditDisplay();
+    
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    if (creditHomepage) {
+      const creditAmountHomepage = document.getElementById('credit-amount-homepage');
+      if (creditAmountHomepage) {
+        creditAmountHomepage.textContent = '--';
+        creditHomepage.style.display = 'block';
+        creditHomepage.style.background = 'linear-gradient(135deg, #6c757d, #495057)';
+        creditHomepage.style.opacity = '0.7';
+        
+        const labelElement = creditHomepage.querySelector('.credit-label');
+        if (labelElement) {
+          labelElement.textContent = 'Credits Loading...';
+        }
+        
+        creditHomepage.title = 'Credits are being loaded. Click to retry.';
+        creditHomepage.onclick = () => {
+          console.log('🔄 User clicked to retry credits loading');
+          loadCreditsInstantly();
+        };
+      }
+    }
+  }
+  
+  // Function to ensure homepage credit display exists
+  function ensureHomepageCreditDisplay() {
+    // Check if homepage credit display already exists
+    if (document.getElementById('credit-display-homepage')) {
+      return; // Already exists
+    }
+    
+    // Find the homepage header or a good location to place the credit display
+    const homepageHeader = document.querySelector('.homepage-header');
+    const homepageContent = document.querySelector('.homepage-content');
+    
+    if (homepageHeader || homepageContent) {
+      // Create the credit display element
+      const creditDisplayHomepage = document.createElement('div');
+      creditDisplayHomepage.id = 'credit-display-homepage';
+      creditDisplayHomepage.className = 'credit-display';
+      creditDisplayHomepage.style.cssText = `
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        color: #2c3e50;
+        padding: 8px 12px;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        z-index: 1000;
+        transition: all 0.3s ease;
+        min-width: 120px;
+        max-width: 180px;
+        font-size: 12px;
+      `;
+      
+      creditDisplayHomepage.innerHTML = `
+        <span class="credit-label" style="margin-right: 6px; font-size: 11px; font-weight: 500; opacity: 0.8;">Credits:</span>
+        <span id="credit-amount-homepage" style="font-weight: 700; font-size: 13px;">--</span>
+      `;
+      
+      // Add hover effects
+      creditDisplayHomepage.onmouseenter = () => {
+        creditDisplayHomepage.style.transform = 'scale(1.05)';
+        creditDisplayHomepage.style.boxShadow = '0 6px 20px rgba(0, 123, 255, 0.4)';
+      };
+      
+      creditDisplayHomepage.onmouseleave = () => {
+        creditDisplayHomepage.style.transform = 'scale(1)';
+        creditDisplayHomepage.style.boxShadow = '0 4px 12px rgba(0, 123, 255, 0.3)';
+      };
+      
+      // Click handler for refresh
+      creditDisplayHomepage.onclick = () => {
+        if (typeof window.refreshCreditsCache === 'function') {
+          window.refreshCreditsCache();
+        }
+      };
+      
+      // Append to body for fixed positioning
+      document.body.appendChild(creditDisplayHomepage);
+      
+      // Add beautiful entrance animation
+      setTimeout(() => {
+        creditDisplayHomepage.style.animation = 'slideInFromRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards';
+      }, 100);
+      
+      console.log('✅ Created modern floating credit display in bottom-right corner with animations');
+    } else {
+      console.warn('⚠️ Could not find homepage header or content to add credit display');
+    }
+  }
+  
+  // Enhanced credits display function
+  function displayCredits(credits, userInfo = {}) {
+    // Ensure homepage credit display exists
+    ensureHomepageCreditDisplay();
+    
+    const creditAmount = document.getElementById('credit-amount');
+
+    const creditDisplay = document.getElementById('credit-display');
+
+    const creditHomepage = document.getElementById('credit-display-homepage');
+    
+    // Format credits with comma separator for readability
+    const formattedCredits = credits.toLocaleString();
+    
+    // Determine credit level and styling
+    let color, level, backgroundColor;
+    if (credits > 100) {
+      color = '#4CAF50'; // Green for high credits
+      level = 'High';
+      backgroundColor = 'rgba(76, 175, 80, 0.1)';
+    } else if (credits > 50) {
+      color = '#FF9800'; // Orange for medium credits
+      level = 'Medium';
+      backgroundColor = 'rgba(255, 152, 0, 0.1)';
+    } else {
+      color = '#F44336'; // Red for low credits
+      level = 'Low';
+      backgroundColor = 'rgba(244, 67, 54, 0.1)';
+    }
+    
+    if (creditAmount && creditDisplay) {
+      creditAmount.textContent = formattedCredits;
+      creditDisplay.style.display = 'flex';
+      creditAmount.style.color = color;
+      
+      // Enhanced styling
+      creditDisplay.style.background = `linear-gradient(135deg, ${backgroundColor}, ${color}20)`;
+      creditDisplay.style.border = `2px solid ${color}40`;
+      creditDisplay.style.boxShadow = `0 4px 12px ${color}30`;
+      
+      // Add user info to label if available
+      const labelElement = creditDisplay.querySelector('.credit-label');
+      if (labelElement && userInfo.name) {
+        labelElement.textContent = `${userInfo.name}'s Credits:`;
+      }
+      
+      // Enhanced tooltip
+      creditDisplay.title = userInfo.name || userInfo.email 
+        ? `User: ${userInfo.name || userInfo.email}\\nCredits: ${formattedCredits} (${level} level)\\nClick to refresh`
+        : `Credits: ${formattedCredits} (${level} level)\\nClick to refresh`;
+        
+      // Add click handler for manual refresh
+      creditDisplay.style.cursor = 'pointer';
+      creditDisplay.onclick = () => {
+        if (typeof window.refreshCreditsCache === 'function') {
+          window.refreshCreditsCache();
+        }
+      };
+    }
+    
+
+    
+    // Update floating homepage credit display
+    if (creditHomepage) {
+      const creditAmountHomepage = document.getElementById('credit-amount-homepage');
+      if (creditAmountHomepage) {
+        creditAmountHomepage.textContent = formattedCredits;
+        creditHomepage.style.display = 'block';
+        
+        // Update colors and styling based on credit level
+        creditHomepage.style.background = `linear-gradient(135deg, ${color}, ${color}dd)`;
+        creditHomepage.style.border = `2px solid rgba(255, 255, 255, 0.3)`;
+        creditHomepage.style.boxShadow = `0 4px 12px ${color}40`;
+        
+        // Add user info to label if available
+        const labelElement = creditHomepage.querySelector('.credit-label');
+        if (labelElement && userInfo.name) {
+          labelElement.textContent = `${userInfo.name}'s Credits:`;
+        }
+        
+        // Enhanced tooltip
+        creditHomepage.title = userInfo.name || userInfo.email 
+          ? `User: ${userInfo.name || userInfo.email}\\nCredits: ${formattedCredits} (${level} level)\\nClick to refresh`
+          : `Credits: ${formattedCredits} (${level} level)\\nClick to refresh`;
+        
+        // Add pulse animation for low credits
+        if (credits <= 20) {
+          creditHomepage.style.animation = 'pulse 2s infinite';
+        } else {
+          creditHomepage.style.animation = 'none';
+        }
+      }
+    }
+    
+    console.log(`💳 Credits displayed successfully: ${formattedCredits} (${level} level)`);
+  }
+
+  // Function to fetch and display user credits with caching
+  async function fetchAndDisplayCredits() {
+    try {
+      const startTime = performance.now();
+      console.log(`💳 [${new Date().toISOString()}] Loading user credits (with caching)...`);
+      
+      // Check for cached credits first
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('⚡ Using cached credits (instant display):', cachedCredits.credits);
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+        
+        // Check if cache is still fresh (less than 5 minutes old)
+        const cacheAge = Date.now() - cachedCredits.timestamp;
+        const fiveMinutes = 5 * 60 * 1000;
+        
+        if (cacheAge < fiveMinutes) {
+          const endTime = performance.now();
+          console.log(`✅ Cache is fresh (${Math.round(cacheAge / 1000)}s old), skipping backend request (took ${(endTime - startTime).toFixed(2)}ms)`);
+          return; // Use cached data, no backend request needed
+        } else {
+          console.log(`🔄 Cache is stale (${Math.round(cacheAge / 1000)}s old), updating from backend...`);
+        }
+      } else {
+        console.log('🆕 No cached data found, fetching from backend...');
+      }
+      
+      // Get API key from storage
+      let apiKey = null;
+      
+      // 1. Try chrome.storage.local first (main storage)
+      try {
+        const result = await chrome.storage.local.get(['essence_scholar_api_key']);
+        if (result.essence_scholar_api_key) {
+          apiKey = result.essence_scholar_api_key;
+          console.log('🔑 Found API key in chrome.storage.local');
+        }
+      } catch (error) {
+        console.log('Error checking chrome.storage.local:', error);
+      }
+      
+      // 2. Try chrome.storage.sync as fallback (for synced settings)
+      if (!apiKey) {
+        try {
+          const syncResult = await chrome.storage.sync.get(['essence_scholar_api_key']);
+          if (syncResult.essence_scholar_api_key) {
+            apiKey = syncResult.essence_scholar_api_key;
+            console.log('🔑 Found API key in chrome.storage.sync');
+          }
+        } catch (error) {
+          console.log('Error checking chrome.storage.sync:', error);
+        }
+      }
+      
+      // 3. Try localStorage as fallback (from onboarding)
+      if (!apiKey) {
+        try {
+          const localStorageKey = localStorage.getItem('essence_scholar_api_key');
+          if (localStorageKey) {
+            apiKey = localStorageKey;
+            console.log('🔑 Found API key in localStorage (essence_scholar_api_key)');
+          }
+        } catch (error) {
+          console.log('Error checking localStorage:', error);
+        }
+      }
+      
+      console.log('🔑 Final API key result:', apiKey ? `Found (${apiKey.substring(0, 10)}...)` : 'Not found');
+      
+      if (!apiKey) {
+        console.log('❌ No API key found in any storage location, hiding credit displays');
+        const creditDisplays = document.querySelectorAll('#credit-display, #main-credit-display');
+        creditDisplays.forEach(display => display.style.display = 'none');
+        return;
+      }
+      
+      // Get backend URL
+      const backend = await BackendManager.getCurrentBackend();
+      if (!backend) {
+        console.log('No backend available for credit fetch');
+        return;
+      }
+      
+      console.log('🔍 fetchAndDisplayCredits using backend:', {
+        name: backend.name,
+        url: backend.url,
+        key: backend.key
+      });
+      
+      // Test backend connectivity first
+      try {
+        const healthResponse = await fetch(`${backend.url}/health`, { method: 'GET' });
+        console.log('Backend health check status:', healthResponse.status);
+      } catch (healthError) {
+        console.error('Backend health check failed:', healthError);
+      }
+      
+      // Fetch user profile (which includes credits)
+      console.log('🌐 Fetching credits from:', `${backend.url}/auth/profile`);
+      console.log('Using API key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'None');
+      
+      const response = await fetch(`${backend.url}/auth/profile`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        console.log('Full user data response:', userData);
+        const credits = userData.user?.credits || 0;
+        
+        // Get user info for enhanced display
+        const userInfo = {
+          name: userData.user?.name || userData.user?.username || '',
+          email: userData.user?.email || ''
+        };
+        
+        // Cache the fresh credits data
+        await cacheCredits(credits, userInfo);
+        
+        // Display the credits
+        displayCredits(credits, userInfo);
+        
+        const endTime = performance.now();
+        console.log(`💳 Fresh credits loaded from backend (took ${(endTime - startTime).toFixed(2)}ms):`, credits);
+      } else {
+        console.error(`❌ Failed to fetch credits - HTTP ${response.status}`);
+        
+        if (response.status === 401) {
+          console.error('🔐 API key is invalid or expired. Please check your API key in onboarding.');
+          console.error('🔍 Debug info:', {
+            apiKeyPresent: !!apiKey,
+            apiKeyLength: apiKey ? apiKey.length : 0,
+            apiKeyPrefix: apiKey ? apiKey.substring(0, 10) : 'none'
+          });
+        } else if (response.status === 402) {
+          console.error('💳 Insufficient credits or payment required');
+        } else if (response.status === 429) {
+          console.error('⏱️ Rate limit exceeded, try again later');
+        } else {
+          console.error('🌐 Unexpected backend error');
+        }
+        
+        // If backend fails but we have cached data, keep using it
+        if (!cachedCredits) {
+          const creditDisplays = document.querySelectorAll('#credit-display');
+          creditDisplays.forEach(display => display.style.display = 'none');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching credits:', error);
+      // Check if we have cached data as fallback
+      const cachedCredits = await getCachedCredits();
+      if (cachedCredits) {
+        console.log('💾 Error occurred, using cached credits as fallback');
+        displayCredits(cachedCredits.credits, cachedCredits.userInfo);
+      } else {
+        // Hide credit displays if no cache available
+        const creditDisplays = document.querySelectorAll('#credit-display');
+        creditDisplays.forEach(display => display.style.display = 'none');
+      }
+    }
+  }
+  
+  // Make credit functions globally available for debugging (replacing placeholders)
+  window.fetchAndDisplayCredits = fetchAndDisplayCredits;
+  window.loadCreditsInstantly = loadCreditsInstantly;
+  window.displayCredits = displayCredits;
+  window.ensureHomepageCreditDisplay = ensureHomepageCreditDisplay;
+  
+  // Notify that functions are now ready
+  console.log('✅ Credit functions are now loaded and ready to use!');
+  console.log('Available functions: fetchAndDisplayCredits(), loadCreditsInstantly(), showSampleCredits(), testCredits()');
+
+  // Set up credit refresh interval (every 30 seconds)
+  setInterval(async () => {
+    try {
+      if (typeof window.fetchAndDisplayCredits === 'function') {
+        await window.fetchAndDisplayCredits();
+      }
+    } catch (error) {
+      console.error('Error refreshing credits:', error);
+    }
+  }, 30000); // 30 seconds
 
 });

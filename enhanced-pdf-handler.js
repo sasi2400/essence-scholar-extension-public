@@ -63,9 +63,9 @@ async function checkIfPDFPage(tab) {
     
     const hasTitleIndicator = Object.values(titleIndicators).some(v => v);
     
-    // Method 5: Try content script for definitive check (if possible)
+    // Method 5: Try content script for definitive check (if possible and URL is accessible)
     let contentScriptResult = null;
-    if (!isFileProtocol && !isDataProtocol && !isBlobProtocol) {
+    if (!isFileProtocol && !isDataProtocol && !isBlobProtocol && isUrlAccessibleForContentScript(tab.url)) {
       try {
         // Ensure content script is injected
         await ensureContentScriptWithRetry(tab.id);
@@ -82,6 +82,8 @@ async function checkIfPDFPage(tab) {
       } catch (e) {
         console.log('[PDF Check] Content script check failed:', e.message);
       }
+    } else if (!isUrlAccessibleForContentScript(tab.url)) {
+      console.log('[PDF Check] Skipping content script check - URL not accessible for injection');
     }
     
     // Combine all detection methods for final decision
@@ -152,62 +154,129 @@ async function checkIfPDFPage(tab) {
 }
 
 /**
- * Enhanced content script injection with better retry logic
+ * Helper function to check if a URL is accessible for content script injection
+ */
+function isUrlAccessibleForContentScript(url) {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  
+  const lowerUrl = url.toLowerCase();
+  
+  // Chrome extension system and special pages
+  const restrictedPrefixes = [
+    'chrome://',
+    'chrome-extension://',
+    'moz-extension://',
+    'safari-extension://',
+    'edge-extension://',
+    'about:',
+    'chrome-search://',
+    'chrome-devtools://',
+    'devtools://',
+    'view-source:'
+  ];
+  
+  // Check if URL starts with any restricted prefix
+  for (const prefix of restrictedPrefixes) {
+    if (lowerUrl.startsWith(prefix)) {
+      console.log(`[Content Script] URL not accessible: ${prefix} URLs are restricted`);
+      return false;
+    }
+  }
+  
+  // Additional restrictions for Chrome Web Store and other system pages
+  const restrictedDomains = [
+    'chrome.google.com/webstore',
+    'chromewebstore.google.com',
+    'addons.mozilla.org',
+    'microsoftedge.microsoft.com/addons'
+  ];
+  
+  for (const domain of restrictedDomains) {
+    if (lowerUrl.includes(domain)) {
+      console.log(`[Content Script] URL not accessible: ${domain} is restricted`);
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Enhanced content script injection with better retry logic and URL validation
  */
 async function ensureContentScriptWithRetry(tabId, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      // First, check if content script is already present
+  try {
+    // First, get the tab to check its URL
+    const tab = await chrome.tabs.get(tabId);
+    
+    if (!tab || !tab.url) {
+      throw new Error('Tab not found or has no URL');
+    }
+    
+    // Check if the URL is accessible for content script injection
+    if (!isUrlAccessibleForContentScript(tab.url)) {
+      throw new Error(`Cannot access a ${tab.url.split('://')[0]}:// URL`);
+    }
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const pingResponse = await chrome.tabs.sendMessage(tabId, 
+        // First, check if content script is already present
+        try {
+          const pingResponse = await chrome.tabs.sendMessage(tabId, 
+            { action: 'ping' }, 
+            { frameId: 0 }
+          );
+          
+          if (pingResponse && pingResponse.status === 'ok') {
+            console.log('[Content Script] Already injected and responsive');
+            return true;
+          }
+        } catch (e) {
+          // Content script not present, inject it
+        }
+        
+        // Inject the content script
+        console.log(`[Content Script] Injecting (attempt ${attempt}/${maxRetries})`);
+        
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['shared-id-generator.js', 'content.js'],
+          world: 'ISOLATED'
+        });
+        
+        // Wait for initialization
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        // Verify injection succeeded
+        const verifyResponse = await chrome.tabs.sendMessage(tabId, 
           { action: 'ping' }, 
           { frameId: 0 }
         );
         
-        if (pingResponse && pingResponse.status === 'ok') {
-          console.log('[Content Script] Already injected and responsive');
+        if (verifyResponse && verifyResponse.status === 'ok') {
+          console.log('[Content Script] Successfully injected and verified');
           return true;
         }
-      } catch (e) {
-        // Content script not present, inject it
+        
+      } catch (error) {
+        console.error(`[Content Script] Injection attempt ${attempt} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          throw new Error(`Failed to inject content script after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        // Wait before retry with exponential backoff
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
       }
-      
-      // Inject the content script
-      console.log(`[Content Script] Injecting (attempt ${attempt}/${maxRetries})`);
-      
-      await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        files: ['shared-id-generator.js', 'content.js'],
-        world: 'ISOLATED'
-      });
-      
-      // Wait for initialization
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Verify injection succeeded
-      const verifyResponse = await chrome.tabs.sendMessage(tabId, 
-        { action: 'ping' }, 
-        { frameId: 0 }
-      );
-      
-      if (verifyResponse && verifyResponse.status === 'ok') {
-        console.log('[Content Script] Successfully injected and verified');
-        return true;
-      }
-      
-    } catch (error) {
-      console.error(`[Content Script] Injection attempt ${attempt} failed:`, error);
-      
-      if (attempt === maxRetries) {
-        throw new Error(`Failed to inject content script after ${maxRetries} attempts: ${error.message}`);
-      }
-      
-      // Wait before retry with exponential backoff
-      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
     }
+    
+    return false;
+  } catch (error) {
+    console.error('[Content Script] URL validation or injection failed:', error);
+    throw error;
   }
-  
-  return false;
 }
 
 /**
@@ -243,26 +312,30 @@ async function readPDFContent(tab) {
     console.log('[PDF Reader] PDF collector not available:', e.message);
   }
   
-  // Method 2: Try content script
-  try {
-    await ensureContentScriptWithRetry(tab.id);
-    
-    const contentResponse = await chrome.tabs.sendMessage(tab.id, 
-      { action: 'readPDFContent' },
-      { frameId: 0 }
-    );
-    
-    if (contentResponse && contentResponse.success && contentResponse.content) {
-      console.log('[PDF Reader] Got content from content script');
-      results.success = true;
-      results.content = contentResponse.content;
-      results.size = contentResponse.size || 0;
-      results.method = 'content-script';
-      return results;
+  // Method 2: Try content script (if URL is accessible)
+  if (isUrlAccessibleForContentScript(tab.url)) {
+    try {
+      await ensureContentScriptWithRetry(tab.id);
+      
+      const contentResponse = await chrome.tabs.sendMessage(tab.id, 
+        { action: 'readPDFContent' },
+        { frameId: 0 }
+      );
+      
+      if (contentResponse && contentResponse.success && contentResponse.content) {
+        console.log('[PDF Reader] Got content from content script');
+        results.success = true;
+        results.content = contentResponse.content;
+        results.size = contentResponse.size || 0;
+        results.method = 'content-script';
+        return results;
+      }
+    } catch (e) {
+      console.log('[PDF Reader] Content script method failed:', e.message);
+      results.error = e.message;
     }
-  } catch (e) {
-    console.log('[PDF Reader] Content script method failed:', e.message);
-    results.error = e.message;
+  } else {
+    console.log('[PDF Reader] Skipping content script method - URL not accessible for injection');
   }
   
   // Method 3: Direct fetch for accessible URLs
@@ -313,8 +386,8 @@ async function readPDFContent(tab) {
     }
   }
   
-  // Method 4: For local files, try File API
-  if (tab.url.startsWith('file://')) {
+  // Method 4: For local files, try File API (if URL is accessible)
+  if (tab.url.startsWith('file://') && isUrlAccessibleForContentScript(tab.url)) {
     try {
       // Inject a special script to read local file
       const [result] = await chrome.scripting.executeScript({
@@ -360,6 +433,8 @@ async function readPDFContent(tab) {
       console.log('[PDF Reader] Local file method failed:', e.message);
       results.error = e.message;
     }
+  } else if (tab.url.startsWith('file://') && !isUrlAccessibleForContentScript(tab.url)) {
+    console.log('[PDF Reader] Skipping local file method - URL not accessible for injection');
   }
   
   // If all methods failed, return error
@@ -441,10 +516,7 @@ async function analyzePDFWithImprovedHandling(tab, paperId) {
       console.log('[PDF Analysis] Including PDF content in payload (method:', pdfContent.method, ')');
     }
     
-    // Add API keys
-    if (llmSettings.geminiKey) payload.google_api_key = llmSettings.geminiKey;
-    if (llmSettings.openaiKey) payload.openai_api_key = llmSettings.openaiKey;
-    if (llmSettings.claudeKey) payload.claude_api_key = llmSettings.claudeKey;
+    // No API keys needed - backend handles all LLM API keys
     
     // Step 6: Send to backend for analysis
     showStatus('Analyzing PDF content...', 'progress');
@@ -479,5 +551,6 @@ window.PDFHandler = {
   checkIfPDFPage,
   ensureContentScriptWithRetry,
   readPDFContent,
-  analyzePDFWithImprovedHandling
+  analyzePDFWithImprovedHandling,
+  isUrlAccessibleForContentScript
 };

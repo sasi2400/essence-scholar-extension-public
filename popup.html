@@ -147,6 +147,35 @@
       font-size: 14px;
       text-align: center;
     }
+    
+    /* Credit display styles */
+    .credit-display {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin: 8px 0;
+      text-align: center;
+      font-size: 13px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .credit-display .credit-label {
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    
+    .credit-display .credit-amount {
+      font-size: 16px;
+      font-weight: bold;
+      color: #FFD700;
+    }
+    
+    .credit-display .credit-info {
+      font-size: 11px;
+      opacity: 0.9;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -166,6 +195,15 @@
     <!-- Backend Status Display -->
     <div id="backend-status" class="backend-status">
       <div class="info">🔍 Detecting backend...</div>
+    </div>
+    
+    <!-- Credit Display -->
+    <div id="credit-display" class="credit-display" style="display: none;">
+      <div class="credit-label">Available Credits</div>
+      <div class="credit-amount" id="credit-amount">--</div>
+      <div class="credit-info">
+        Add to your credit via <a href="https://essensescholar.com/dashboard" target="_blank" rel="noopener noreferrer">essensescholar.com/dashboard</a>
+      </div>
     </div>
     
     <!-- Configuration Status Display -->
@@ -242,31 +280,8 @@
           </optgroup>
         </select>
       </div>
-      <div id="api-key-section" style="margin-bottom:18px;">
-        <div id="gemini-key-section" style="display:none; margin-bottom:10px;">
-          <label for="gemini-key-input" style="font-weight:500;">Google AI API Key:</label>
-          <input type="password" id="gemini-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="AIza...">
-          <div style="font-size:0.8em; color:#666; margin-top:4px; margin-left:135px;">
-            Required for Gemini models 
-            <a href="https://makersuite.google.com/app/apikey" target="_blank" style="color:#4CAF50; text-decoration:none;">Get API Key</a>
-          </div>
-        </div>
-        <div id="openai-key-section" style="display:none; margin-bottom:10px;">
-          <label for="openai-key-input" style="font-weight:500;">OpenAI API Key:</label>
-          <input type="password" id="openai-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-...">
-          <div style="font-size:0.8em; color:#666; margin-top:4px; margin-left:120px;">
-            Required for GPT-4 and GPT-3.5 models 
-            <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#4CAF50; text-decoration:none;">Get API Key</a>
-          </div>
-        </div>
-        <div id="claude-key-section" style="display:none; margin-bottom:10px;">
-          <label for="claude-key-input" style="font-weight:500;">Claude API Key:</label>
-          <input type="password" id="claude-key-input" style="margin-left:10px; padding:4px 8px; border-radius:4px; width:180px;" placeholder="sk-ant-...">
-          <div style="font-size:0.8em; color:#666; margin-top:4px; margin-left:120px;">
-            Required for all Claude models 
-            <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#4CAF50; text-decoration:none;">Get API Key</a>
-          </div>
-        </div>
+      <div style="font-size:0.9em; color:#666; margin-bottom:18px; padding:12px; background:#f5f5f5; border-radius:6px;">
+        <strong>ℹ️ Note:</strong> LLM API keys are now managed by the backend. You only need to provide your Essence Scholar API key during onboarding.
       </div>
       <div style="text-align:right;">
         <button id="settings-cancel-btn" style="margin-right:10px; padding:6px 16px; border-radius:4px; border:none; background:#ccc; color:#333;">Cancel</button>

@@ -49,10 +49,10 @@
       font-weight: 400;
     }
     
-    /* Two Column Layout */
+    /* Two Row Layout */
     .two-column-layout {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
+      flex-direction: column;
       gap: 24px;
       margin-bottom: 40px;
     }
@@ -61,6 +61,7 @@
       display: flex;
       flex-direction: column;
       gap: 20px;
+      width: 100%;
     }
     
     /* Search section */
@@ -742,7 +743,6 @@
       }
       
       .two-column-layout {
-        grid-template-columns: 1fr;
         gap: 16px;
       }
       
@@ -803,6 +803,40 @@
       margin: 0;
       color: #2c3e50;
       font-size: 28px;
+    }
+    
+    /* Credit display styles */
+    .credit-display {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      margin: 0 0 20px 0;
+      text-align: center;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    
+    .credit-display .credit-label {
+      font-weight: 500;
+    }
+    
+    .credit-display .credit-amount {
+      font-size: 18px;
+      font-weight: bold;
+      color: #FFD700;
+      padding: 4px 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+    
+    .credit-display .credit-info {
+      font-size: 12px;
+      opacity: 0.9;
     }
     .button-group {
       display: flex;
@@ -2024,9 +2058,9 @@
           <p class="homepage-subtitle" id="dynamicSubtitle">Distill the Knowledge, Drive Your Research.</p>
         </div>
         
-        <!-- Two Column Layout -->
+        <!-- Two Row Layout -->
         <div class="two-column-layout">
-          <!-- Left Column: Search and Stats -->
+          <!-- First Row: Search Section -->
           <div class="left-column">
             <!-- Search Section -->
             <div class="search-section">
@@ -2042,33 +2076,10 @@
               <div id="searchResults" class="search-results" style="display: none;"></div>
             </div>
             
-            <!-- Stats Section -->
-            <div class="stats-section">
-              <div class="stat-card papers-card">
-                <div class="stat-icon">📄</div>
-                <div class="stat-number" id="totalPapers">0</div>
-                <div class="stat-label">Total Papers</div>
-                <div class="stat-description">Papers stored in system</div>
-                <div class="stat-glow"></div>
-              </div>
-              <div class="stat-card authors-card">
-                <div class="stat-icon">👥</div>
-                <div class="stat-number" id="totalAuthors">0</div>
-                <div class="stat-label">Authors</div>
-                <div class="stat-description">Unique authors analyzed</div>
-                <div class="stat-glow"></div>
-              </div>
-              <div class="stat-card analyses-card">
-                <div class="stat-icon">⚡</div>
-                <div class="stat-number" id="analyzedPapers">0</div>
-                <div class="stat-label">Analyses</div>
-                <div class="stat-description">Total analyses completed</div>
-                <div class="stat-glow"></div>
-              </div>
-            </div>
+            <!-- Removed stats from search section as requested -->
           </div>
           
-          <!-- Right Column: PDF Upload -->
+          <!-- Second Row: PDF Upload -->
           <div class="right-column">
             <div class="upload-section-homepage">
               <div class="upload-icon-large">📄</div>
@@ -2287,6 +2298,46 @@
             </button>
           </form>
         </div>
+
+        <!-- Collapsible Database Stats Section -->
+        <div class="stats-section-collapsible">
+          <div class="stats-header" id="statsHeader" style="cursor: pointer; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h2 style="margin: 0; color: #333; font-size: 18px;">📊 Database Statistics</h2>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div id="statsLoading" class="loading" style="display: none;"></div>
+                <span id="statsArrow" style="font-size: 20px; transition: transform 0.3s;">▼</span>
+              </div>
+            </div>
+            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Click to view database statistics</p>
+          </div>
+          
+          <div id="statsContent" class="stats-content" style="display: none;">
+            <div class="stats-section">
+              <div class="stat-card papers-card">
+                <div class="stat-icon">📄</div>
+                <div class="stat-number" id="totalPapers">0</div>
+                <div class="stat-label">Total Papers</div>
+                <div class="stat-description">Papers stored in system</div>
+                <div class="stat-glow"></div>
+              </div>
+              <div class="stat-card authors-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-number" id="totalAuthors">0</div>
+                <div class="stat-label">Authors</div>
+                <div class="stat-description">Unique authors analyzed</div>
+                <div class="stat-glow"></div>
+              </div>
+              <div class="stat-card analyses-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-number" id="analyzedPapers">0</div>
+                <div class="stat-label">Analyses</div>
+                <div class="stat-description">Total analyses completed</div>
+                <div class="stat-glow"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -2299,6 +2350,13 @@
           <button id="onboardingBtn" class="button" style="background-color: #17a2b8;">Setup Guide</button>
           <button id="clearBtn" class="button" style="background-color: #28a745;">Go to Homepage</button>
         </div>
+    </div>
+    
+    <!-- Credit Display -->
+    <div id="credit-display" class="credit-display" style="display: none;">
+      <span class="credit-label">Available Credits:</span>
+      <span class="credit-amount" id="credit-amount">--</span>
+      <span class="credit-info">Credits refresh daily</span>
     </div>
 
     <!-- <div id="uploadSection" class="upload-section">
@@ -2348,6 +2406,13 @@
           <button id="onboardingBtn2" class="button" style="background-color: #17a2b8;">Setup Guide</button>
           <button id="clearBtn2" class="button" style="background-color: #28a745;">Go to Homepage</button>
         </div>
+      </div>
+      
+      <!-- Credit Display for New Layout -->
+      <div id="credit-display-new" class="credit-display" style="grid-column: 1 / -1; margin-bottom: 20px; display: none;">
+        <span class="credit-label">Available Credits:</span>
+        <span class="credit-amount" id="credit-amount-new">--</span>
+        <span class="credit-info">Credits refresh daily</span>
       </div>
       
       <!-- Left Panel (67% width) -->

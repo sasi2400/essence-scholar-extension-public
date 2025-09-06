@@ -1,13 +1,13 @@
 // Onboarding JavaScript
 let currentStep = 1;
-const totalSteps = 4;
+const totalSteps = 4; // API key, model selection, research profile, analysis preferences
 
 // Initialize onboarding
 document.addEventListener('DOMContentLoaded', function() {
   updateProgress();
   setupEventListeners();
   loadExistingSettings();
-  checkBackendStatus(); // Add backend detection
+  // Backend status check removed - not needed for simplified onboarding
 });
 
 function setupEventListeners() {
@@ -25,15 +25,84 @@ function setupEventListeners() {
   document.getElementById('finishBtn').addEventListener('click', finishSetup);
   document.getElementById('skipBtn').addEventListener('click', skipSetup);
   
-  // Form validation
-  document.getElementById('geminiKey').addEventListener('input', validateApiKeys);
-  document.getElementById('openaiKey').addEventListener('input', validateApiKeys);
-  document.getElementById('claudeKey').addEventListener('input', validateApiKeys);
+  // Old API key validation removed - no longer needed
   
   // Generate profile button
   const generateProfileBtn = document.getElementById('generateProfileBtn');
   if (generateProfileBtn) {
-    generateProfileBtn.addEventListener('click', generateResearchProfile);
+    console.log('✓ Generate profile button found:', generateProfileBtn);
+    console.log('Button text:', generateProfileBtn.textContent);
+    console.log('Button ID:', generateProfileBtn.id);
+    
+    // Remove any existing listeners first
+    generateProfileBtn.replaceWith(generateProfileBtn.cloneNode(true));
+    
+    // Get the fresh button reference
+    const freshBtn = document.getElementById('generateProfileBtn');
+    
+    // Add the event listener
+    freshBtn.addEventListener('click', function(e) {
+      console.log('Generate profile button CLICKED!', e);
+      console.log('Event type:', e.type);
+      console.log('Button element:', this);
+      generateResearchProfile();
+    });
+    
+    // Ensure button is not disabled
+    freshBtn.disabled = false;
+    freshBtn.removeAttribute('disabled');
+    
+    console.log('✓ Event listener added to generate profile button');
+    console.log('✓ Button enabled:', !freshBtn.disabled);
+  } else {
+    console.error('X Generate profile button not found!');
+    console.log('Available buttons:', document.querySelectorAll('button').length);
+    console.log('Button with ID generateProfileBtn:', document.getElementById('generateProfileBtn'));
+  }
+  
+  // API key input validation
+  const essenceApiKeyInput = document.getElementById('essenceApiKey');
+  if (essenceApiKeyInput) {
+    console.log('Setting up API key validation for:', essenceApiKeyInput.id);
+    essenceApiKeyInput.addEventListener('input', validateEssenceApiKey);
+    // Also validate on blur to catch when user finishes typing
+    essenceApiKeyInput.addEventListener('blur', validateEssenceApiKey);
+  } else {
+    console.error('API key input element not found during setup');
+  }
+  
+  // Test API key button
+  const testApiKeyBtn = document.getElementById('testApiKeyBtn');
+  if (testApiKeyBtn) {
+    testApiKeyBtn.addEventListener('click', testEssenceApiKey);
+  }
+}
+
+// Backend detection function
+async function getBackendUrl() {
+  try {
+    // Check if BackendManager is available (from popup.js or fullpage.js)
+    if (typeof BackendManager !== 'undefined') {
+      const backend = await BackendManager.getCurrentBackend();
+      if (backend) {
+        console.log('Onboarding: Using BackendManager backend:', backend.url);
+        return backend.url;
+      }
+    }
+    
+    // Fallback: try to get backend from chrome.storage
+    const result = await chrome.storage.local.get(['currentBackend']);
+    if (result.currentBackend && result.currentBackend.url) {
+      console.log('Onboarding: Using stored backend:', result.currentBackend.url);
+      return result.currentBackend.url;
+    }
+    
+    // Final fallback: use localhost for development
+    console.log('Onboarding: Using fallback localhost backend');
+    return 'http://localhost:8080';
+  } catch (error) {
+    console.error('Onboarding: Error detecting backend, using fallback:', error);
+    return 'http://localhost:8080';
   }
 }
 
@@ -85,9 +154,9 @@ function updateNavigationButtons() {
 function validateCurrentStep() {
   switch (currentStep) {
     case 1:
-      return validateModelSelection() && validateBackendAvailable();
+      return validateEssenceApiKey();
     case 2:
-      return validateApiKeys();
+      return validateModelSelection();
     case 3:
       return true; // Research profile is optional
     case 4:
@@ -106,51 +175,7 @@ function validateModelSelection() {
   return true;
 }
 
-function validateBackendAvailable() {
-  const backendStatus = document.getElementById('backend-status');
-  const statusText = backendStatus.querySelector('.info span');
-  
-  if (statusText.textContent.includes('No backend available')) {
-    alert('No backend is currently available. Please check your internet connection and try again.');
-    return false;
-  }
-  
-  if (statusText.textContent.includes('Detecting backend')) {
-    alert('Please wait for backend detection to complete before proceeding.');
-    return false;
-  }
-  
-  return true;
-}
-
-function validateApiKeys() {
-  const selectedModel = document.querySelector('.model-card.selected');
-  if (!selectedModel) return true;
-  
-  const model = selectedModel.dataset.model;
-  const geminiKey = document.getElementById('geminiKey').value.trim();
-  const openaiKey = document.getElementById('openaiKey').value.trim();
-  const claudeKey = document.getElementById('claudeKey').value.trim();
-  
-  // Check if selected model requires API key
-  if (model.startsWith('gpt-') && !openaiKey) {
-    alert('Please provide an OpenAI API key for GPT models. You can get one from https://platform.openai.com/api-keys');
-    return false;
-  }
-  
-  if (model.startsWith('claude-') && !claudeKey) {
-    alert('Please provide a Claude API key for Claude models. You can get one from https://console.anthropic.com/settings/keys');
-    return false;
-  }
-  
-  // For Gemini models, API key is also required
-  if (model.startsWith('gemini-') && !geminiKey) {
-    alert('Please provide a Google AI API key for Gemini models. You can get one from https://makersuite.google.com/app/apikey');
-    return false;
-  }
-  
-  return true;
-}
+// API key validation function removed - backend handles all API keys
 
 function validateAnalysisPreferences() {
   const selectedResearchers = document.querySelectorAll('input[name="junior_researchers"]:checked');
@@ -163,29 +188,30 @@ function validateAnalysisPreferences() {
 
 function loadExistingSettings() {
   // Load existing settings from chrome.storage
-  chrome.storage.local.get(['llmSettings', 'userSettings', 'juniorResearchers'], function(result) {
+  chrome.storage.local.get(['essenceScholarApiKey', 'llmSettings', 'userSettings', 'juniorResearchers'], function(result) {
+    const essenceScholarApiKey = result.essenceScholarApiKey || '';
     const llmSettings = result.llmSettings || {};
     const userSettings = result.userSettings || {};
     const juniorResearchers = result.juniorResearchers || {};
     
+    // Set Essence Scholar API key
+    if (essenceScholarApiKey) {
+      const apiKeyInput = document.getElementById('essenceApiKey');
+      if (apiKeyInput) {
+        apiKeyInput.value = essenceScholarApiKey;
+        validateEssenceApiKey(); // Trigger validation
+      }
+    }
+    
     // Set model selection
-    if (llmSettings.model) {
+    if (llmSettings && llmSettings.model) {
       const modelCard = document.querySelector(`[data-model="${llmSettings.model}"]`);
       if (modelCard) {
         modelCard.classList.add('selected');
       }
     }
     
-    // Set API keys
-    if (llmSettings.geminiKey) {
-      document.getElementById('geminiKey').value = llmSettings.geminiKey;
-    }
-    if (llmSettings.openaiKey) {
-      document.getElementById('openaiKey').value = llmSettings.openaiKey;
-    }
-    if (llmSettings.claudeKey) {
-      document.getElementById('claudeKey').value = llmSettings.claudeKey;
-    }
+    // API key loading removed - backend handles all API keys
     
     // Set research profile
     if (userSettings.googleScholarUrl) {
@@ -206,13 +232,30 @@ function loadExistingSettings() {
 }
 
 async function generateResearchProfile() {
-  const generateBtn = document.getElementById('generateProfileBtn');
-  const generateBtnText = document.getElementById('generateBtnText');
-  const generateBtnLoading = document.getElementById('generateBtnLoading');
-  const googleScholarUrl = document.getElementById('googleScholarUrl').value.trim();
-  const researchInterests = document.getElementById('researchInterests');
+  console.log('🚀 generateResearchProfile function called!');
+  console.log('Function execution started at:', new Date().toISOString());
   
-  if (!googleScholarUrl) {
+  try {
+    const generateBtn = document.getElementById('generateProfileBtn');
+    const generateBtnText = document.getElementById('generateBtnText');
+    const generateBtnLoading = document.getElementById('generateBtnLoading');
+    const googleScholarUrl = document.getElementById('googleScholarUrl').value.trim();
+    const researchInterests = document.getElementById('researchInterests');
+    
+    console.log('🔍 Elements found:', {
+      generateBtn: !!generateBtn,
+      generateBtnText: !!generateBtnText,
+      generateBtnLoading: !!generateBtnLoading,
+      googleScholarUrl: googleScholarUrl,
+      researchInterests: !!researchInterests
+    });
+    
+    // Test if we can access the DOM elements
+    console.log('📝 Button text content:', generateBtn?.textContent);
+    console.log('🔗 URL input value:', googleScholarUrl);
+    console.log('📄 Research interests element:', researchInterests?.tagName);
+    
+    if (!googleScholarUrl) {
     alert('Please enter your Google Scholar profile URL first.');
     return;
   }
@@ -229,31 +272,57 @@ async function generateResearchProfile() {
   generateBtnLoading.style.display = 'inline-block';
   
   try {
-    // Get current LLM settings for the API call
-    const llmSettings = await new Promise((resolve) => {
-      chrome.storage.local.get(['llmSettings'], (result) => {
-        resolve(result.llmSettings || { model: 'gemini-2.5-pro', geminiKey: '', openaiKey: '', claudeKey: '' });
-      });
-    });
+    // Get the Essence Scholar API key from chrome storage (where it's actually stored)
+    let apiKey = null;
     
-    // Get backend URL using the same logic as fullpage
-    const backend = await BackendManager.getCurrentBackend();
-    if (!backend) {
-      throw new Error('No healthy backend available');
+    try {
+      // Try chrome.storage.sync first (where it's stored during Step 1)
+      const result = await new Promise((resolve) => {
+        chrome.storage.sync.get(['essence_scholar_api_key'], (result) => {
+          resolve(result.essence_scholar_api_key);
+        });
+      });
+      apiKey = result;
+      
+      // If not found in chrome.storage.sync, try localStorage as fallback
+      if (!apiKey) {
+        apiKey = localStorage.getItem('essence_scholar_api_key');
+      }
+      
+      console.log('🔑 API key found:', apiKey ? `${apiKey.substring(0, 10)}...` : 'Not found');
+      
+    } catch (error) {
+      console.log('Chrome storage error, trying localStorage...');
+      apiKey = localStorage.getItem('essence_scholar_api_key');
     }
     
-    // Make API request to generate profile using the same endpoint as fullpage
-    const response = await makeApiRequestWithBackend('/generate-research-profile', {
+    if (!apiKey) {
+      throw new Error('No Essence Scholar API key found. Please complete Step 1 first.');
+    }
+    
+    // Make API request to generate profile using the existing backend endpoint
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/generate-research-profile`, {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         googleScholarUrl: googleScholarUrl,
         researchInterests: researchInterests.value.trim()
       })
-    }, backend);
+    });
     
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Backend error: ${response.status} - ${errorText}`);
+      if (response.status === 401) {
+        throw new Error('Invalid API key. Please check your Essence Scholar API key.');
+      } else if (response.status === 402) {
+        throw new Error('Insufficient credits. Please check your credit balance.');
+      } else {
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
+      }
     }
     
     const result = await response.json();
@@ -280,86 +349,25 @@ async function generateResearchProfile() {
     generateBtnText.style.display = 'inline';
     generateBtnLoading.style.display = 'none';
   }
-}
-
-// Check backend status and update UI
-async function checkBackendStatus() {
-  const backendStatus = document.getElementById('backend-status');
-  const statusDiv = backendStatus.querySelector('.info');
-  
-  try {
-    console.log('Onboarding: Checking backend status...');
-    
-    // Use priority 1 backend from config
-    const backend = BackendManager.getPriorityOneBackend();
-    
-    if (backend) {
-      // Test if backend is actually responsive
-      try {
-        // Use AbortController for better browser compatibility
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-        
-        const healthCheck = await fetch(`${backend.url}/health`, { 
-          method: 'GET',
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (healthCheck.ok) {
-          statusDiv.innerHTML = `
-            <div style="color: #28a745; display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 16px;">✅</span>
-              <span>Backend available: ${backend.name}</span>
-            </div>
-          `;
-          console.log('Onboarding: Backend is healthy');
-        } else {
-          throw new Error(`Health check failed: ${healthCheck.status}`);
-        }
-      } catch (healthError) {
-        console.error('Onboarding: Health check failed:', healthError);
-        statusDiv.innerHTML = `
-          <div style="color: #dc3545; display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 16px;">⚠️</span>
-            <span>Backend detected but not responding</span>
-          </div>
-        `;
-      }
-    } else {
-      statusDiv.innerHTML = `
-        <div style="color: #dc3545; display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 16px;">❌</span>
-          <span>No backend available</span>
-        </div>
-      `;
-      console.error('Onboarding: No backend available');
-    }
-  } catch (error) {
-    console.error('Onboarding: Error checking backend status:', error);
-    statusDiv.innerHTML = `
-      <div style="color: #dc3545; display: flex; align-items: center; gap: 8px;">
-        <span style="font-size: 16px;">❌</span>
-        <span>Error checking backend: ${error.message}</span>
-      </div>
-    `;
+  } catch (outerError) {
+    console.error('Outer error in generateResearchProfile:', outerError);
+    alert('Unexpected error: ' + outerError.message);
   }
 }
+
+// Backend status check function removed - not needed for simplified onboarding
 
 
 
 function saveSettings() {
   return new Promise((resolve, reject) => {
     try {
+      // Get Essence Scholar API key
+      const essenceScholarApiKey = document.getElementById('essenceApiKey')?.value.trim() || '';
+      
       // Get selected model
       const selectedModelCard = document.querySelector('.model-card.selected');
       const selectedModel = selectedModelCard ? selectedModelCard.dataset.model : 'gemini-2.5-pro';
-      
-      // Get API keys
-      const geminiKey = document.getElementById('geminiKey').value.trim();
-      const openaiKey = document.getElementById('openaiKey').value.trim();
-      const claudeKey = document.getElementById('claudeKey').value.trim();
       
       // Get research profile
       const googleScholarUrl = document.getElementById('googleScholarUrl').value.trim();
@@ -373,10 +381,8 @@ function saveSettings() {
       
       // Prepare settings objects
       const llmSettings = {
-        model: selectedModel,
-        geminiKey: geminiKey,
-        openaiKey: openaiKey,
-        claudeKey: claudeKey
+        model: selectedModel
+        // API keys removed - backend handles all API key management
       };
       
       const userSettings = {
@@ -386,6 +392,7 @@ function saveSettings() {
       
       // Save to chrome.storage
       chrome.storage.local.set({
+        essenceScholarApiKey: essenceScholarApiKey,
         llmSettings: llmSettings,
         userSettings: userSettings,
         juniorResearchers: juniorResearchers,
@@ -437,11 +444,10 @@ function finishSetup() {
 function skipSetup() {
   // Set default settings
   const defaultSettings = {
+    essenceScholarApiKey: '', // Add API key field
     llmSettings: {
-      model: 'gemini-2.5-pro',
-      geminiKey: '',
-      openaiKey: '',
-      claudeKey: ''
+      model: 'gemini-2.5-pro'
+      // Old API key fields removed - no longer needed
     },
     userSettings: {
       googleScholarUrl: '',
@@ -478,14 +484,129 @@ function showSuccessMessage() {
       </p>
     </div>
     <div style="text-align: center; margin-top: 40px;">
-      <div style="font-size: 64px; margin-bottom: 20px;">✅</div>
+      <div style="font-size: 64px; margin-bottom: 20px;">✓</div>
       <p style="font-size: 18px; color: #28a745;">Redirecting you to the main interface...</p>
     </div>
   `;
+}
+
+// API Key validation and testing functions
+function validateEssenceApiKey() {
+  console.log('validateEssenceApiKey called');
+  const apiKeyInput = document.getElementById('essenceApiKey');
+  const testBtn = document.getElementById('testApiKeyBtn');
+  const statusDiv = document.getElementById('apiKeyStatus');
+  
+  console.log('Elements found:', { apiKeyInput: !!apiKeyInput, testBtn: !!testBtn, statusDiv: !!statusDiv });
+  
+  if (!apiKeyInput) {
+    console.error('API key input element not found');
+    return true; // Skip if element doesn't exist
+  }
+  
+  const apiKey = apiKeyInput.value.trim();
+  console.log('API key value:', apiKey ? `${apiKey.substring(0, 10)}...` : 'empty');
+  
+  // Check format: sk_live_{prefix}_{32hex}
+  const apiKeyRegex = /^sk_live_[a-z0-9]{4}_[a-f0-9]{32}$/;
+  
+  if (!apiKey) {
+    showApiKeyStatus('Please enter your Essence Scholar API key to continue.', 'error');
+    return false;
+  }
+  
+  if (!apiKeyRegex.test(apiKey)) {
+    showApiKeyStatus('Invalid API key format. Should be: sk_live_xxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'error');
+    return false;
+  }
+  
+  // Show test button and success status
+  if (testBtn) testBtn.style.display = 'inline-block';
+  showApiKeyStatus('✓ Valid API key format. Click "Test API Key" to verify it works.', 'success');
+  return true;
+}
+
+function testEssenceApiKey() {
+  const apiKeyInput = document.getElementById('essenceApiKey');
+  const testBtn = document.getElementById('testApiKeyBtn');
+  const testBtnText = document.getElementById('testBtnText');
+  const testBtnLoading = document.getElementById('testBtnLoading');
+  
+  if (!apiKeyInput || !testBtn) return;
+  
+  const apiKey = apiKeyInput.value.trim();
+  
+  // Show loading state
+  testBtn.disabled = true;
+  testBtnText.style.display = 'none';
+  testBtnLoading.style.display = 'inline-block';
+  
+  // Test the API key by calling the profile endpoint
+  getBackendUrl().then(backendUrl => {
+    fetch(`${backendUrl}/auth/profile`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else if (response.status === 401) {
+        throw new Error('Invalid API key');
+      } else if (response.status === 402) {
+        throw new Error('Insufficient credits');
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    })
+    .then(data => {
+      showApiKeyStatus(`✓ API key verified! Welcome, ${data.user.name || data.user.email}. You have ${data.user.credits} credits remaining.`, 'success');
+      
+      // Store the API key in Chrome storage
+      chrome.storage.sync.set({
+        'essence_scholar_api_key': apiKey,
+        'essence_scholar_user': data.user
+      }, () => {
+        console.log('API key saved to Chrome storage');
+      });
+    })
+    .catch(error => {
+      showApiKeyStatus(`X API key test failed: ${error.message}`, 'error');
+    })
+    .finally(() => {
+      // Reset button state
+      testBtn.disabled = false;
+      testBtnText.style.display = 'inline';
+      testBtnLoading.style.display = 'none';
+    });
+  }).catch(error => {
+    showApiKeyStatus(`X Backend detection failed: ${error.message}`, 'error');
+    // Reset button state on backend error
+    testBtn.disabled = false;
+    testBtnText.style.display = 'inline';
+    testBtnLoading.style.display = 'none';
+  });
+}
+
+function showApiKeyStatus(message, type) {
+  const statusDiv = document.getElementById('apiKeyStatus');
+  if (!statusDiv) return;
+  
+  statusDiv.textContent = message;
+  statusDiv.className = `api-key-status ${type}`;
+  statusDiv.style.display = 'block';
 }
 
 // Handle window close
 window.addEventListener('beforeunload', function() {
   // Mark onboarding as completed even if user closes window
   chrome.storage.local.set({ onboardingCompleted: true });
-}); 
+});
+
+// Test function - call this from console to test
+window.testGenerateProfile = function() {
+      console.log('Testing generate profile function...');
+  generateResearchProfile();
+}; 
