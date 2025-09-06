@@ -5814,6 +5814,19 @@ document.addEventListener('DOMContentLoaded', function() {
   
   })(); // End of initializePage async IIFE
 
+  // Handle browser back/forward button navigation
+  window.addEventListener('popstate', function(event) {
+    console.log('🔙 Extension: Browser back/forward button clicked!');
+    console.log('🔍 Extension: Current URL:', window.location.href);
+    console.log('🔍 Extension: URL search params:', window.location.search);
+    console.log('🔍 Extension: Event state:', event.state);
+    console.log('🔍 Extension: Current viewMode before reinit:', viewMode);
+    // Re-run the initialization to detect the new view mode from URL
+    initializePage().catch(error => {
+      console.error('❌ Extension: Error during popstate reinitialization:', error);
+    });
+  });
+
   // Global debug functions
   window.debugNewLayout = function() {
     console.log('🔍 Debug: Checking new layout elements...');
