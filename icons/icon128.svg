@@ -1,66 +1,7 @@
-<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <!-- Elegant gradient background -->
-  <defs>
-    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E3A8A"></stop>
-      <stop offset="50%" stop-color="#3B82F6"></stop>
-      <stop offset="100%" stop-color="#1D4ED8"></stop>
-    </linearGradient>
-    
-    <linearGradient id="essence-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F59E0B"></stop>
-      <stop offset="100%" stop-color="#FEF3C7"></stop>
-    </linearGradient>
-    
-    <linearGradient id="paper-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF"></stop>
-      <stop offset="100%" stop-color="#F8FAFC"></stop>
-    </linearGradient>
-  </defs>
-  
-  <!-- Rounded background -->
-  <rect width="128" height="128" rx="24" fill="url(#bg-grad)"></rect>
-
-  <!-- Scholar's scroll/paper with curved edge -->
-  <path d="M20 35 Q20 25 30 25 h60 Q100 25 100 35 v55 Q100 105 90 105 h-60 Q20 105 20 95 Z" 
-        fill="url(#paper-grad)" stroke="#E2E8F0" stroke-width="2"></path>
-
-  <!-- Text lines representing academic content -->
-  <rect x="32" y="40" width="45" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
-  <rect x="32" y="48" width="55" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
-  <rect x="32" y="56" width="40" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
-  <rect x="32" y="64" width="50" height="3" rx="1.5" fill="#64748B" opacity="0.7"></rect>
-  
-  <!-- Knowledge distillation symbol - essence droplet -->
-  <g transform="translate(50, 75)">
-    <!-- Essence droplet/gem representing distilled knowledge -->
-    <path d="M0,-12 L8,0 L0,12 L-8,0 Z" fill="url(#essence-grad)" stroke="#D97706" stroke-width="1.5"></path>
-    <!-- Inner light reflection -->
-    <ellipse cx="-2" cy="-4" rx="3" ry="2" fill="#FEF3C7" opacity="0.8"></ellipse>
-  </g>
-
-  <!-- Academic lens/magnifier with scholarly elements -->
-  <g transform="translate(75, 70)">
-    <!-- Magnifying glass lens -->
-    <circle cx="0" cy="0" r="18" fill="none" stroke="#10B981" stroke-width="4" stroke-linecap="round"></circle>
-    <!-- Handle -->
-    <line x1="14" y1="14" x2="24" y2="24" stroke="#059669" stroke-width="4" stroke-linecap="round"></line>
-    
-    <!-- Knowledge nodes inside lens -->
-    <circle cx="-6" cy="-6" r="2.5" fill="#10B981"></circle>
-    <circle cx="6" cy="-4" r="2.5" fill="#10B981"></circle>
-    <circle cx="0" cy="6" r="2.5" fill="#10B981"></circle>
-    
-    <!-- Connection lines showing knowledge network -->
-    <line x1="-6" y1="-6" x2="6" y2="-4" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
-    <line x1="-6" y1="-6" x2="0" y2="6" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
-    <line x1="6" y1="-4" x2="0" y2="6" stroke="#10B981" stroke-width="1.5" opacity="0.7"></line>
-  </g>
-
-  <!-- Decorative academic elements -->
-  <!-- Small stars representing insights -->
-  <g fill="#F59E0B" opacity="0.8">
-    <path d="M25,20 L26,22 L28,22 L26.5,23.5 L27,26 L25,24.5 L23,26 L23.5,23.5 L22,22 L24,22 Z" transform="scale(0.6)"></path>
-    <path d="M105,25 L106,27 L108,27 L106.5,28.5 L107,31 L105,29.5 L103,31 L103.5,28.5 L102,27 L104,27 Z" transform="scale(0.5)"></path>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 512 512" role="img" aria-label="Essence Scholar">
+  <rect x="36" y="36" width="440" height="440" rx="72" ry="72" fill="#13213f"/>
+  <g fill="#ffffff">
+    <path transform="translate(69.15,358.00)" d="M168.02-209.47L168.02-209.47L168.02-170.95L151.61-170.95Q149.71-189.40 138.79-198.78Q127.88-208.15 102.98-208.15L102.98-208.15Q78.08-208.15 67.53-197.97Q56.98-187.79 56.98-167.58L56.98-167.58Q56.98-147.22 69.65-136.74Q82.32-126.27 114.26-126.27L114.26-126.27L121.58-126.27L121.58-110.74L107.67-110.74Q75.59-110.74 62.40-97.63Q49.22-84.52 49.22-60.35L49.22-60.35Q49.22-36.18 62.18-23.22Q75.15-10.25 95.21-10.25L95.21-10.25Q115.14-10.25 128.91-20.36Q142.68-30.47 143.70-38.82L143.70-38.82L170.65-38.82Q165.09-23.44 147.44-9.59Q129.79 4.25 94.63 4.25L94.63 4.25Q59.47 4.25 38.89-12.08Q18.31-28.42 18.31-59.03L18.31-59.03Q18.31-84.08 33.18-99.83Q48.05-115.58 75-119.38L75-119.38Q52.15-124.07 39.70-137.33Q27.25-150.59 27.25-170.36L27.25-170.36Q27.25-194.97 45.26-208.81Q63.28-222.66 102.69-222.66L102.69-222.66Q133.01-222.66 168.02-209.47Z"/>
+    <path transform="translate(238.06,358.00)" d="M90.23-10.25L90.23-10.25Q111.91-10.25 122.97-27.39Q134.03-44.53 134.03-77.93L134.03-77.93Q134.03-108.25 123.05-126.86L123.05-126.86Q113.23-142.68 90.23-142.82L90.23-142.82Q67.82-142.82 57.42-126.86L57.42-126.86Q46.44-109.72 46.44-77.93L46.44-77.93Q46.44-44.53 57.57-27.39Q68.70-10.25 90.23-10.25ZM90.53-155.71L90.53-155.71Q150.29-155.71 196.00-155.71L196.00-155.71L196.00-140.04L142.38-140.04Q165.53-117.63 165.53-77.93L165.53-77.93Q165.53-40.72 144.95-18.24Q124.37 4.25 90.23 4.25L90.23 4.25Q56.25 4.25 35.60-18.24Q14.94-40.72 14.94-77.93Q14.94-115.14 35.45-137.55L35.45-137.55Q52.15-155.71 90.53-155.71Z"/>
   </g>
 </svg>
