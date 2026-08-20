@@ -5,6 +5,9 @@ const CONFIG = {
     NIGHTLY: {
       url: 'https://nightly-api.essencescholar.com',
       name: 'Nightly (testing)',
+      // Off by default: production now has the download-capture filing and the
+      // newsletter-picks endpoints, so the shipped extension targets prod (SELF_HOSTED,
+      // priority 1). Flip to priority 0 / enabled true only to test against nightly.
       priority: 99,
       enabled: false
     },
@@ -1939,3 +1942,145 @@ async function checkFirstInstall() {
 }
 
 console.log('[BG] New PDF detection system loaded - using webRequest API for network-layer detection');
+
+// ─── Capture PDFs the user DOWNLOADS, not only ones that render in a tab ──────
+// pdf-collector.js is a content script, so it can only see a PDF that renders as a
+// page. SSRN's "Download This Paper" responds with Content-Disposition: attachment —
+// the file goes straight to the download manager, no page is ever rendered, no content
+// script runs, and the import silently never happened. That is the reported symptom:
+// "the import seems there but it doesn't capture my downloads."
+//
+// On a completed PDF download we re-fetch the same URL from the service worker. The
+// user's cookies apply (credentials: 'include'), so this is their own session on a page
+// they already opened — nothing is being worked around.
+
+const _ingestedDownloadIds = new Set();
+
+function _abstractIdFromUrl(u) {
+  const m = /(?:abstract_?id=|ssrn\.)(\d{5,9})/i.exec(u || '');
+  return m ? m[1] : null;
+}
+
+function _fileUrlFromPath(p) {
+  // chrome.downloads gives a native path ("/home/u/x.pdf", "C:\\Users\\u\\x.pdf").
+  // Each segment is encoded so spaces and other literals in a paper's filename — very
+  // common — do not produce an unfetchable url.
+  let path = String(p).replace(/\\/g, '/');
+  if (!path.startsWith('/')) path = '/' + path;          // Windows drive letters
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  // Restore the drive-letter colon: Chrome wants file:///C:/… and will not resolve
+  // the percent-encoded C%3A that encodeURIComponent produces.
+  return 'file://' + encoded.replace(/^\/([A-Za-z])%3A\//, '/$1:/');
+}
+
+function _looksLikePdfDownload(item) {
+  const url = item.url || '';
+  const name = item.filename || '';
+  return item.mime === 'application/pdf'
+      || /\.pdf(\?|$)/i.test(name)
+      || /\.pdf(\?|$)/i.test(url)
+      || /Delivery\.cfm/i.test(url);       // SSRN's PDF endpoint has no .pdf suffix
+}
+
+if (chrome.downloads && chrome.downloads.onChanged) {
+  chrome.downloads.onChanged.addListener((delta) => {
+    if (!delta || !delta.state || delta.state.current !== 'complete') return;
+    if (_ingestedDownloadIds.has(delta.id)) return;      // onChanged can fire repeatedly
+    _ingestedDownloadIds.add(delta.id);
+
+    (async () => {
+      try {
+        const [item] = await chrome.downloads.search({ id: delta.id });
+        if (!item || !_looksLikePdfDownload(item)) return;
+
+        console.log('[BG Downloads] captured PDF download:', item.url);
+
+        // Read the file we ALREADY have on disk, rather than asking SSRN for it again.
+        // SSRN's Delivery.cfm links are single-use: the second request returns 403
+        // ("Failed to download PDF: 403"), which is what broke the first version of
+        // this. Reading locally also avoids downloading the same paper twice and puts
+        // no extra load on SSRN.
+        let file_content = null;
+        if (item.filename) {
+          try {
+            file_content = await fetchPdfBytesToBase64(_fileUrlFromPath(item.filename));
+            console.log('[BG Downloads] read from disk:', item.filename);
+          } catch (e) {
+            console.log('[BG Downloads] could not read the downloaded file:', e && e.message);
+          }
+        }
+        // Network fallback for the cases where a local read is not possible (no file
+        // access granted, or the file was moved). Harmless when the link still works.
+        if (!file_content) {
+          try {
+            file_content = await fetchPdfBytesToBase64(item.url);
+          } catch (e) {
+            throw new Error(
+              `Could not read the downloaded PDF from disk, and re-downloading it failed ` +
+              `(${e && e.message}). Enable "Allow access to file URLs" for this extension ` +
+              `in chrome://extensions and download the paper again.`);
+          }
+        }
+
+        // Send the ABSTRACT page url when we can derive it: the backend files a paper
+        // into its newsletter notebook by matching the SSRN id, and a Delivery.cfm url
+        // does not always carry one.
+        const sid = _abstractIdFromUrl(item.url);
+        const abstractUrl = sid
+          ? `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${sid}`
+          : (item.referrer || item.url);
+
+        // Resolve the backend and pass it: the effective makeApiRequestWithBackend
+        // (there are two definitions; the later one wins) REQUIRES the backend as a
+        // third argument and returns a raw Response, not parsed JSON. Calling it
+        // two-arg produced "No valid backend available" — the whole request never left.
+        const backend = await ServiceWorkerBackendManager.getCurrentBackend();
+        if (!backend) throw new Error('No backend available (health checks failed)');
+
+        const response = await makeApiRequestWithBackend(CONFIG.INGEST_ENDPOINT, {
+          method: 'POST',
+          body: JSON.stringify({
+            file_content,
+            url: abstractUrl,
+            pdf_url: item.url,
+            title: null,
+            doi: null,
+            source: 'download_capture',
+          }),
+        }, backend);
+        if (!response.ok) {
+          let detail = '';
+          try { detail = await response.text(); } catch (_) {}
+          throw new Error(`Backend ${response.status}: ${detail.slice(0, 120)}`);
+        }
+        const res = await response.json();
+        const paperId = res && (res.paper_id || res.paperId);
+        const filed = res && res.notebook_id;   // matched to a newsletter notebook
+        console.log('[BG Downloads] ingested', paperId, '(', backend.name, ') notebook:', filed || '(none)');
+
+        // Three honest states, because "in your library" and "in the notebook you
+        // picked it from" are different — and the reported bug was green (looks filed)
+        // showing for papers that only reached the library. Green = filed into a
+        // notebook. Grey ✓ = in the library but not part of any newsletter issue.
+        // Red ! = the ingest itself failed.
+        if (filed) {
+          chrome.action.setBadgeText({ text: '✓' });
+          chrome.action.setBadgeBackgroundColor({ color: '#16a34a' });   // green
+        } else if (paperId) {
+          chrome.action.setBadgeText({ text: '✓' });
+          chrome.action.setBadgeBackgroundColor({ color: '#94a3b8' });   // grey: library only
+        } else {
+          chrome.action.setBadgeText({ text: '!' });
+          chrome.action.setBadgeBackgroundColor({ color: '#F44336' });   // red: failed
+        }
+        setTimeout(() => chrome.action.setBadgeText({ text: '' }), 4000);
+      } catch (e) {
+        // Never throw out of a download listener; a failed capture must not break the
+        // browser's own download handling.
+        console.warn('[BG Downloads] could not ingest download:', e && e.message);
+        _ingestedDownloadIds.delete(delta.id);   // allow a retry on a later attempt
+      }
+    })();
+  });
+  console.log('[BG] Download capture active — downloaded PDFs are imported automatically');
+}

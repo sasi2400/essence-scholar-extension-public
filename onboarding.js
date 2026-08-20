@@ -90,6 +90,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // ── Open the extensions page so the user can grant file-URL access ──
+  // A web page cannot navigate to chrome://, but the extension can. If for any reason
+  // the tabs API is unavailable, fall back to copying the URL to the clipboard.
+  const openExtBtn = document.getElementById('open-extensions-btn');
+  if (openExtBtn) {
+    openExtBtn.addEventListener('click', () => {
+      const target = `chrome://extensions/?id=${chrome.runtime.id}`;
+      if (chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: target });
+      } else {
+        navigator.clipboard?.writeText(target);
+        openExtBtn.textContent = 'Link copied — paste it in a new tab';
+      }
+    });
+  }
+
   // ── Status helpers ─────────────────────────────────────────────
   function showStatus(msg, type) {
     statusMsg.className = 'status-msg ' + type;

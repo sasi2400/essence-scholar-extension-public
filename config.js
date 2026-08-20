@@ -2,23 +2,24 @@
 const CONFIG = {
   // Backend configuration with priority order
   BACKENDS: {
-    // TEMPORARY: nightly is preferred while testing the new /ingest flow.
+    // Production (SELF_HOSTED / scholar-api) is the shipped default. Nightly is
+    // disabled and left for manual testing only.
     NIGHTLY: {
       url: 'https://nightly-api.essencescholar.com',
       name: 'Nightly (testing)',
-      priority: 1,
-      enabled: true
+      priority: 99,
+      enabled: false
     },
     LOCAL_DEV: {
       url: 'http://localhost:8080',
       name: 'Local Development',
-      priority: 2,
-      enabled: true
+      priority: 98,
+      enabled: false
     },
     SELF_HOSTED: {
       url: 'https://scholar-api.essencescholar.com',
       name: 'Self-Hosted (always-on)',
-      priority: 3,
+      priority: 1,
       enabled: true
     },
     CLOUD_RUN: {

@@ -81,6 +81,51 @@
       flex-shrink: 0;
     }
 
+    /* Permission callout */
+    .perm-callout {
+      border: 1px solid #fcd34d;
+      background: #fffbeb;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 0 0 24px;
+    }
+    .perm-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #92400e;
+      margin-bottom: 6px;
+    }
+    .perm-icon { font-size: 15px; }
+    .perm-body { font-size: 13px; color: #78350f; margin: 0 0 8px; line-height: 1.5; }
+    .perm-steps {
+      margin: 0 0 10px;
+      padding-left: 18px;
+      font-size: 13px;
+      color: #78350f;
+      line-height: 1.7;
+    }
+    .perm-steps .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #fef3c7;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .perm-open {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 7px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .perm-open:hover { background: #fde68a; }
+
     /* Divider */
     .divider {
       height: 1px;
@@ -225,9 +270,29 @@
 
     <ul class="features">
       <li><span class="dot"></span>Detect PDFs automatically as you browse</li>
-      <li><span class="dot"></span>One-click import into your library</li>
+      <li><span class="dot"></span>Capture papers you download, straight into your library</li>
       <li><span class="dot"></span>AI-powered analysis on the platform</li>
     </ul>
+
+    <!-- Required permission for download capture. Called out prominently because a
+         downloaded PDF cannot be captured without it, and the failure is silent — the
+         paper just never appears. -->
+    <div class="perm-callout" id="perm-callout">
+      <div class="perm-head">
+        <span class="perm-icon">⚠️</span>
+        <span>One setting to enable download capture</span>
+      </div>
+      <p class="perm-body">
+        So papers you download from SSRN import themselves, this extension needs to read
+        the downloaded file from disk. Turn on <strong>“Allow access to file URLs”</strong>:
+      </p>
+      <ol class="perm-steps">
+        <li>Open <span class="mono">chrome://extensions</span></li>
+        <li>Find <strong>Essence Scholar</strong> → click <strong>Details</strong></li>
+        <li>Toggle <strong>“Allow access to file URLs”</strong> on</li>
+      </ol>
+      <button type="button" class="perm-open" id="open-extensions-btn">Open extensions page</button>
+    </div>
 
     <div class="divider"></div>
 
