@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     importing:  document.getElementById('state-importing'),
     done:       document.getElementById('state-done'),
     noPdf:      document.getElementById('state-no-pdf'),
+    pendingDl:  document.getElementById('state-pending-dl'),
     error:      document.getElementById('state-error'),
   };
 
@@ -228,10 +229,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     await init();
   });
 
+  // ── Pending download-import consent ─────────────────────────────
+  // The reliable half of "ask me first": desktop notifications can be
+  // suppressed, the badge + this card cannot. Shows one pending download at a
+  // time; resolving refreshes until the queue is empty, then normal init runs.
+  async function showPendingImports() {
+    const { pending = [] } = await chrome.runtime.sendMessage({ action: 'getPendingImports' }).catch(() => ({}));
+    if (!pending.length) return false;
+    const first = pending[0];
+    document.getElementById('pending-dl-name').textContent = first.name;
+    document.getElementById('pending-dl-count').textContent =
+      pending.length > 1 ? `and ${pending.length - 1} more waiting` : '';
+    const resolve = async (accept) => {
+      show('importing');
+      await chrome.runtime.sendMessage({ action: 'resolvePendingImport', downloadId: first.id, accept }).catch(() => {});
+      if (!(await showPendingImports())) await init();
+    };
+    document.getElementById('pending-dl-import').onclick = () => resolve(true);
+    document.getElementById('pending-dl-ignore').onclick = () => resolve(false);
+    show('pendingDl');
+    return true;
+  }
+
   // ── Main init ──────────────────────────────────────────────────
   async function init() {
     const apiKey = await getApiKey();
     if (!apiKey) { show('connect'); return; }
+
+    if (await showPendingImports()) return;
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) { show('noPdf'); return; }

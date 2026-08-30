@@ -1510,6 +1510,16 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 
 // Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Pending download-import consent (popup approval surface)
+  if (request.action === 'getPendingImports') {
+    _getPendingImports().then(pending => sendResponse({ pending }));
+    return true;
+  }
+  if (request.action === 'resolvePendingImport') {
+    _resolvePendingImport(request.downloadId, !!request.accept).then(sendResponse);
+    return true;
+  }
+
   // Add monitoring control handlers
   if (request.action === 'startMonitoring') {
     const { paperId, tabId, backend } = request;
@@ -2113,6 +2123,64 @@ async function _ingestDownloadItem(item) {
   }
 }
 
+// A pending import is recorded in chrome.storage.local AND offered as a
+// notification. The notification is the fast path; the badge + popup card are
+// the reliable one — desktop notification suppression (common on Linux, or
+// Chrome's own settings) must never silently eat a consent request.
+const _PENDING_IMPORTS_KEY = 'pending_import_downloads';
+
+async function _getPendingImports() {
+  try {
+    const o = await chrome.storage.local.get([_PENDING_IMPORTS_KEY]);
+    return o[_PENDING_IMPORTS_KEY] || [];
+  } catch (_) { return []; }
+}
+
+async function _updatePendingBadge() {
+  const pending = await _getPendingImports();
+  if (pending.length) {
+    chrome.action.setBadgeText({ text: String(pending.length) });
+    chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });   // blue: awaiting consent
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+async function _addPendingImport(item) {
+  const pending = await _getPendingImports();
+  if (!pending.some(x => x.id === item.id)) {
+    pending.push({
+      id: item.id,
+      name: (item.filename || item.url || 'document.pdf').split(/[\\/]/).pop(),
+      url: item.url || '',
+      ts: Date.now(),
+    });
+    while (pending.length > 10) pending.shift();
+    try { await chrome.storage.local.set({ [_PENDING_IMPORTS_KEY]: pending }); } catch (_) {}
+  }
+  await _updatePendingBadge();
+}
+
+async function _resolvePendingImport(downloadId, accept) {
+  const pending = await _getPendingImports();
+  try {
+    await chrome.storage.local.set({
+      [_PENDING_IMPORTS_KEY]: pending.filter(x => x.id !== downloadId),
+    });
+  } catch (_) {}
+  try { chrome.notifications.clear(`${_IMPORT_NOTIFICATION_PREFIX}${downloadId}`); } catch (_) {}
+  await _updatePendingBadge();
+  if (!accept) return { done: true, imported: false };
+  const [item] = await chrome.downloads.search({ id: downloadId });
+  if (!item) return { done: true, imported: false, error: 'download no longer known to Chrome' };
+  await _ingestDownloadItem(item);
+  await _updatePendingBadge();   // _ingestDownloadItem sets its own outcome badge
+  return { done: true, imported: true };
+}
+
+// Restore the badge when the service worker restarts with consents still pending.
+_updatePendingBadge();
+
 // Notification ids encode the download id, so a click still resolves after the
 // service worker has been restarted in between (no in-memory state needed).
 const _IMPORT_NOTIFICATION_PREFIX = 'es-import-';
@@ -2133,13 +2201,8 @@ function _offerImport(item) {
 if (chrome.notifications && chrome.notifications.onButtonClicked) {
   chrome.notifications.onButtonClicked.addListener((notifId, buttonIndex) => {
     if (!notifId.startsWith(_IMPORT_NOTIFICATION_PREFIX)) return;
-    chrome.notifications.clear(notifId);
-    if (buttonIndex !== 0) return;           // Ignore
     const downloadId = parseInt(notifId.slice(_IMPORT_NOTIFICATION_PREFIX.length), 10);
-    (async () => {
-      const [item] = await chrome.downloads.search({ id: downloadId });
-      if (item) await _ingestDownloadItem(item);
-    })();
+    _resolvePendingImport(downloadId, buttonIndex === 0);
   });
 }
 
@@ -2161,7 +2224,12 @@ if (chrome.downloads && chrome.downloads.onChanged) {
         }
         const mode = await _downloadCaptureMode();
         if (mode === 'off') return;
-        if (mode === 'ask') { _offerImport(item); return; }
+        if (mode === 'ask') {
+          console.log('[BG Downloads] consent requested for:', (item.filename || item.url || '').split(/[\\/]/).pop());
+          _offerImport(item);
+          await _addPendingImport(item);
+          return;
+        }
         await _ingestDownloadItem(item);     // mode === 'auto'
       } catch (e) {
         console.warn('[BG Downloads] capture gate failed:', e && e.message);
