@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     done:       document.getElementById('state-done'),
     noPdf:      document.getElementById('state-no-pdf'),
     pendingDl:  document.getElementById('state-pending-dl'),
+    downloadFirst: document.getElementById('state-download-first'),
     error:      document.getElementById('state-error'),
   };
 
@@ -311,6 +312,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     } else if (status.type === 'importable') {
       detectedMeta = status.status || null;
+
+      // Sources where server-side fetching is known-unstable (SSRN's Cloudflare
+      // wall, JSTOR's login wall): don't offer a button that usually fails.
+      // Steer to the reliable path — the user downloads the PDF themselves and
+      // the download-capture flow offers the import from the file on disk.
+      const unstable = (typeof unstableSourceFor === 'function') ? unstableSourceFor(tab.url) : null;
+      if (unstable) {
+        show('downloadFirst');
+        document.getElementById('download-first-title').textContent =
+          displayName(status.status.url, status.status.title);
+        document.getElementById('download-first-hint').textContent =
+          `${unstable.label} blocks automated downloads. Use the page's own download ` +
+          `button — I'll catch the file and offer to import it (watch for the blue badge here).`;
+        document.getElementById('open-app-from-dlfirst').onclick = openApp;
+        document.getElementById('download-first-try-anyway').onclick = () =>
+          triggerImport(tab, 'paper').catch(err => {
+            document.getElementById('error-message').textContent = err.message;
+            show('error');
+          });
+        return;
+      }
+
       show('importable');
       document.getElementById('importable-title').textContent = displayName(status.status.url, status.status.title);
       // If a PDF is available for this page, present it as a download/import action.

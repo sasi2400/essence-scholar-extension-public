@@ -7,7 +7,7 @@
 // the publisher. All sources are enabled by default; the user can untick any in
 // the extension settings (stored as {download_capture_sources: {key: false}}).
 const CAPTURE_SOURCES = [
-  { key: 'ssrn',          label: 'SSRN',                         pattern: 'ssrn\\.com|Delivery\\.cfm' },
+  { key: 'ssrn',          label: 'SSRN',                         pattern: 'ssrn\\.com|Delivery\\.cfm', unstableServerFetch: true },
   { key: 'nber',          label: 'NBER',                         pattern: 'nber\\.org' },
   { key: 'arxiv',         label: 'arXiv',                        pattern: 'arxiv\\.org' },
   { key: 'repec',         label: 'RePEc / EconPapers / EconStor', pattern: 'repec\\.org|econpapers|econstor' },
@@ -18,7 +18,7 @@ const CAPTURE_SOURCES = [
   { key: 'oup',           label: 'Oxford University Press',      pattern: 'academic\\.oup\\.com' },
   { key: 'uchicago',      label: 'University of Chicago Press',  pattern: 'journals\\.uchicago\\.edu' },
   { key: 'informs',       label: 'INFORMS',                      pattern: 'pubsonline\\.informs\\.org' },
-  { key: 'jstor',         label: 'JSTOR',                        pattern: 'jstor\\.org' },
+  { key: 'jstor',         label: 'JSTOR',                        pattern: 'jstor\\.org', unstableServerFetch: true },
   { key: 'cambridge',     label: 'Cambridge University Press',   pattern: 'cambridge\\.org' },
   { key: 'aea',           label: 'American Economic Association', pattern: 'aeaweb\\.org' },
 ];
@@ -28,6 +28,17 @@ function captureSourceKeyFor(item) {
   const haystack = `${item.url || ''} ${item.referrer || ''}`;
   for (const s of CAPTURE_SOURCES) {
     if (new RegExp(s.pattern, 'i').test(haystack)) return s.key;
+  }
+  return null;
+}
+
+// Pure: does this PAGE belong to a source where server-side PDF fetching is
+// known-unstable (Cloudflare walls, single-use links, login walls)? For these,
+// the popup steers the user to download locally — the capture flow then offers
+// the import from the file on disk, which always works.
+function unstableSourceFor(url) {
+  for (const s of CAPTURE_SOURCES) {
+    if (s.unstableServerFetch && new RegExp(s.pattern, 'i').test(url || '')) return s;
   }
   return null;
 }

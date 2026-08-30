@@ -71,6 +71,16 @@
     <button id="open-app-from-importable" class="btn-secondary">Open Essence Scholar ↗</button>
   </div>
 
+  <!-- ── State: Download locally first (unstable server fetch) ── -->
+  <div id="state-download-first" class="content state">
+    <div class="state-icon blue">📄</div>
+    <div class="state-title">Paper found on this page</div>
+    <div id="download-first-title" class="state-subtitle"></div>
+    <div class="state-subtitle" id="download-first-hint" style="opacity:.85;"></div>
+    <button id="open-app-from-dlfirst" class="btn-secondary">Open Essence Scholar ↗</button>
+    <button id="download-first-try-anyway" class="btn-secondary" style="font-size:12px; opacity:.75;">Try server import anyway</button>
+  </div>
+
   <!-- ── State: Not a PDF ───────────────────────────── -->
   <div id="state-no-pdf" class="content state">
     <div class="state-icon muted">🔍</div>
@@ -96,6 +106,7 @@
   <script src="config.js"></script>
   <script src="shared-id-generator.js"></script>
   <script src="enhanced-pdf-handler.js"></script>
+  <script src="capture-sources.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
