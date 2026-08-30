@@ -324,6 +324,29 @@
 
     <div id="status-msg" class="status-msg"></div>
 
+    <div class="divider"></div>
+
+    <label class="form-label">Downloaded PDFs</label>
+    <p class="field-hint" style="margin-top:0;">
+      When you download a PDF from an academic source (SSRN, NBER, arXiv, journal
+      publishers), the extension can import it into your library. PDFs from any
+      other site are never touched.
+    </p>
+    <div id="capture-mode-group" style="display:flex; flex-direction:column; gap:6px; margin:8px 0 4px;">
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer;">
+        <input type="radio" name="capture-mode" value="ask" style="margin-top:2px;">
+        <span><strong>Ask me first</strong> — show a notification with Import / Ignore (default)</span>
+      </label>
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer;">
+        <input type="radio" name="capture-mode" value="auto" style="margin-top:2px;">
+        <span><strong>Import automatically</strong> — academic sources only, no prompt</span>
+      </label>
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer;">
+        <input type="radio" name="capture-mode" value="off" style="margin-top:2px;">
+        <span><strong>Never</strong> — downloads are ignored entirely</span>
+      </label>
+    </div>
+
     <p class="footer-note">
       Your API key is stored locally and never shared.
     </p>

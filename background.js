@@ -1956,6 +1956,42 @@ console.log('[BG] New PDF detection system loaded - using webRequest API for net
 
 const _ingestedDownloadIds = new Set();
 
+// ── Consent + scoping for download capture ────────────────────────────────────
+// The first version ingested EVERY completed PDF download in the browser — any
+// site, any file — and read it straight off the user's disk. That silently
+// uploaded personal documents (bank statements, contracts) into the library.
+// Field report: "whenever I open my app I see new documents are ingested...
+// it doesn't ask me." Two fences now:
+//   1. SCOPE — only downloads whose url/referrer is a known academic source are
+//      ever considered. A PDF from anywhere else never leaves the machine.
+//   2. CONSENT — default mode 'ask' shows a notification with Import / Ignore.
+//      'auto' restores one-click capture (academic sources only); 'off' disables.
+const ACADEMIC_SOURCE_RE = new RegExp(
+  [
+    'ssrn\.com', 'Delivery\.cfm',
+    'nber\.org', 'arxiv\.org',
+    'repec\.org', 'econpapers', 'econstor',
+    'sciencedirect\.com', 'springer\.com', 'link\.springer',
+    'wiley\.com', 'onlinelibrary\.wiley',
+    'tandfonline\.com', 'academic\.oup\.com',
+    'journals\.uchicago\.edu', 'pubsonline\.informs\.org',
+    'jstor\.org', 'cambridge\.org', 'aeaweb\.org',
+  ].join('|'), 'i');
+
+function _isAcademicSource(item) {
+  return ACADEMIC_SOURCE_RE.test(item.url || '')
+      || ACADEMIC_SOURCE_RE.test(item.referrer || '');
+}
+
+async function _downloadCaptureMode() {
+  try {
+    const { download_capture_mode } = await chrome.storage.sync.get(['download_capture_mode']);
+    return ['ask', 'auto', 'off'].includes(download_capture_mode) ? download_capture_mode : 'ask';
+  } catch (_) {
+    return 'ask';   // storage unavailable → most conservative interactive default
+  }
+}
+
 function _abstractIdFromUrl(u) {
   const m = /(?:abstract_?id=|ssrn\.)(\d{5,9})/i.exec(u || '');
   return m ? m[1] : null;
@@ -1982,18 +2018,9 @@ function _looksLikePdfDownload(item) {
       || /Delivery\.cfm/i.test(url);       // SSRN's PDF endpoint has no .pdf suffix
 }
 
-if (chrome.downloads && chrome.downloads.onChanged) {
-  chrome.downloads.onChanged.addListener((delta) => {
-    if (!delta || !delta.state || delta.state.current !== 'complete') return;
-    if (_ingestedDownloadIds.has(delta.id)) return;      // onChanged can fire repeatedly
-    _ingestedDownloadIds.add(delta.id);
-
-    (async () => {
-      try {
-        const [item] = await chrome.downloads.search({ id: delta.id });
-        if (!item || !_looksLikePdfDownload(item)) return;
-
-        console.log('[BG Downloads] captured PDF download:', item.url);
+async function _ingestDownloadItem(item) {
+  try {
+        console.log('[BG Downloads] importing PDF download:', item.url);
 
         // Read the file we ALREADY have on disk, rather than asking SSRN for it again.
         // SSRN's Delivery.cfm links are single-use: the second request returns 403
@@ -2074,13 +2101,69 @@ if (chrome.downloads && chrome.downloads.onChanged) {
           chrome.action.setBadgeBackgroundColor({ color: '#F44336' });   // red: failed
         }
         setTimeout(() => chrome.action.setBadgeText({ text: '' }), 4000);
+  } catch (e) {
+    // Never throw out of the capture path; a failed import must not break the
+    // browser's own download handling.
+    console.warn('[BG Downloads] could not ingest download:', e && e.message);
+    _ingestedDownloadIds.delete(item.id);   // allow a retry on a later attempt
+  }
+}
+
+// Notification ids encode the download id, so a click still resolves after the
+// service worker has been restarted in between (no in-memory state needed).
+const _IMPORT_NOTIFICATION_PREFIX = 'es-import-';
+
+function _offerImport(item) {
+  const name = (item.filename || item.url || 'document.pdf').split(/[\\/]/).pop();
+  chrome.notifications.create(`${_IMPORT_NOTIFICATION_PREFIX}${item.id}`, {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: 'Import into Essence Scholar?',
+    message: name,
+    contextMessage: 'Academic PDF downloaded — nothing is uploaded unless you choose Import.',
+    buttons: [{ title: 'Import' }, { title: 'Ignore' }],
+    priority: 1,
+  }, () => void chrome.runtime.lastError);   // notification may be blocked — fine
+}
+
+if (chrome.notifications && chrome.notifications.onButtonClicked) {
+  chrome.notifications.onButtonClicked.addListener((notifId, buttonIndex) => {
+    if (!notifId.startsWith(_IMPORT_NOTIFICATION_PREFIX)) return;
+    chrome.notifications.clear(notifId);
+    if (buttonIndex !== 0) return;           // Ignore
+    const downloadId = parseInt(notifId.slice(_IMPORT_NOTIFICATION_PREFIX.length), 10);
+    (async () => {
+      const [item] = await chrome.downloads.search({ id: downloadId });
+      if (item) await _ingestDownloadItem(item);
+    })();
+  });
+}
+
+if (chrome.downloads && chrome.downloads.onChanged) {
+  chrome.downloads.onChanged.addListener((delta) => {
+    if (!delta || !delta.state || delta.state.current !== 'complete') return;
+    if (_ingestedDownloadIds.has(delta.id)) return;      // onChanged can fire repeatedly
+    _ingestedDownloadIds.add(delta.id);
+
+    (async () => {
+      try {
+        const [item] = await chrome.downloads.search({ id: delta.id });
+        if (!item || !_looksLikePdfDownload(item)) return;
+
+        // PRIVACY GATE — see the block comment above ACADEMIC_SOURCE_RE.
+        if (!_isAcademicSource(item)) {
+          console.log('[BG Downloads] non-academic PDF ignored:', (item.filename || item.url || '').split(/[\\/]/).pop());
+          return;
+        }
+        const mode = await _downloadCaptureMode();
+        if (mode === 'off') return;
+        if (mode === 'ask') { _offerImport(item); return; }
+        await _ingestDownloadItem(item);     // mode === 'auto'
       } catch (e) {
-        // Never throw out of a download listener; a failed capture must not break the
-        // browser's own download handling.
-        console.warn('[BG Downloads] could not ingest download:', e && e.message);
-        _ingestedDownloadIds.delete(delta.id);   // allow a retry on a later attempt
+        console.warn('[BG Downloads] capture gate failed:', e && e.message);
+        _ingestedDownloadIds.delete(delta.id);
       }
     })();
   });
-  console.log('[BG] Download capture active — downloaded PDFs are imported automatically');
+  console.log('[BG] Download capture active — academic-source PDFs only; default mode asks before importing');
 }

@@ -121,3 +121,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusMsg.textContent = '';
   }
 });
+
+
+// ── Download-capture mode setting ─────────────────────────────────────────────
+// Backs the privacy fix in background.js: 'ask' (default) | 'auto' | 'off'.
+(async () => {
+  const radios = document.querySelectorAll('input[name="capture-mode"]');
+  if (!radios.length) return;
+  let mode = 'ask';
+  try {
+    const { download_capture_mode } = await chrome.storage.sync.get(['download_capture_mode']);
+    if (['ask', 'auto', 'off'].includes(download_capture_mode)) mode = download_capture_mode;
+  } catch (_) {}
+  radios.forEach(r => {
+    r.checked = (r.value === mode);
+    r.addEventListener('change', async () => {
+      if (!r.checked) return;
+      try {
+        await chrome.storage.sync.set({ download_capture_mode: r.value });
+      } catch (_) {
+        await chrome.storage.local.set({ download_capture_mode: r.value });
+      }
+    });
+  });
+})();
