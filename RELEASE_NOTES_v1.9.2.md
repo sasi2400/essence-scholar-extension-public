@@ -13,6 +13,9 @@ Now:
 - **Consent:** default mode asks first — a notification with Import / Ignore.
   Settings (extension ⚙️) offers: Ask me first (default) · Import
   automatically (academic sources only) · Never.
+- **Per-source toggles:** the whitelist (SSRN, NBER, arXiv, RePEc, Wiley,
+  Elsevier, Springer, T&F, OUP, Chicago, INFORMS, JSTOR, Cambridge, AEA) is
+  shown in settings — untick any source to stop capturing from it.
 - New `notifications` permission supports the Import/Ignore prompt.
 
 Server-side counterpart (backend): deleting a paper now also removes the

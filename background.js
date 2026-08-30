@@ -1,3 +1,5 @@
+importScripts('capture-sources.js');   // CAPTURE_SOURCES + captureSourceKeyFor
+
 // Service worker configuration for Essence Scholar Extension
 const CONFIG = {
   // Backend configuration with priority order
@@ -1966,21 +1968,23 @@ const _ingestedDownloadIds = new Set();
 //      ever considered. A PDF from anywhere else never leaves the machine.
 //   2. CONSENT — default mode 'ask' shows a notification with Import / Ignore.
 //      'auto' restores one-click capture (academic sources only); 'off' disables.
-const ACADEMIC_SOURCE_RE = new RegExp(
-  [
-    'ssrn\.com', 'Delivery\.cfm',
-    'nber\.org', 'arxiv\.org',
-    'repec\.org', 'econpapers', 'econstor',
-    'sciencedirect\.com', 'springer\.com', 'link\.springer',
-    'wiley\.com', 'onlinelibrary\.wiley',
-    'tandfonline\.com', 'academic\.oup\.com',
-    'journals\.uchicago\.edu', 'pubsonline\.informs\.org',
-    'jstor\.org', 'cambridge\.org', 'aeaweb\.org',
-  ].join('|'), 'i');
+// The whitelist itself lives in capture-sources.js (shared with the settings
+// page). A source the user unticked in settings is treated exactly like a
+// non-academic site: the file is never read.
+async function _enabledCaptureSources() {
+  try {
+    const { download_capture_sources } = await chrome.storage.sync.get(['download_capture_sources']);
+    return download_capture_sources || {};    // missing key => enabled
+  } catch (_) {
+    return {};
+  }
+}
 
-function _isAcademicSource(item) {
-  return ACADEMIC_SOURCE_RE.test(item.url || '')
-      || ACADEMIC_SOURCE_RE.test(item.referrer || '');
+async function _isAcademicSource(item) {
+  const key = captureSourceKeyFor(item);
+  if (!key) return false;
+  const prefs = await _enabledCaptureSources();
+  return prefs[key] !== false;
 }
 
 async function _downloadCaptureMode() {
@@ -2150,8 +2154,8 @@ if (chrome.downloads && chrome.downloads.onChanged) {
         const [item] = await chrome.downloads.search({ id: delta.id });
         if (!item || !_looksLikePdfDownload(item)) return;
 
-        // PRIVACY GATE — see the block comment above ACADEMIC_SOURCE_RE.
-        if (!_isAcademicSource(item)) {
+        // PRIVACY GATE — whitelist in capture-sources.js, per-source toggles in settings.
+        if (!(await _isAcademicSource(item))) {
           console.log('[BG Downloads] non-academic PDF ignored:', (item.filename || item.url || '').split(/[\\/]/).pop());
           return;
         }

@@ -145,3 +145,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 })();
+
+
+// ── Per-source whitelist toggles ──────────────────────────────────────────────
+// Rendered from CAPTURE_SOURCES (capture-sources.js) so the UI can never drift
+// from the gate. Missing key in storage = enabled.
+(async () => {
+  const group = document.getElementById('capture-sources-group');
+  if (!group || typeof CAPTURE_SOURCES === 'undefined') return;
+  let prefs = {};
+  try {
+    ({ download_capture_sources: prefs = {} } =
+      await chrome.storage.sync.get(['download_capture_sources']));
+  } catch (_) {}
+  for (const src of CAPTURE_SOURCES) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:12.5px; cursor:pointer;';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = prefs[src.key] !== false;
+    box.addEventListener('change', async () => {
+      prefs[src.key] = box.checked;
+      try { await chrome.storage.sync.set({ download_capture_sources: prefs }); }
+      catch (_) { await chrome.storage.local.set({ download_capture_sources: prefs }); }
+    });
+    label.append(box, document.createTextNode(src.label));
+    group.append(label);
+  }
+})();

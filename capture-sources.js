@@ -1,0 +1,33 @@
+// Single source of truth for the download-capture whitelist.
+// Loaded by background.js (importScripts) AND onboarding.html (<script>), so the
+// settings checkboxes and the actual gate can never drift apart.
+//
+// `pattern` is matched (case-insensitive) against BOTH the download url and its
+// referrer — journal PDFs often arrive from a CDN with only the referrer naming
+// the publisher. All sources are enabled by default; the user can untick any in
+// the extension settings (stored as {download_capture_sources: {key: false}}).
+const CAPTURE_SOURCES = [
+  { key: 'ssrn',          label: 'SSRN',                         pattern: 'ssrn\\.com|Delivery\\.cfm' },
+  { key: 'nber',          label: 'NBER',                         pattern: 'nber\\.org' },
+  { key: 'arxiv',         label: 'arXiv',                        pattern: 'arxiv\\.org' },
+  { key: 'repec',         label: 'RePEc / EconPapers / EconStor', pattern: 'repec\\.org|econpapers|econstor' },
+  { key: 'elsevier',      label: 'ScienceDirect (Elsevier)',     pattern: 'sciencedirect\\.com' },
+  { key: 'springer',      label: 'Springer',                     pattern: 'springer\\.com|link\\.springer' },
+  { key: 'wiley',         label: 'Wiley',                        pattern: 'wiley\\.com|onlinelibrary\\.wiley' },
+  { key: 'tandf',         label: 'Taylor & Francis',             pattern: 'tandfonline\\.com' },
+  { key: 'oup',           label: 'Oxford University Press',      pattern: 'academic\\.oup\\.com' },
+  { key: 'uchicago',      label: 'University of Chicago Press',  pattern: 'journals\\.uchicago\\.edu' },
+  { key: 'informs',       label: 'INFORMS',                      pattern: 'pubsonline\\.informs\\.org' },
+  { key: 'jstor',         label: 'JSTOR',                        pattern: 'jstor\\.org' },
+  { key: 'cambridge',     label: 'Cambridge University Press',   pattern: 'cambridge\\.org' },
+  { key: 'aea',           label: 'American Economic Association', pattern: 'aeaweb\\.org' },
+];
+
+// Pure: which whitelist entry (if any) does this download belong to?
+function captureSourceKeyFor(item) {
+  const haystack = `${item.url || ''} ${item.referrer || ''}`;
+  for (const s of CAPTURE_SOURCES) {
+    if (new RegExp(s.pattern, 'i').test(haystack)) return s.key;
+  }
+  return null;
+}
