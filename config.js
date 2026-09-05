@@ -4,6 +4,8 @@ const CONFIG = {
   BACKENDS: {
     // Production (SELF_HOSTED / scholar-api) is the shipped default. Nightly is
     // disabled and left for manual testing only.
+    // (Was flipped on 2026-09-05 to test attended browsing before those routes
+    // existed on production. They are on production now, so it is off again.)
     NIGHTLY: {
       url: 'https://nightly-api.essencescholar.com',
       name: 'Nightly (testing)',

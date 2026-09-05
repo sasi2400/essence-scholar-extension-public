@@ -10,6 +10,8 @@ const CONFIG = {
       // Off by default: production now has the download-capture filing and the
       // newsletter-picks endpoints, so the shipped extension targets prod (SELF_HOSTED,
       // priority 1). Flip to priority 0 / enabled true only to test against nightly.
+      // (Was flipped on 2026-09-05 to test attended browsing before those routes
+      // existed on production. They are on production now, so it is off again.)
       priority: 99,
       enabled: false
     },
@@ -1519,6 +1521,70 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     _resolvePendingImport(request.downloadId, !!request.accept).then(sendResponse);
     return true;
   }
+  // The web app's "Download & import" — consent for ONE paper, before the fact.
+  if (request.action === 'armCapture') {
+    _armCapture(request.ssrn_id, request.title).then(ok => sendResponse({ armed: ok }));
+    return true;
+  }
+  // "Read these SSRN pages in my browser" — the app's own button. Arms exactly
+  // the journals it names and opens them; ssrn-browse.js does the rest.
+  if (request.action === 'armBrowse') {
+    _armBrowse(request.targets).then(sendResponse);
+    return true;
+  }
+  if (request.action === 'browseArmedFor') {
+    _browseArmedFor(request.url).then(sendResponse);
+    return true;
+  }
+  if (request.action === 'browseCapture') {
+    _browseCapture(request, sender).then(sendResponse);
+    return true;
+  }
+  // Is this extension ready to import anything? Installed is not enough: the
+  // capture POSTs with an API KEY the reader pastes in during onboarding, and
+  // without one the download is captured and then rejected. The app asks before
+  // it sends anyone to SSRN, so it can say which of the two is missing.
+  if (request.action === 'captureReadiness') {
+    (async () => {
+      let key = null;
+      let mode = 'ask';
+      // getApiKey() lives in config.js, which the service worker does not
+      // import; this file has its own reader.
+      try { key = await getApiKeyBackground(); } catch (_) { key = null; }
+      try { mode = await _downloadCaptureMode(); } catch (_) { mode = 'ask'; }
+      let ssrnEnabled = true;
+      try {
+        const prefs = await _enabledCaptureSources();
+        ssrnEnabled = prefs.ssrn !== false;
+      } catch (_) { /* missing key means enabled */ }
+      // The capture reads the finished download OFF DISK (SSRN's Delivery.cfm
+      // links are single-use, so re-fetching returns 403). That needs "Allow
+      // access to file URLs", which is OFF by default and cannot be granted
+      // programmatically — so the app has to be able to say so.
+      let fileAccess = true;
+      try {
+        fileAccess = await chrome.extension.isAllowedFileSchemeAccess();
+      } catch (_) { fileAccess = true; }
+      // Which server it will post to. A capture that answers 404 is almost always
+      // this: the shipped extension targets production, and a route that only
+      // exists on nightly cannot be found there. Without this the app can only
+      // report the status code.
+      let backendUrl = '';
+      try {
+        const b = await ServiceWorkerBackendManager.getCurrentBackend();
+        backendUrl = (b && b.url) || '';
+      } catch (_) { /* leave it blank rather than fail the handshake */ }
+      sendResponse({
+        version: chrome.runtime.getManifest().version,
+        signedIn: Boolean(key),
+        captureMode: mode,
+        ssrnEnabled,
+        fileAccess,
+        backendUrl,
+      });
+    })();
+    return true;
+  }
 
   // Add monitoring control handlers
   if (request.action === 'startMonitoring') {
@@ -1997,6 +2063,66 @@ async function _isAcademicSource(item) {
   return prefs[key] !== false;
 }
 
+// ── Armed captures — a paper the reader asked for IN THE APP ─────────────────
+// The app posts { action: 'armCapture', ssrn_id, title } when the reader presses
+// "Download & import" on a search hit. That is consent for ONE paper, given
+// before the download, in a surface that names it — stronger than the
+// after-the-fact notification, so a matching download is imported without
+// asking again. It does not widen the whitelist: an armed record is only ever
+// consulted for a download the academic-source gate has already admitted.
+const _ARMED_TTL_MS = 30 * 60 * 1000;   // a download the reader never made expires
+
+async function _armedCaptures() {
+  try {
+    const { armed_captures } = await chrome.storage.local.get(['armed_captures']);
+    const now = Date.now();
+    return (Array.isArray(armed_captures) ? armed_captures : [])
+      .filter(a => a && (now - (a.at || 0)) < _ARMED_TTL_MS);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _armCapture(ssrnId, title) {
+  const armed = await _armedCaptures();
+  const key = String(ssrnId || '').trim();
+  const name = String(title || '').trim().slice(0, 300);
+  // Matching is by SSRN id — it is the only identifier both sides share, since
+  // SSRN's own filename is `SSRN-idNNNNNNN.pdf` and carries no title. An arm
+  // without one could never fire, so it is refused rather than stored: the app
+  // then knows to leave the reader with the ordinary consent notification.
+  if (!key) return false;
+  const kept = armed.filter(a => a.ssrn_id !== key || !key);
+  kept.push({ ssrn_id: key, title: name, at: Date.now() });
+  try {
+    await chrome.storage.local.set({ armed_captures: kept.slice(-20) });
+    console.log('[BG Downloads] armed for', key || name);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** The armed record this download satisfies, or null. Matched on the SSRN id in
+ *  the download url or its referrer — the only identifier both sides share. */
+async function _matchArmed(item) {
+  const armed = await _armedCaptures();
+  if (!armed.length) return null;
+  const sid = _abstractIdFromUrl(item.url) || _abstractIdFromUrl(item.referrer);
+  if (!sid) return null;
+  return armed.find(a => a.ssrn_id && a.ssrn_id === String(sid)) || null;
+}
+
+async function _disarm(record) {
+  try {
+    const armed = await _armedCaptures();
+    await chrome.storage.local.set({
+      armed_captures: armed.filter(a => a !== record && a.ssrn_id !== record.ssrn_id),
+    });
+  } catch (_) { /* the TTL clears it anyway */ }
+}
+
+
 async function _downloadCaptureMode() {
   try {
     const { download_capture_mode } = await chrome.storage.sync.get(['download_capture_mode']);
@@ -2032,9 +2158,219 @@ function _looksLikePdfDownload(item) {
       || /Delivery\.cfm/i.test(url);       // SSRN's PDF endpoint has no .pdf suffix
 }
 
+/** "I have the file and I am importing it." Matched to the reader's parked
+ *  request by the SSRN id in the url; an unmatched download is silently fine
+ *  (most downloads were never asked for in the app). */
+async function _reportCapture(item) {
+  try {
+    const sid = _abstractIdFromUrl(item.url) || _abstractIdFromUrl(item.referrer);
+    if (!sid) return;                     // nothing the app could be waiting on
+    const backend = await ServiceWorkerBackendManager.getCurrentBackend();
+    if (!backend) return;
+    const name = String(item.filename || '').split(/[\\/]/).pop();
+    await makeApiRequestWithBackend('/fetch-queue/capture', {
+      method: 'POST',
+      body: JSON.stringify({
+        url: `https://papers.ssrn.com/sol3/papers.cfm?abstract_id=${sid}`,
+        filename: name,
+      }),
+    }, backend);
+  } catch (e) {
+    console.log('[BG Downloads] capture notice skipped:', e && e.message);
+  }
+}
+
+
+// ── Attended browsing — an SSRN page the SERVER is refused ───────────────────
+// The app arms one or more eJournal pages when the reader presses "Read it in my
+// browser", opens them here, and ssrn-browse.js posts each page back. Nothing is
+// read that was not armed: an armed record names ONE journal, expires in 30
+// minutes, and is dropped as soon as its page has been captured.
+const _BROWSE_TTL_MS = 30 * 60 * 1000;
+// Only tabs THIS extension opened may be closed again — a reader who navigated
+// to SSRN themselves keeps their tab. Kept in STORAGE, not in a Set: the service
+// worker is evicted after ~30s idle, and a reader who takes a minute over
+// Cloudflare's check comes back to a worker whose heap has forgotten every tab it
+// opened, so nothing was ever closed on the slow path — the one where the promise
+// that "it closes itself" matters most.
+async function _browseTabIds() {
+  try {
+    const { browse_tabs } = await chrome.storage.local.get(['browse_tabs']);
+    const now = Date.now();
+    return (Array.isArray(browse_tabs) ? browse_tabs : [])
+      .filter(t => t && (now - (t.at || 0)) < _BROWSE_TTL_MS);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _rememberBrowseTab(tabId) {
+  if (tabId == null) return;
+  const kept = await _browseTabIds();
+  kept.push({ id: tabId, at: Date.now() });
+  try { await chrome.storage.local.set({ browse_tabs: kept.slice(-20) }); } catch (_) { /* best effort */ }
+}
+
+async function _forgetBrowseTab(tabId) {
+  const kept = await _browseTabIds();
+  try { await chrome.storage.local.set({ browse_tabs: kept.filter(t => t.id !== tabId) }); }
+  catch (_) { /* the TTL clears it anyway */ }
+}
+
+function _journalIdFromUrl(u) {
+  const m = /[?&]journal_id=(\d+)/i.exec(u || '');
+  return m ? m[1] : '';
+}
+
+async function _armedBrowse() {
+  try {
+    const { armed_browse } = await chrome.storage.local.get(['armed_browse']);
+    const now = Date.now();
+    return (Array.isArray(armed_browse) ? armed_browse : [])
+      .filter(a => a && (now - (a.at || 0)) < _BROWSE_TTL_MS);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _setArmedBrowse(list) {
+  try { await chrome.storage.local.set({ armed_browse: list.slice(-20) }); return true; }
+  catch (_) { return false; }
+}
+
+/** Arm a set of pages and open them. Consent for exactly these journals, given
+ *  in the app, one click before the pages open. */
+async function _armBrowse(targets) {
+  const wanted = (Array.isArray(targets) ? targets : [])
+    .map(t => ({ url: String((t && t.url) || '').trim(),
+                 journal_id: String((t && t.journal_id) || '').trim()
+                   || _journalIdFromUrl((t && t.url) || ''),
+                 name: String((t && t.name) || '').slice(0, 200) }))
+    .filter(t => /^https:\/\/([a-z0-9-]+\.)*ssrn\.com\//i.test(t.url))
+    // 8, because that is the product's own hard maximum (MAX_EJOURNALS_PER_SUB in
+    // newsletter_routes.py) and the panel offers every stale journal at once. At 6
+    // the last two rows of an 8-journal subscription waited on tabs that were
+    // never opened.
+    .slice(0, 8);
+  if (!wanted.length) return { armed: 0, opened: 0 };
+
+  const armed = await _armedBrowse();
+  const keep = armed.filter(a => !wanted.some(w => w.journal_id && w.journal_id === a.journal_id));
+  await _setArmedBrowse([...keep, ...wanted.map(w => ({ ...w, at: Date.now() }))]);
+
+  let opened = 0;
+  for (const w of wanted) {
+    try {
+      // The FIRST tab is focused: if Cloudflare asks the reader to confirm they
+      // are human, they have to see it. The rest load behind it.
+      const tab = await chrome.tabs.create({ url: w.url, active: opened === 0 });
+      if (tab && tab.id != null) await _rememberBrowseTab(tab.id);
+      opened += 1;
+    } catch (e) {
+      console.log('[BG Browse] could not open', w.url, e && e.message);
+    }
+  }
+  return { armed: wanted.length, opened };
+}
+
+async function _browseArmedFor(url) {
+  const armed = await _armedBrowse();
+  if (!armed.length) return { armed: false };
+  const jid = _journalIdFromUrl(url);
+  const hit = armed.find(a => (jid && a.journal_id === jid) || (a.url && a.url === url));
+  return hit ? { armed: true, journal_id: hit.journal_id || jid, name: hit.name || '' }
+             : { armed: false };
+}
+
+async function _disarmBrowse(journalId, url) {
+  const armed = await _armedBrowse();
+  await _setArmedBrowse(armed.filter(a => !((journalId && a.journal_id === journalId)
+                                            || (url && a.url === url))));
+}
+
+/** Tell every open app tab where this journal got to. Best effort — the app also
+ *  polls the backend, which is the source of truth; this only makes the panel
+ *  move at the moment it happens. */
+function _notifyAppTabs(payload) {
+  try {
+    chrome.tabs.query({}, (tabs) => {
+      void chrome.runtime.lastError;
+      const APP_RX = /^https?:\/\/([a-z0-9-]+\.)*essencescholar\.com\/|^https:\/\/essence-scholar-website[\w-]*\.vercel\.app\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
+      (tabs || []).filter(t => t.url && APP_RX.test(t.url)).forEach(t => {
+        try { chrome.tabs.sendMessage(t.id, { essenceBrowse: payload }, () => void chrome.runtime.lastError); }
+        catch (_) { /* a tab without the bridge */ }
+      });
+    });
+  } catch (_) { /* nothing to notify */ }
+}
+
+/** The page came back. Post it to the reader's own backend, which parses it with
+ *  the same parser the blocked server fetch used. */
+async function _browseCapture(msg, sender) {
+  const url = String((msg && msg.url) || '');
+  const jid = String((msg && msg.journal_id) || '') || _journalIdFromUrl(url);
+  const tabId = sender && sender.tab ? sender.tab.id : null;
+
+  if (msg && msg.challenge) {
+    // Two different things arrive here, and telling the reader the wrong one wastes
+    // their time: `reason: 'challenge'` means SSRN is asking them to confirm they
+    // are human — the tab is brought to the front, because only they can answer it.
+    // `reason: 'timeout'` means the page loaded and simply never showed a listing;
+    // there is nothing to click, so the tab is left where it is rather than
+    // stealing focus (six armed tabs each grabbing focus is its own bug).
+    const reason = String((msg && msg.reason) || 'challenge');
+    if (reason === 'challenge' && tabId != null) {
+      try { await chrome.tabs.update(tabId, { active: true }); } catch (_) { /* gone */ }
+    }
+    _notifyAppTabs({ journal_id: jid, phase: reason === 'challenge' ? 'challenge' : 'empty', url });
+    return { ok: false, challenge: reason === 'challenge' };
+  }
+
+  try {
+    const backend = await ServiceWorkerBackendManager.getCurrentBackend();
+    if (!backend) throw new Error('no backend');
+    const res = await makeApiRequestWithBackend('/ssrn/attended-page', {
+      method: 'POST',
+      body: JSON.stringify({ url, html: String((msg && msg.html) || '') }),
+    }, backend);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+
+    await _disarmBrowse(jid, url);
+    _notifyAppTabs({ journal_id: jid, phase: 'captured', url,
+                     parsed: body.parsed || 0, stored: body.stored || 0 });
+    // Close only what we opened, and only once it worked — a failed capture
+    // leaves the page where the reader can see it.
+    const ours = (await _browseTabIds()).some(t => t.id === tabId);
+    if (tabId != null && ours && (body.parsed || 0) > 0) {
+      await _forgetBrowseTab(tabId);
+      try { await chrome.tabs.remove(tabId); } catch (_) { /* already gone */ }
+    }
+    return { ok: true, parsed: body.parsed || 0, stored: body.stored || 0 };
+  } catch (e) {
+    console.log('[BG Browse] capture failed:', e && e.message);
+    _notifyAppTabs({ journal_id: jid, phase: 'error', url, error: String((e && e.message) || e) });
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => { void _forgetBrowseTab(tabId); });
+
+
 async function _ingestDownloadItem(item) {
   try {
         console.log('[BG Downloads] importing PDF download:', item.url);
+
+        // Tell the app FIRST, before the file is even read. Between the reader
+        // pressing Download on SSRN and the paper appearing there are three
+        // invisible steps — this capture, the upload, and phase-1 extraction —
+        // and until now the app's panel said "waiting for your download" through
+        // all of them, which reads as nothing having happened (owner, 2026-09-05:
+        // "it took some time to appear … would be nice if the extension sends
+        // something in the backend … it is imported and needs a little
+        // patience"). Best effort and never blocking: a failure here must not
+        // cost the import.
+        void _reportCapture(item);
 
         // Read the file we ALREADY have on disk, rather than asking SSRN for it again.
         // SSRN's Delivery.cfm links are single-use: the second request returns 403
@@ -2223,7 +2559,20 @@ if (chrome.downloads && chrome.downloads.onChanged) {
           return;
         }
         const mode = await _downloadCaptureMode();
+        // 'off' is the reader's global "do not touch my downloads" switch, and it
+        // outranks an armed paper: consent given in the app cannot re-enable a
+        // capture they have switched off here.
         if (mode === 'off') return;
+        // Asked for by name in the app, minutes ago: import it without a second
+        // consent step. This is the whole point of the attended-download flow —
+        // the reader presses one button in the app and the paper appears.
+        const armed = await _matchArmed(item);
+        if (armed) {
+          console.log('[BG Downloads] armed import (asked for in the app):', armed.ssrn_id);
+          await _disarm(armed);
+          await _ingestDownloadItem(item);
+          return;
+        }
         if (mode === 'ask') {
           console.log('[BG Downloads] consent requested for:', (item.filename || item.url || '').split(/[\\/]/).pop());
           _offerImport(item);
